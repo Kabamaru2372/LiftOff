@@ -10,6 +10,23 @@
 		480D45C72F7318F500E5BB27 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 480D45C62F7318F500E5BB27 /* WidgetKit.framework */; };
 		480D45C92F7318F500E5BB27 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 480D45C82F7318F500E5BB27 /* SwiftUI.framework */; };
 		480D45DA2F7318F600E5BB27 /* UnPluqLiveExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 480D45C42F7318F500E5BB27 /* UnPluqLiveExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		48625D412F8823180009DDB3 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 480D45C62F7318F500E5BB27 /* WidgetKit.framework */; };
+		48625D422F8823180009DDB3 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 480D45C82F7318F500E5BB27 /* SwiftUI.framework */; };
+		48625D532F8823190009DDB3 /* PicksyWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 48625D402F8823180009DDB3 /* PicksyWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		486A3AD22F9AC2A5007DA1F9 /* ActivityBank.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486A3AD12F9AC2A5007DA1F9 /* ActivityBank.swift */; };
+		486A3AD32F9AC2A6007DA1F9 /* ActivityBank.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486A3AD12F9AC2A5007DA1F9 /* ActivityBank.swift */; };
+		486A3ADA2F9B67D1007DA1F9 /* CityPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486A3AD92F9B67D1007DA1F9 /* CityPickerSheet.swift */; };
+		486A3ADB2F9B67D1007DA1F9 /* CitiesDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486A3AD82F9B67D1007DA1F9 /* CitiesDatabase.swift */; };
+		486A3ADC2F9B67D1007DA1F9 /* CityPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486A3AD92F9B67D1007DA1F9 /* CityPickerSheet.swift */; };
+		486A3ADD2F9B67D1007DA1F9 /* CitiesDatabase.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486A3AD82F9B67D1007DA1F9 /* CitiesDatabase.swift */; };
+		486A3AFA2F9BF015007DA1F9 /* CitiesDatabaseWorld.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486A3AF92F9BF015007DA1F9 /* CitiesDatabaseWorld.swift */; };
+		486A3AFB2F9BF015007DA1F9 /* CitiesDatabaseWorld.swift in Sources */ = {isa = PBXBuildFile; fileRef = 486A3AF92F9BF015007DA1F9 /* CitiesDatabaseWorld.swift */; };
+		486A3B012F9CE847007DA1F9 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 486A3B002F9CE847007DA1F9 /* Lottie */; };
+		48A870512F9D629800D08642 /* Lottie in Frameworks */ = {isa = PBXBuildFile; productRef = 48A870502F9D629800D08642 /* Lottie */; };
+		48A870922F9E3A0300D08642 /* PicksyDeviceReport.appex in Embed ExtensionKit Extensions */ = {isa = PBXBuildFile; fileRef = 48A870862F9E3A0300D08642 /* PicksyDeviceReport.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		48A8709A2F9EC7C500D08642 /* FamilyControlsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48A870982F9EC7C000D08642 /* FamilyControlsManager.swift */; };
+		48FEF62A2F9ED00800B263E2 /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 48625D272F8806EF0009DDB3 /* DeviceActivity.framework */; };
+		48FEF6322F9ED00800B263E2 /* DeviceActivityMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 48FEF6292F9ED00800B263E2 /* DeviceActivityMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -20,6 +37,27 @@
 			remoteGlobalIDString = 480D45C32F7318F500E5BB27;
 			remoteInfo = UnPluqLiveExtension;
 		};
+		48625D512F8823190009DDB3 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 480D45982F72D3DD00E5BB27 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 48625D3F2F8823180009DDB3;
+			remoteInfo = PicksyWidgetExtension;
+		};
+		48A870902F9E3A0300D08642 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 480D45982F72D3DD00E5BB27 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 48A870852F9E3A0300D08642;
+			remoteInfo = PicksyDeviceReport;
+		};
+		48FEF6302F9ED00800B263E2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 480D45982F72D3DD00E5BB27 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 48FEF6282F9ED00800B263E2;
+			remoteInfo = DeviceActivityMonitor;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -29,9 +67,32 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
+				48FEF6322F9ED00800B263E2 /* DeviceActivityMonitor.appex in Embed Foundation Extensions */,
+				48625D532F8823190009DDB3 /* PicksyWidgetExtension.appex in Embed Foundation Extensions */,
 				480D45DA2F7318F600E5BB27 /* UnPluqLiveExtension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		486A3B042F9CE847007DA1F9 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48A870972F9E3A0300D08642 /* Embed ExtensionKit Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				48A870922F9E3A0300D08642 /* PicksyDeviceReport.appex in Embed ExtensionKit Extensions */,
+			);
+			name = "Embed ExtensionKit Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -41,17 +102,103 @@
 		480D45C42F7318F500E5BB27 /* UnPluqLiveExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnPluqLiveExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		480D45C62F7318F500E5BB27 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		480D45C82F7318F500E5BB27 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		482BA0642F87BD5800E9E4B8 /* UnPluq.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = UnPluq.entitlements; sourceTree = "<group>"; };
+		48625D272F8806EF0009DDB3 /* DeviceActivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceActivity.framework; path = System/Library/Frameworks/DeviceActivity.framework; sourceTree = SDKROOT; };
+		48625D402F8823180009DDB3 /* PicksyWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PicksyWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		48625D582F8824D70009DDB3 /* PicksyWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PicksyWidgetExtension.entitlements; sourceTree = "<group>"; };
+		486A3AD12F9AC2A5007DA1F9 /* ActivityBank.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityBank.swift; sourceTree = "<group>"; };
+		486A3AD82F9B67D1007DA1F9 /* CitiesDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CitiesDatabase.swift; sourceTree = "<group>"; };
+		486A3AD92F9B67D1007DA1F9 /* CityPickerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CityPickerSheet.swift; sourceTree = "<group>"; };
+		486A3AF92F9BF015007DA1F9 /* CitiesDatabaseWorld.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CitiesDatabaseWorld.swift; sourceTree = "<group>"; };
+		48A870862F9E3A0300D08642 /* PicksyDeviceReport.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = PicksyDeviceReport.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		48A870982F9EC7C000D08642 /* FamilyControlsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyControlsManager.swift; sourceTree = "<group>"; };
+		48FEF6292F9ED00800B263E2 /* DeviceActivityMonitor.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DeviceActivityMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		482BA0222F85322F00E9E4B8 /* Exceptions for "LiftOff" folder in "UnPluqLiveExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				AppSelectionStore.swift,
+				AppsView.swift,
+				ContentView.swift,
+				LiftOffApp.swift,
+				NudgeView.swift,
+				OnboardingView.swift,
+				PickupScheduler.swift,
+				SettingsView.swift,
+			);
+			target = 480D45C32F7318F500E5BB27 /* UnPluqLiveExtension */;
+		};
+		48625D542F8823190009DDB3 /* Exceptions for "PicksyWidget" folder in "PicksyWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 48625D3F2F8823180009DDB3 /* PicksyWidgetExtension */;
+		};
+		48A870932F9E3A0300D08642 /* Exceptions for "PicksyDeviceReport" folder in "PicksyDeviceReport" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 48A870852F9E3A0300D08642 /* PicksyDeviceReport */;
+		};
+		48C04B862F75D27D0041E5CE /* Exceptions for "LiftOffLive" folder in "UnPluqLiveExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 480D45C32F7318F500E5BB27 /* UnPluqLiveExtension */;
+		};
+		48FEF6352F9ED00800B263E2 /* Exceptions for "DeviceActivityMonitor" folder in "DeviceActivityMonitor" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 48FEF6282F9ED00800B263E2 /* DeviceActivityMonitor */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		480D45A22F72D3DD00E5BB27 /* LiftOff */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				482BA0222F85322F00E9E4B8 /* Exceptions for "LiftOff" folder in "UnPluqLiveExtension" target */,
+			);
 			path = LiftOff;
 			sourceTree = "<group>";
 		};
 		480D45CA2F7318F500E5BB27 /* LiftOffLive */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				48C04B862F75D27D0041E5CE /* Exceptions for "LiftOffLive" folder in "UnPluqLiveExtension" target */,
+			);
 			path = LiftOffLive;
+			sourceTree = "<group>";
+		};
+		48625D432F8823180009DDB3 /* PicksyWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				48625D542F8823190009DDB3 /* Exceptions for "PicksyWidget" folder in "PicksyWidgetExtension" target */,
+			);
+			path = PicksyWidget;
+			sourceTree = "<group>";
+		};
+		48A870872F9E3A0300D08642 /* PicksyDeviceReport */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				48A870932F9E3A0300D08642 /* Exceptions for "PicksyDeviceReport" folder in "PicksyDeviceReport" target */,
+			);
+			path = PicksyDeviceReport;
+			sourceTree = "<group>";
+		};
+		48FEF62B2F9ED00800B263E2 /* DeviceActivityMonitor */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				48FEF6352F9ED00800B263E2 /* Exceptions for "DeviceActivityMonitor" folder in "DeviceActivityMonitor" target */,
+			);
+			path = DeviceActivityMonitor;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -61,6 +208,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				486A3B012F9CE847007DA1F9 /* Lottie in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,6 +218,31 @@
 			files = (
 				480D45C92F7318F500E5BB27 /* SwiftUI.framework in Frameworks */,
 				480D45C72F7318F500E5BB27 /* WidgetKit.framework in Frameworks */,
+				48A870512F9D629800D08642 /* Lottie in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48625D3D2F8823180009DDB3 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				48625D422F8823180009DDB3 /* SwiftUI.framework in Frameworks */,
+				48625D412F8823180009DDB3 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48A870832F9E3A0300D08642 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48FEF6262F9ED00800B263E2 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				48FEF62A2F9ED00800B263E2 /* DeviceActivity.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -79,8 +252,18 @@
 		480D45972F72D3DD00E5BB27 = {
 			isa = PBXGroup;
 			children = (
+				48A870982F9EC7C000D08642 /* FamilyControlsManager.swift */,
+				486A3AF92F9BF015007DA1F9 /* CitiesDatabaseWorld.swift */,
+				486A3AD82F9B67D1007DA1F9 /* CitiesDatabase.swift */,
+				486A3AD92F9B67D1007DA1F9 /* CityPickerSheet.swift */,
+				486A3AD12F9AC2A5007DA1F9 /* ActivityBank.swift */,
+				48625D582F8824D70009DDB3 /* PicksyWidgetExtension.entitlements */,
+				482BA0642F87BD5800E9E4B8 /* UnPluq.entitlements */,
 				480D45A22F72D3DD00E5BB27 /* LiftOff */,
 				480D45CA2F7318F500E5BB27 /* LiftOffLive */,
+				48625D432F8823180009DDB3 /* PicksyWidget */,
+				48A870872F9E3A0300D08642 /* PicksyDeviceReport */,
+				48FEF62B2F9ED00800B263E2 /* DeviceActivityMonitor */,
 				480D45C52F7318F500E5BB27 /* Frameworks */,
 				480D45A12F72D3DD00E5BB27 /* Products */,
 			);
@@ -91,6 +274,9 @@
 			children = (
 				480D45A02F72D3DD00E5BB27 /* UnPluq.app */,
 				480D45C42F7318F500E5BB27 /* UnPluqLiveExtension.appex */,
+				48625D402F8823180009DDB3 /* PicksyWidgetExtension.appex */,
+				48A870862F9E3A0300D08642 /* PicksyDeviceReport.appex */,
+				48FEF6292F9ED00800B263E2 /* DeviceActivityMonitor.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -100,6 +286,7 @@
 			children = (
 				480D45C62F7318F500E5BB27 /* WidgetKit.framework */,
 				480D45C82F7318F500E5BB27 /* SwiftUI.framework */,
+				48625D272F8806EF0009DDB3 /* DeviceActivity.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -115,17 +302,23 @@
 				480D459D2F72D3DD00E5BB27 /* Frameworks */,
 				480D459E2F72D3DD00E5BB27 /* Resources */,
 				480D45DF2F7318F600E5BB27 /* Embed Foundation Extensions */,
+				486A3B042F9CE847007DA1F9 /* Embed Frameworks */,
+				48A870972F9E3A0300D08642 /* Embed ExtensionKit Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				480D45D92F7318F600E5BB27 /* PBXTargetDependency */,
+				48625D522F8823190009DDB3 /* PBXTargetDependency */,
+				48A870912F9E3A0300D08642 /* PBXTargetDependency */,
+				48FEF6312F9ED00800B263E2 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				480D45A22F72D3DD00E5BB27 /* LiftOff */,
 			);
 			name = UnPluq;
 			packageProductDependencies = (
+				486A3B002F9CE847007DA1F9 /* Lottie */,
 			);
 			productName = UnPluq;
 			productReference = 480D45A02F72D3DD00E5BB27 /* UnPluq.app */;
@@ -144,13 +337,81 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
+				480D45A22F72D3DD00E5BB27 /* LiftOff */,
 				480D45CA2F7318F500E5BB27 /* LiftOffLive */,
 			);
 			name = UnPluqLiveExtension;
 			packageProductDependencies = (
+				48A870502F9D629800D08642 /* Lottie */,
 			);
 			productName = UnPluqLiveExtension;
 			productReference = 480D45C42F7318F500E5BB27 /* UnPluqLiveExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		48625D3F2F8823180009DDB3 /* PicksyWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 48625D552F8823190009DDB3 /* Build configuration list for PBXNativeTarget "PicksyWidgetExtension" */;
+			buildPhases = (
+				48625D3C2F8823180009DDB3 /* Sources */,
+				48625D3D2F8823180009DDB3 /* Frameworks */,
+				48625D3E2F8823180009DDB3 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				48625D432F8823180009DDB3 /* PicksyWidget */,
+			);
+			name = PicksyWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = PicksyWidgetExtension;
+			productReference = 48625D402F8823180009DDB3 /* PicksyWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		48A870852F9E3A0300D08642 /* PicksyDeviceReport */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 48A870942F9E3A0300D08642 /* Build configuration list for PBXNativeTarget "PicksyDeviceReport" */;
+			buildPhases = (
+				48A870822F9E3A0300D08642 /* Sources */,
+				48A870832F9E3A0300D08642 /* Frameworks */,
+				48A870842F9E3A0300D08642 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				48A870872F9E3A0300D08642 /* PicksyDeviceReport */,
+			);
+			name = PicksyDeviceReport;
+			packageProductDependencies = (
+			);
+			productName = PicksyDeviceReport;
+			productReference = 48A870862F9E3A0300D08642 /* PicksyDeviceReport.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
+		};
+		48FEF6282F9ED00800B263E2 /* DeviceActivityMonitor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 48FEF6362F9ED00800B263E2 /* Build configuration list for PBXNativeTarget "DeviceActivityMonitor" */;
+			buildPhases = (
+				48FEF6252F9ED00800B263E2 /* Sources */,
+				48FEF6262F9ED00800B263E2 /* Frameworks */,
+				48FEF6272F9ED00800B263E2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				48FEF62B2F9ED00800B263E2 /* DeviceActivityMonitor */,
+			);
+			name = DeviceActivityMonitor;
+			packageProductDependencies = (
+			);
+			productName = DeviceActivityMonitor;
+			productReference = 48FEF6292F9ED00800B263E2 /* DeviceActivityMonitor.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
@@ -160,14 +421,23 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2630;
-				LastUpgradeCheck = 2630;
+				LastSwiftUpdateCheck = 2640;
+				LastUpgradeCheck = 2640;
 				TargetAttributes = {
 					480D459F2F72D3DD00E5BB27 = {
 						CreatedOnToolsVersion = 26.3;
 					};
 					480D45C32F7318F500E5BB27 = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					48625D3F2F8823180009DDB3 = {
+						CreatedOnToolsVersion = 26.4;
+					};
+					48A870852F9E3A0300D08642 = {
+						CreatedOnToolsVersion = 26.4.1;
+					};
+					48FEF6282F9ED00800B263E2 = {
+						CreatedOnToolsVersion = 26.4.1;
 					};
 				};
 			};
@@ -180,6 +450,9 @@
 			);
 			mainGroup = 480D45972F72D3DD00E5BB27;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				486A3AFC2F9CE5CD007DA1F9 /* XCRemoteSwiftPackageReference "lottie-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 480D45A12F72D3DD00E5BB27 /* Products */;
 			projectDirPath = "";
@@ -187,6 +460,9 @@
 			targets = (
 				480D459F2F72D3DD00E5BB27 /* UnPluq */,
 				480D45C32F7318F500E5BB27 /* UnPluqLiveExtension */,
+				48625D3F2F8823180009DDB3 /* PicksyWidgetExtension */,
+				48A870852F9E3A0300D08642 /* PicksyDeviceReport */,
+				48FEF6282F9ED00800B263E2 /* DeviceActivityMonitor */,
 			);
 		};
 /* End PBXProject section */
@@ -206,6 +482,27 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		48625D3E2F8823180009DDB3 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48A870842F9E3A0300D08642 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48FEF6272F9ED00800B263E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -213,10 +510,40 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				486A3ADA2F9B67D1007DA1F9 /* CityPickerSheet.swift in Sources */,
+				486A3ADB2F9B67D1007DA1F9 /* CitiesDatabase.swift in Sources */,
+				486A3AFB2F9BF015007DA1F9 /* CitiesDatabaseWorld.swift in Sources */,
+				486A3AD32F9AC2A6007DA1F9 /* ActivityBank.swift in Sources */,
+				48A8709A2F9EC7C500D08642 /* FamilyControlsManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		480D45C02F7318F500E5BB27 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				486A3AFA2F9BF015007DA1F9 /* CitiesDatabaseWorld.swift in Sources */,
+				486A3AD22F9AC2A5007DA1F9 /* ActivityBank.swift in Sources */,
+				486A3ADC2F9B67D1007DA1F9 /* CityPickerSheet.swift in Sources */,
+				486A3ADD2F9B67D1007DA1F9 /* CitiesDatabase.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48625D3C2F8823180009DDB3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48A870822F9E3A0300D08642 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		48FEF6252F9ED00800B263E2 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -230,6 +557,21 @@
 			isa = PBXTargetDependency;
 			target = 480D45C32F7318F500E5BB27 /* UnPluqLiveExtension */;
 			targetProxy = 480D45D82F7318F600E5BB27 /* PBXContainerItemProxy */;
+		};
+		48625D522F8823190009DDB3 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 48625D3F2F8823180009DDB3 /* PicksyWidgetExtension */;
+			targetProxy = 48625D512F8823190009DDB3 /* PBXContainerItemProxy */;
+		};
+		48A870912F9E3A0300D08642 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 48A870852F9E3A0300D08642 /* PicksyDeviceReport */;
+			targetProxy = 48A870902F9E3A0300D08642 /* PBXContainerItemProxy */;
+		};
+		48FEF6312F9ED00800B263E2 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 48FEF6282F9ED00800B263E2 /* DeviceActivityMonitor */;
+			targetProxy = 48FEF6302F9ED00800B263E2 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -269,6 +611,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 7B27547635;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -292,6 +635,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -332,6 +676,7 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 7B27547635;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
@@ -348,6 +693,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
@@ -356,14 +702,16 @@
 		480D45AC2F72D3DE00E5BB27 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = UnPluq.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7B27547635;
+				CURRENT_PROJECT_VERSION = 14;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = LiftOff;
+				INFOPLIST_KEY_CFBundleDisplayName = Picksy;
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -373,7 +721,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -386,21 +734,23 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
 		480D45AD2F72D3DE00E5BB27 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES = YES;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = UnPluq.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7B27547635;
+				CURRENT_PROJECT_VERSION = 14;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = LiftOff;
+				INFOPLIST_KEY_CFBundleDisplayName = Picksy;
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -410,7 +760,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -423,7 +773,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = 1;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -433,10 +783,9 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7B27547635;
+				CURRENT_PROJECT_VERSION = 14;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = UnPluqLive/Info.plist;
+				INFOPLIST_FILE = LiftOffLive/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = UnPluqLive;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -444,11 +793,15 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.UnPluqLive;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
@@ -463,10 +816,9 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 7B27547635;
+				CURRENT_PROJECT_VERSION = 14;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = UnPluqLive/Info.plist;
+				INFOPLIST_FILE = LiftOffLive/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = UnPluqLive;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -474,8 +826,190 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.UnPluqLive;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		48625D562F8823190009DDB3 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = PicksyWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 14;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PicksyWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PicksyWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.PicksyWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		48625D572F8823190009DDB3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = PicksyWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 14;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PicksyWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PicksyWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.5;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.PicksyWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		48A870952F9E3A0300D08642 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PicksyDeviceReport/PicksyDeviceReport.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PicksyDeviceReport/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PicksyDeviceReport;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.PicksyDeviceReport;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		48A870962F9E3A0300D08642 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = PicksyDeviceReport/PicksyDeviceReport.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = PicksyDeviceReport/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = PicksyDeviceReport;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.PicksyDeviceReport;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		48FEF6332F9ED00800B263E2 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = DeviceActivityMonitor/DeviceActivityMonitor.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DeviceActivityMonitor/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DeviceActivityMonitor;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.DeviceActivityMonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		48FEF6342F9ED00800B263E2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = DeviceActivityMonitor/DeviceActivityMonitor.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = DeviceActivityMonitor/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DeviceActivityMonitor;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.DeviceActivityMonitor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -517,7 +1051,58 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		48625D552F8823190009DDB3 /* Build configuration list for PBXNativeTarget "PicksyWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				48625D562F8823190009DDB3 /* Debug */,
+				48625D572F8823190009DDB3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		48A870942F9E3A0300D08642 /* Build configuration list for PBXNativeTarget "PicksyDeviceReport" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				48A870952F9E3A0300D08642 /* Debug */,
+				48A870962F9E3A0300D08642 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		48FEF6362F9ED00800B263E2 /* Build configuration list for PBXNativeTarget "DeviceActivityMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				48FEF6332F9ED00800B263E2 /* Debug */,
+				48FEF6342F9ED00800B263E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		486A3AFC2F9CE5CD007DA1F9 /* XCRemoteSwiftPackageReference "lottie-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/airbnb/lottie-ios.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 4.6.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		486A3B002F9CE847007DA1F9 /* Lottie */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 486A3AFC2F9CE5CD007DA1F9 /* XCRemoteSwiftPackageReference "lottie-ios" */;
+			productName = Lottie;
+		};
+		48A870502F9D629800D08642 /* Lottie */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 486A3AFC2F9CE5CD007DA1F9 /* XCRemoteSwiftPackageReference "lottie-ios" */;
+			productName = Lottie;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 480D45982F72D3DD00E5BB27 /* Project object */;
 }

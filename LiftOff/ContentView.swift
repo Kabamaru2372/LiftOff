@@ -1,130 +1,155 @@
 // ContentView.swift
-// LiftOff
+// Picksy
 //
 // Created by Fotios Pongas 24.03.2026
-// Το κεντρικό view — κρατάει τα tabs κάτω-κάτω.
 
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(DataStore.self) var store
     @Environment(RewardManager.self) var rewardManager
     @Environment(ProManager.self) var proManager
+    @Environment(CheckInManager.self) var checkInManager
+    @Environment(WeeklySummaryManager.self) var weeklyManager
+    @Environment(TabSelection.self) var tabSelection
     @AppStorage("appLanguage") private var appLanguage: String = "English"
 
-    // ← false τώρα — ανοίγει μόνο αν ο χρήστης δεν είναι Pro
     @State private var showPaywall: Bool = false
+    @State private var showCheckIn: Bool = false
+    @State private var weeklySummaryItem: WeeklySummaryItem? = nil
 
-    private var isGreek: Bool { appLanguage == "Ελληνικά" }
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage {
+        case "Ελληνικά": return gr
+        case "Deutsch": return de
+        default: return en
+        }
+    }
+
+    private var dayNames: [String] {
+        switch appLanguage {
+        case "Ελληνικά": return ["Δευ", "Τρι", "Τετ", "Πεμ", "Παρ", "Σαβ", "Κυρ"]
+        case "Deutsch": return ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
+        default: return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        }
+    }
 
     var body: some View {
+        @Bindable var tabBinding = tabSelection
+
         ZStack {
-            TabView {
+            TabView(selection: $tabBinding.selectedTab) {
                 NudgeView()
                     .tabItem {
                         Image(systemName: "hand.raised")
-                        Text("Nudge")
+                        Text(t("Nudge", "Ώθηση", "Nudge"))
                     }
+                    .tag(0)
 
                 DashboardView()
+                    .timeGradientBackground()
                     .tabItem {
                         Image(systemName: "chart.bar")
-                        Text("Stats")
+                        Text(t("Stats", "Στατιστικά", "Statistik"))
                     }
+                    .tag(1)
 
-                // Heatmap — Pro ή preview
-                Group {
-                    if proManager.isPro {
-                        HeatmapView()
-                    } else {
-                        ProLockedView(
-                            feature: isGreek ? "Χάρτης θερμότητας" : "Heatmap",
-                            description: isGreek
-                                ? "Δες ποιες ώρες πιάνεις πιο πολύ το κινητό και βελτιώσου."
-                                : "See which hours you pick up your phone the most and improve.",
-                            icon: "square.grid.3x3.fill",
-                            onUnlock: { showPaywall = true }
-                        )
+                // NEW: Apps tab (αντικαθιστά το Heatmap)
+                AppsView()
+                    .timeGradientBackground()
+                    .tabItem {
+                        Image(systemName: "apps.iphone")
+                        Text(t("Apps", "Εφαρμογές", "Apps"))
                     }
-                }
-                .tabItem {
-                    Image(systemName: "square.grid.3x3.fill")
-                    Text("Heatmap")
-                }
+                    .tag(2)
 
-                // Rewards — Pro ή preview
                 Group {
                     if proManager.isPro {
                         RewardsView()
                     } else {
                         ProLockedView(
-                            feature: isGreek ? "Επιβραβεύσεις" : "Rewards",
-                            description: isGreek
-                                ? "Ξεκλείδωσε quote packs, badges και gift codes καθώς βελτιώνεσαι."
-                                : "Unlock quote packs, badges, and gift codes as you improve.",
+                            feature: t("Rewards", "Επιβραβεύσεις", "Belohnungen"),
+                            description: t(
+                                "Unlock quote packs, badges, and gift codes as you improve.",
+                                "Ξεκλείδωσε quote packs, badges και gift codes καθώς βελτιώνεσαι.",
+                                "Schalte Zitatpakete, Abzeichen und Geschenkcodes frei."
+                            ),
                             icon: "gift",
                             onUnlock: { showPaywall = true }
                         )
                     }
                 }
+                .timeGradientBackground()
                 .tabItem {
                     Image(systemName: "gift")
-                    Text(isGreek ? "Δώρα" : "Rewards")
+                    Text(t("Rewards", "Δώρα", "Belohnungen"))
                 }
+                .tag(3)
 
                 SettingsView()
+                    .timeGradientBackground()
                     .tabItem {
                         Image(systemName: "gearshape")
-                        Text(isGreek ? "Ρυθμίσεις" : "Settings")
+                        Text(t("Settings", "Ρυθμίσεις", "Einstellungen"))
                     }
+                    .tag(4)
             }
             .tint(.primary)
 
-            // Reward popup overlay (μόνο για Pro)
             if proManager.isPro, let reward = rewardManager.pendingReward {
                 Color.black.opacity(0.3)
                     .ignoresSafeArea()
-                    .onTapGesture {
-                        rewardManager.dismissReward()
-                    }
+                    .onTapGesture { rewardManager.dismissReward() }
 
                 RewardPopup(
                     reward: reward,
                     language: appLanguage,
-                    onClaim: {
-                        rewardManager.claimReward(reward)
-                    },
-                    onDismiss: {
-                        rewardManager.dismissReward()
-                    }
+                    onClaim: { rewardManager.claimReward(reward) },
+                    onDismiss: { rewardManager.dismissReward() }
                 )
-                .background(
-                    RoundedRectangle(cornerRadius: 24)
-                        .fill(Color(.systemBackground))
-                )
+                .background(RoundedRectangle(cornerRadius: 24).fill(Color(.systemBackground)))
                 .padding(24)
                 .transition(.scale.combined(with: .opacity))
             }
         }
         .animation(.easeInOut(duration: 0.3), value: rewardManager.pendingReward != nil)
-        .sheet(isPresented: $showPaywall) {
-            PaywallView()
+        .fullScreenCover(isPresented: $showPaywall) {
+            PaywallView().environment(proManager)
         }
-        // Μόλις τελειώσει ο έλεγχος entitlements, αν δεν είναι Pro
-        // και είναι η πρώτη φορά → δείξε paywall
+        .sheet(isPresented: $showCheckIn) {
+            DailyCheckInView()
+                .environment(checkInManager)
+        }
+        .fullScreenCover(item: $weeklySummaryItem) { item in
+            WeeklySummaryView(summary: item.summary)
+        }
         .onAppear {
-            Task {
-                // Δίνουμε χρόνο στο ProManager να φορτώσει
-                try? await Task.sleep(for: .seconds(0.5))
-                if !proManager.isPro && !proManager.isCheckingEntitlements {
-                    showPaywall = true
-                }
+            checkForDailyCheckIn()
+            checkForWeeklySummary()
+        }
+    }
+
+    private func checkForDailyCheckIn() {
+        if checkInManager.shouldShowCheckIn {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                showCheckIn = true
             }
         }
-        .onChange(of: proManager.isCheckingEntitlements) { _, stillChecking in
-            // Όταν τελειώσει ο έλεγχος και δεν είναι Pro → paywall
-            if !stillChecking && !proManager.isPro {
-                showPaywall = true
-            }
+    }
+
+    private func checkForWeeklySummary() {
+        guard weeklyManager.shouldShowSummary else { return }
+
+        let summary = weeklyManager.computeSummary(
+            weeklyPickups: store.weeklyPickups,
+            checkInManager: checkInManager,
+            streak: store.currentStreak,
+            dayNames: dayNames
+        )
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            weeklySummaryItem = WeeklySummaryItem(summary: summary)
+            weeklyManager.markAsShown()
         }
     }
 }
@@ -138,7 +163,14 @@ struct ProLockedView: View {
     let onUnlock: () -> Void
 
     @AppStorage("appLanguage") private var appLanguage: String = "English"
-    private var isGreek: Bool { appLanguage == "Ελληνικά" }
+
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage {
+        case "Ελληνικά": return gr
+        case "Deutsch": return de
+        default: return en
+        }
+    }
 
     var body: some View {
         VStack(spacing: 20) {
@@ -161,22 +193,18 @@ struct ProLockedView: View {
 
             Button(action: onUnlock) {
                 HStack(spacing: 8) {
-                    Image(systemName: "lock.open.fill")
-                        .font(.system(size: 14))
-                    Text(isGreek ? "Ξεκλείδωσε με LiftOff Pro" : "Unlock with LiftOff Pro")
+                    Image(systemName: "lock.open.fill").font(.system(size: 14))
+                    Text(t("Unlock with Picksy Pro", "Ξεκλείδωσε με Picksy Pro", "Mit Picksy Pro freischalten"))
                         .font(.system(size: 16, weight: .medium, design: .rounded))
                 }
                 .foregroundColor(.white)
                 .padding(.horizontal, 28)
                 .padding(.vertical, 14)
-                .background(
-                    RoundedRectangle(cornerRadius: 24)
-                        .fill(Color.blue)
-                )
+                .background(RoundedRectangle(cornerRadius: 24).fill(Color.blue))
             }
             .padding(.top, 8)
 
-            Text("€4.99 — " + (isGreek ? "μία φορά" : "one time"))
+            Text("€4.99 — " + t("one time", "μία φορά", "einmalig"))
                 .font(.system(size: 13, weight: .regular, design: .rounded))
                 .foregroundColor(.secondary)
 
@@ -193,5 +221,8 @@ struct ProLockedView: View {
         .environment(HourlyTracker())
         .environment(RewardManager())
         .environment(ProManager.shared)
+        .environment(CheckInManager())
+        .environment(WeeklySummaryManager())
+        .environment(TabSelection())
 }
 

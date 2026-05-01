@@ -1,24 +1,20 @@
 // QuoteBank.swift
-// Unpluq
+// Picksy
 //
 // Created by Fotios Pongas 24.03.2026
-// Εδώ ζουν όλα τα nudge messages.
-// Κάθε φορά που ο χρήστης σηκώνει το κινητό, βλέπει ένα τυχαίο.
-
-// QuoteBank.swift
-// Unpluq
 
 import Foundation
 
 struct QuoteBank {
-    
+
     enum Language: String, CaseIterable, Codable {
         case english = "English"
         case greek = "Ελληνικά"
+        case german = "Deutsch"
     }
-    
+
     // MARK: - Default Quotes (Free)
-    
+
     static let englishQuotes: [String] = [
         "Do you really need to be here right now?",
         "The world outside is still there.",
@@ -35,13 +31,13 @@ struct QuoteBank {
         "Your phone will still be here later.",
         "What if you just... didn't?",
         "You were doing fine without it.",
-        "LiftOff. See what happens.",
+        "Put it down. See what happens.",
         "How many times today? Let's make this the last.",
         "Boredom isn't an emergency.",
         "You don't need to check anything right now.",
         "Life is happening around you. Look up."
     ]
-    
+
     static let greekQuotes: [String] = [
         "Σίγουρα το χρειάζεσαι τώρα;",
         "Ο κόσμος έξω σε περιμένει.",
@@ -58,15 +54,38 @@ struct QuoteBank {
         "Το κινητό θα είναι εδώ αργότερα.",
         "Και αν απλά... δεν το άνοιγες;",
         "Τα πήγαινες μια χαρά χωρίς αυτό.",
-        "LiftOff. Δες τι θα γίνει.",
+        "Κατέβασέ το. Δες τι θα γίνει.",
         "Πόσες φορές σήμερα; Ας είναι αυτή η τελευταία.",
         "Η βαρεμάρα δεν είναι έκτακτη ανάγκη.",
         "Δεν χρειάζεται να τσεκάρεις τίποτα τώρα.",
         "Η ζωή γίνεται γύρω σου. Σήκωσε το βλέμμα."
     ]
-    
+
+    static let germanQuotes: [String] = [
+        "Brauchst du das wirklich gerade jetzt?",
+        "Die Welt da draußen ist noch da.",
+        "Tief durchatmen. Leg es weg.",
+        "Was hast du gemacht, bevor du es aufgehoben hast?",
+        "Das kann warten. Diesen Moment bekommst du nicht zurück.",
+        "Deine Augen brauchen eine Pause. Dein Kopf auch.",
+        "Nichts auf diesem Bildschirm ist dringend.",
+        "Drei tiefe Atemzüge, dann entscheide.",
+        "Das Beste im Leben ist nicht auf einem Bildschirm.",
+        "Du hast es aus Gewohnheit genommen, nicht aus Notwendigkeit.",
+        "Sei hier. Nicht dort drin.",
+        "Ein Scroll weniger, ein Moment mehr Ruhe.",
+        "Das Handy ist später noch da.",
+        "Was wäre, wenn du es einfach... nicht tätest?",
+        "Du kamst ohne es gut zurecht.",
+        "Leg es weg. Schau, was passiert.",
+        "Wie oft heute schon? Lass das die letzte Mal sein.",
+        "Langeweile ist kein Notfall.",
+        "Du musst gerade nichts überprüfen.",
+        "Das Leben passiert um dich herum. Schau auf."
+    ]
+
     // MARK: - Stoic Pack (Pro)
-    
+
     static let stoicEN: [String] = [
         "You have power over your mind, not outside events.",
         "It is not things that disturb us, but our judgments about them.",
@@ -89,7 +108,7 @@ struct QuoteBank {
         "Hang on to your youthful enthusiasms — you'll be able to use them better when you're older.",
         "He suffers more than necessary, who suffers before it is necessary."
     ]
-    
+
     static let stoicGR: [String] = [
         "Έχεις δύναμη πάνω στο μυαλό σου, όχι στα γεγονότα.",
         "Δεν μας ταράζουν τα πράγματα, αλλά οι κρίσεις μας γι' αυτά.",
@@ -112,9 +131,32 @@ struct QuoteBank {
         "Κράτα τον ενθουσιασμό σου — θα σου χρειαστεί αργότερα.",
         "Υποφέρει περισσότερο αυτός που υποφέρει πριν χρειαστεί."
     ]
-    
+
+    static let stoicDE: [String] = [
+        "Du hast Macht über deinen Geist, nicht über äußere Ereignisse.",
+        "Nicht die Dinge beunruhigen uns, sondern unsere Urteile darüber.",
+        "Das Glück deines Lebens hängt von der Qualität deiner Gedanken ab.",
+        "Kein Mensch ist frei, der nicht Herr seiner selbst ist.",
+        "Wer den Tod fürchtet, wird nie etwas Würdiges tun.",
+        "Hör auf zu diskutieren, was ein guter Mensch sein soll. Sei einer.",
+        "Das Hindernis ist der Weg.",
+        "Wie lange willst du noch warten, bevor du das Beste für dich forderst?",
+        "Sag erst, wer du sein willst; dann tu, was du tun musst.",
+        "Nicht was dir passiert zählt, sondern wie du darauf reagierst.",
+        "Schwierigkeiten stärken den Geist, wie Arbeit den Körper stärkt.",
+        "Die beste Rache ist, deinem Feind nicht zu ähneln.",
+        "Fang sofort an zu leben. Zähle jeden Tag als ein eigenes Leben.",
+        "Der Mensch sorgt sich mehr um eingebildete als um wirkliche Probleme.",
+        "Wenn es nicht richtig ist, tu es nicht. Wenn es nicht wahr ist, sag es nicht.",
+        "Die Seele nimmt die Farbe ihrer Gedanken an.",
+        "Wähle, nicht verletzt zu werden — und du wirst es nicht fühlen.",
+        "Wir leiden öfter in der Vorstellung als in der Wirklichkeit.",
+        "Halte an deinen jugendlichen Begeisterungen fest — du wirst sie später brauchen.",
+        "Der leidet mehr als nötig, der leidet bevor es nötig ist."
+    ]
+
     // MARK: - Humor Pack (Pro)
-    
+
     static let humorEN: [String] = [
         "Your phone called. It wants a break from YOU.",
         "Plot twist: nothing happened since you last checked.",
@@ -137,7 +179,7 @@ struct QuoteBank {
         "Your phone misses you too. From far away.",
         "This is your 47th pickup today. That's a lot, even for you."
     ]
-    
+
     static let humorGR: [String] = [
         "Το κινητό σου πήρε τηλέφωνο. Θέλει διάλειμμα ΑΠΟ σένα.",
         "Plot twist: δεν έγινε τίποτα από τότε που τσέκαρες.",
@@ -160,9 +202,32 @@ struct QuoteBank {
         "Το κινητό σου βαρέθηκε. Αλλά από μακριά.",
         "Αυτή είναι η 47η φορά σήμερα. Πολλές, ακόμα και για σένα."
     ]
-    
+
+    static let humorDE: [String] = [
+        "Dein Handy hat angerufen. Es braucht eine Pause von DIR.",
+        "Plot Twist: Seit du zuletzt nachgeschaut hast, ist nichts passiert.",
+        "Instagram überlebt ohne dein Like. Wahrscheinlich.",
+        "Eilmeldung: Immer noch keine Eilmeldung.",
+        "Dein Daumen hat sich krankgemeldet. Gönn ihm Ruhe.",
+        "Doomscrolling verbrennt 0 Kalorien und 100% deiner Freude.",
+        "Diese Benachrichtigung? Nur eine App, die um Aufmerksamkeit bettelt.",
+        "Dein Screen-Time-Bericht verurteilt dich. Hart.",
+        "Leg es weg, oder ich verrat's deiner Screen Time.",
+        "Du \"schaust nur kurz\" seit 20 Minuten.",
+        "Das WLAN funktioniert auch in 5 Minuten noch.",
+        "Deine Katze hat mehr Selbstkontrolle als du.",
+        "Erinnerst du dich an Bücher? Die haben keine Werbung.",
+        "Geh raus. Die Natur hat keine Pop-ups.",
+        "Dein Akku stirbt. Deine Aufmerksamkeit auch.",
+        "Noch ein Scroll? Genau das wollen sie, dass du tust.",
+        "Du bist nicht gelangweilt. Du bist süchtig. Unterschied.",
+        "Fun fact: Menschen haben bis 2007 ohne Handys überlebt.",
+        "Dein Handy vermisst dich auch. Aus der Ferne.",
+        "Das ist dein 47. Griff heute. Viel, selbst für dich."
+    ]
+
     // MARK: - Philosophy Pack (Pro)
-    
+
     static let philosophyEN: [String] = [
         "The unexamined life is not worth living.",
         "To be is to be perceived... but not through a screen.",
@@ -185,7 +250,7 @@ struct QuoteBank {
         "Wonder is the beginning of wisdom. Not WiFi.",
         "Real knowledge is to know the extent of one's ignorance. Also, screen time."
     ]
-    
+
     static let philosophyGR: [String] = [
         "Ο ανεξέταστος βίος ου βιωτός ανθρώπω.",
         "Είναι σημαίνει γίνεσαι αντιληπτός... αλλά όχι μέσω οθόνης.",
@@ -208,16 +273,38 @@ struct QuoteBank {
         "Η απορία είναι η αρχή της σοφίας. Όχι το WiFi.",
         "Πραγματική γνώση είναι να ξέρεις πόσο αγνοείς. Και πόσο screen time έχεις."
     ]
-    
+
+    static let philosophyDE: [String] = [
+        "Das ungeprüfte Leben ist nicht lebenswert.",
+        "Sein heißt wahrgenommen werden... aber nicht durch einen Bildschirm.",
+        "Ich denke, also muss ich nicht scrollen.",
+        "Die einzige wahre Weisheit ist zu wissen, dass du nichts weißt... über das, was gerade auf Twitter passiert.",
+        "Man kann nicht zweimal in denselben Feed steigen.",
+        "Sich selbst zu kennen ist der Beginn aller Weisheit.",
+        "Zeit, die du genießt zu verschwenden, ist keine verschwendete Zeit. Scrollen schon.",
+        "In der Mitte der Schwierigkeit liegt die Möglichkeit. Nicht in deinem Handy.",
+        "Wir sind, was wir wiederholt tun. Leg das Handy wiederholt weg.",
+        "Der Mensch ist zur Freiheit verurteilt — hör auf, dein Handy für dich wählen zu lassen.",
+        "Der Geist ist alles. Was du denkst, wirst du. Denke weniger an Memes.",
+        "Glück ist nicht fertig gemacht. Es kommt nicht von Benachrichtigungen.",
+        "Wer ein Warum hat, kann fast jedes Wie ertragen. Dein Handy hat kein Warum.",
+        "Das Einzige, was ich weiß, ist, dass ich nichts weiß... was passiert ist, während ich nicht geschaut habe.",
+        "Das Leben muss vorwärts gelebt, aber rückwärts verstanden werden. Nicht gescrollt.",
+        "Einfachheit ist das höchste Maß an Raffinesse. Leg es weg.",
+        "Zu leben ist das Seltenste. Die meisten scrollen nur.",
+        "Die Welt ist voller magischer Dinge, die darauf warten, dass unsere Sinne schärfer werden.",
+        "Staunen ist der Anfang der Weisheit. Nicht WLAN.",
+        "Echtes Wissen bedeutet zu wissen, wie groß die eigene Unwissenheit ist. Auch beim Screen Time."
+    ]
+
     // MARK: - Random Quote
-    
+
     static func random(language: Language? = nil) -> String {
         let lang = language ?? savedLanguage()
         let enabledPacks = UserDefaults.standard.stringArray(forKey: "enabledQuotePacks") ?? []
-        
-        // Μάζεψε όλα τα ενεργά quotes
+
         var allQuotes: [String] = []
-        
+
         switch lang {
         case .english:
             allQuotes.append(contentsOf: englishQuotes)
@@ -229,17 +316,21 @@ struct QuoteBank {
             if enabledPacks.contains("stoic") { allQuotes.append(contentsOf: stoicGR) }
             if enabledPacks.contains("humor") { allQuotes.append(contentsOf: humorGR) }
             if enabledPacks.contains("philosophy") { allQuotes.append(contentsOf: philosophyGR) }
+        case .german:
+            allQuotes.append(contentsOf: germanQuotes)
+            if enabledPacks.contains("stoic") { allQuotes.append(contentsOf: stoicDE) }
+            if enabledPacks.contains("humor") { allQuotes.append(contentsOf: humorDE) }
+            if enabledPacks.contains("philosophy") { allQuotes.append(contentsOf: philosophyDE) }
         }
-        
+
         return allQuotes.randomElement() ?? "Put it down."
     }
-    
+
     static func savedLanguage() -> Language {
         let raw = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
         return Language(rawValue: raw) ?? .english
     }
-    
-    // Ενεργοποίηση quote pack (καλείται μετά reward claim)
+
     static func enablePack(_ pack: String) {
         var packs = UserDefaults.standard.stringArray(forKey: "enabledQuotePacks") ?? []
         if !packs.contains(pack) {
@@ -247,9 +338,11 @@ struct QuoteBank {
             UserDefaults.standard.set(packs, forKey: "enabledQuotePacks")
         }
     }
-    
+
     static func isPackEnabled(_ pack: String) -> Bool {
         let packs = UserDefaults.standard.stringArray(forKey: "enabledQuotePacks") ?? []
         return packs.contains(pack)
     }
 }
+
+

@@ -1,0 +1,97 @@
+# ========================================
+# .gitignore for iOS/Swift Xcode projects
+# Picksy - Be Present
+# ========================================
+
+# Xcode
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+build/
+DerivedData/
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Swift Package Manager
+Packages/
+Package.pins
+Package.resolved
+*.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+.build/
+.swiftpm/
+
+# Fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Code Injection
+iOSInjectionProject/
+
+# Bundle artifacts
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Provisioning profiles & certificates
+*.mobileprovision
+*.cer
+*.p12
+*.pem
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+secrets.plist
+config.local.plist
+*.private
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Backup files
+*.backup
+*.backup2
+*.bak
+project.pbxproj.backup*
+
+# Logs
+*.log
+
+# Temp files
+.tmp/
+tmp/
+*.tmp
+
+# Screenshots folder (not used currently)
+Screenshots/
+
+# Screenshots folder (not used currently)
+Screenshots/
+
+# Screenshots folder (not used currently)
+Screenshots/
