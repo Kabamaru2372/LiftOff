@@ -2,6 +2,10 @@
 // Picksy
 //
 // Created by Fotios Pongas 24.03.2026
+//
+// v1.6 FINAL - Idle-only mode.
+// v1.7 UPDATE - "Τι να κάνω τώρα;" button με activity suggestions.
+//
 
 import SwiftUI
 import DeviceActivity
@@ -9,10 +13,6 @@ import FamilyControls
 
 struct NudgeView: View {
     @Environment(DataStore.self) var store
-    @Environment(PickupDetector.self) var detector
-    @Environment(LiveActivityManager.self) var liveActivity
-    @Environment(HourlyTracker.self) var hourlyTracker
-    @Environment(RewardManager.self) var rewardManager
     @Environment(WeatherManager.self) var weatherManager
     @Environment(ActivityPreferences.self) var activityPrefs
     @AppStorage("appLanguage") private var appLanguage: String = "English"
@@ -20,13 +20,12 @@ struct NudgeView: View {
     @AppStorage("lastPickupTimestamp") private var lastPickupTimestamp: Double = 0
 
     @State private var currentQuote: String = ""
-    @State private var secondsOnScreen: Int = 0
-    @State private var timer: Timer? = nil
-    @State private var showingContinueConfirm: Bool = false
-    @State private var showNudge: Bool = false
     @State private var minutesSinceLastPickup: Int = 0
     @State private var refreshTimer: Timer? = nil
     @State private var showAccuracyInfo: Bool = false
+
+    // v1.7: Activity suggestions sheet
+    @State private var showActivitySuggestions: Bool = false
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -41,19 +40,14 @@ struct NudgeView: View {
         return min(Double(store.todayPickups) / Double(goal), 1.0)
     }
 
-    private var goalColor: Color {
-        switch goalProgress {
-        case 0..<0.5: return .blue
-        case 0.5..<0.8: return .orange
-        default: return .red
-        }
+    private var zoneColor: Color {
+        store.currentZone.color
     }
 
     private var timeOfDay: TimeOfDay {
         TimeOfDay.from()
     }
 
-    /// True αν το background είναι "φωτεινό" (μέρα με ήλιο)
     private var isLightBackground: Bool {
         let isDaytime = (timeOfDay == .morning || timeOfDay == .midday)
         let isClearWeather = (weatherManager.activeCondition == .sunny ||
@@ -61,7 +55,6 @@ struct NudgeView: View {
         return isDaytime && isClearWeather
     }
 
-    /// Filter για το top 3 widget
     private var todayFilter: DeviceActivityFilter {
         DeviceActivityFilter(
             segment: .daily(
@@ -72,7 +65,6 @@ struct NudgeView: View {
         )
     }
 
-    /// True αν πρέπει να εμφανίζεται το top 3 card
     private var shouldShowTopApps: Bool {
         FamilyControlsManager.shared.isAuthorized &&
         AppSelectionStore.shared.hasSelectedApps
@@ -83,16 +75,11 @@ struct NudgeView: View {
             WeatherBackground(
                 timeOfDay: timeOfDay,
                 condition: weatherManager.activeCondition,
-                isDimmed: showNudge
+                isDimmed: false
             )
 
-            if showNudge {
-                nudgeContent.transition(.opacity)
-            } else {
-                idleContent.transition(.opacity)
-            }
+            idleContent
         }
-        .animation(.easeInOut(duration: 0.5), value: showNudge)
         .alert(
             t("About pickup count", "Σχετικά με τα σηκώματα", "Über die Griff-Zählung"),
             isPresented: $showAccuracyInfo
@@ -100,26 +87,47 @@ struct NudgeView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(t(
-                "Due to iOS limitations, the pickup count is approximate. It only counts when Picksy is open in the foreground. For accurate app usage data, see the Apps tab.",
-                "Λόγω περιορισμών του iOS, ο αριθμός σηκωμάτων είναι κατά προσέγγιση. Μετράει μόνο όταν το Picksy είναι ανοιχτό στο προσκήνιο. Για ακριβή στατιστικά χρήσης εφαρμογών, δες το tab Εφαρμογές.",
-                "Aufgrund von iOS-Einschränkungen ist die Griff-Zählung ungefähr. Sie zählt nur, wenn Picksy im Vordergrund geöffnet ist. Für genaue App-Nutzungsdaten siehe den Apps-Tab."
+                "Picksy counts pickups via screen unlocks (with a 30s cooldown to match Apple's behavior). For detailed app usage time, see the Apps tab.",
+                "Το Picksy μετράει σηκώματα μέσω ξεκλειδωμάτων (με 30s cooldown ώστε να ταιριάζει με τη συμπεριφορά της Apple). Για αναλυτικό χρόνο χρήσης ανά εφαρμογή, δες το tab Εφαρμογές.",
+                "Picksy zählt Griffe per Bildschirm-Entsperrungen (mit 30s Cooldown zur Apple-Konformität). Für detaillierte App-Nutzungszeiten siehe Apps-Tab."
             ))
+        }
+        // v1.7: Activity suggestions sheet
+        .sheet(isPresented: $showActivitySuggestions) {
+            ActivitySuggestionView(onDismiss: {
+                showActivitySuggestions = false
+            })
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
         }
         .onAppear {
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
             updateMinutesSinceLastPickup()
-            detector.onPickupDetected = { triggerNudge() }
-            detector.startMonitoring()
             startRefreshTimer()
+
+            NotificationCenter.default.addObserver(
+                forName: .picksyPickupDetected,
+                object: nil,
+                queue: .main
+            ) { _ in
+                lastPickupTimestamp = Date().timeIntervalSince1970
+                updateMinutesSinceLastPickup()
+                currentQuote = ActivityBank.random(
+                    weather: weatherManager.activeCondition,
+                    categories: activityPrefs.effectiveCategories
+                )
+            }
         }
         .onDisappear {
             refreshTimer?.invalidate()
+            NotificationCenter.default.removeObserver(
+                self,
+                name: .picksyPickupDetected,
+                object: nil
+            )
         }
         .onChange(of: appLanguage) { _, _ in
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
-        }
-        .onChange(of: detector.pickupDetected) { _, newValue in
-            if newValue == true { triggerNudge() }
         }
     }
 
@@ -127,7 +135,7 @@ struct NudgeView: View {
 
     private var idleContent: some View {
         VStack(spacing: 20) {
-            // Temperature pill στο πάνω αριστερά
+            // Temperature pill
             if let weather = weatherManager.currentWeather {
                 HStack {
                     temperaturePill(weather: weather)
@@ -154,18 +162,35 @@ struct NudgeView: View {
 
             // Inspirational quote card
             VStack(spacing: 12) {
-                Image(systemName: "quote.opening")
-                    .font(.system(size: 14))
-                    .foregroundColor(.white.opacity(0.7))
+                HStack {
+                    Image(systemName: "quote.opening")
+                        .font(.system(size: 14))
+                        .foregroundColor(.white.opacity(0.7))
+
+                    Spacer()
+
+                    Button(action: {
+                        currentQuote = ActivityBank.random(
+                            weather: weatherManager.activeCondition,
+                            categories: activityPrefs.effectiveCategories
+                        )
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12))
+                            .foregroundColor(.white.opacity(0.6))
+                    }
+                }
 
                 Text(currentQuote)
-                    .font(.system(size: 16, weight: .regular, design: .rounded))
+                    .font(.system(size: 14, weight: .regular, design: .rounded))
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
-                    .lineSpacing(4)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
                     .shadow(color: .black.opacity(0.3), radius: 2)
             }
             .padding(20)
+            .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 16)
                     .fill(.ultraThinMaterial)
@@ -173,7 +198,7 @@ struct NudgeView: View {
             )
             .padding(.horizontal, 32)
 
-            // Top 3 apps card (αν είναι authorized)
+            // Top 3 apps card
             if shouldShowTopApps {
                 topAppsCard
                     .padding(.horizontal, 32)
@@ -185,16 +210,19 @@ struct NudgeView: View {
                     .padding(.horizontal, 32)
             }
 
+            // v1.7: "Τι να κάνω τώρα;" button
+            activitySuggestionsButton
+                .padding(.horizontal, 32)
+
             Spacer()
 
-            // Stats card στο κάτω μέρος (με info button για disclaimer)
+            // Stats card
             VStack(spacing: 10) {
                 HStack(spacing: 6) {
                     Text(t("Today", "Σήμερα", "Heute"))
                         .font(.system(size: 12, weight: .medium, design: .rounded))
                         .foregroundColor(.white.opacity(0.85))
 
-                    // Info button — ανοίγει disclaimer
                     Button(action: { showAccuracyInfo = true }) {
                         Image(systemName: "info.circle")
                             .font(.system(size: 11))
@@ -202,13 +230,20 @@ struct NudgeView: View {
                     }
 
                     Spacer()
-                    Text(t(
-                        "\(store.todayPickups) / \(dailyGoal)",
-                        "\(store.todayPickups) / \(dailyGoal)",
-                        "\(store.todayPickups) / \(dailyGoal)"
-                    ))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
+
+                    Text(store.currentZone.displayName(language: appLanguage))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule()
+                                .fill(zoneColor.opacity(0.85))
+                        )
+
+                    Text("\(store.todayPickups) / \(dailyGoal)")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
                 }
 
                 GeometryReader { geo in
@@ -217,7 +252,7 @@ struct NudgeView: View {
                             .fill(Color.white.opacity(0.25))
                             .frame(height: 6)
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(goalColor)
+                            .fill(zoneColor)
                             .frame(width: geo.size.width * goalProgress, height: 6)
                             .animation(.easeInOut(duration: 0.4), value: goalProgress)
                     }
@@ -232,6 +267,38 @@ struct NudgeView: View {
             )
             .padding(.horizontal, 32)
             .padding(.bottom, 90)
+        }
+    }
+
+    // MARK: - Activity Suggestions Button (v1.7)
+
+    private var activitySuggestionsButton: some View {
+        Button(action: { showActivitySuggestions = true }) {
+            HStack(spacing: 8) {
+                Text("✨")
+                    .font(.system(size: 16))
+
+                Text(t(
+                    "What should I do?",
+                    "Τι να κάνω τώρα;",
+                    "Was soll ich tun?"
+                ))
+                .font(.system(size: 15, weight: .medium, design: .rounded))
+                .foregroundColor(.white)
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.white.opacity(0.7))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(.ultraThinMaterial)
+                    .opacity(0.7)
+            )
         }
     }
 
@@ -262,35 +329,53 @@ struct NudgeView: View {
     // MARK: - Temperature Pill
 
     private func temperaturePill(weather: WeatherData) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 6) {
-                Text(displayEmoji(for: weather.condition))
-                    .font(.system(size: 14))
-                Text("\(Int(weather.temperature))°")
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(
-                ZStack {
-                    if isLightBackground {
-                        Capsule()
-                            .fill(Color.black.opacity(0.35))
+        Button(action: {
+            Task { await weatherManager.manualRefresh() }
+        }) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    if weatherManager.isLoading {
+                        ProgressView()
+                            .scaleEffect(0.7)
+                            .tint(.white)
+                    } else {
+                        Text(displayEmoji(for: weather.condition))
+                            .font(.system(size: 14))
                     }
-                    Capsule()
-                        .fill(.ultraThinMaterial)
-                        .opacity(isLightBackground ? 0.4 : 0.6)
-                }
-            )
-            .shadow(color: .black.opacity(0.3), radius: 3)
+                    Text("\(Int(weather.temperature))°")
+                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
 
-            Text(conditionName(for: weather.condition))
-                .font(.system(size: 11, weight: .medium, design: .rounded))
-                .foregroundColor(.white)
-                .padding(.leading, 12)
-                .shadow(color: .black.opacity(0.5), radius: 3)
+                    // City name αν υπάρχει
+                    if !weather.cityName.isEmpty && weather.cityName != "Current Location" {
+                        Text(weather.cityName)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundColor(.white.opacity(0.8))
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    ZStack {
+                        if isLightBackground {
+                            Capsule()
+                                .fill(Color.black.opacity(0.35))
+                        }
+                        Capsule()
+                            .fill(.ultraThinMaterial)
+                            .opacity(isLightBackground ? 0.4 : 0.6)
+                    }
+                )
+                .shadow(color: .black.opacity(0.3), radius: 3)
+
+                Text(conditionName(for: weather.condition))
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundColor(.white)
+                    .padding(.leading, 12)
+                    .shadow(color: .black.opacity(0.5), radius: 3)
+            }
         }
+        .buttonStyle(.plain)
     }
 
     private func displayEmoji(for condition: WeatherCondition) -> String {
@@ -361,124 +446,7 @@ struct NudgeView: View {
         }
     }
 
-    // MARK: - Nudge screen
-
-    private var nudgeContent: some View {
-        VStack(spacing: 24) {
-            Spacer()
-
-            Text(formatTime(secondsOnScreen))
-                .font(.system(size: 56, weight: .light, design: .rounded))
-                .foregroundColor(.white)
-                .monospacedDigit()
-                .shadow(color: .black.opacity(0.3), radius: 4)
-                .contentTransition(.numericText())
-                .animation(.linear(duration: 0.2), value: secondsOnScreen)
-
-            Text(currentQuote)
-                .font(.system(size: 18, weight: .regular, design: .rounded))
-                .foregroundColor(.white)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-                .shadow(color: .black.opacity(0.3), radius: 2)
-
-            Spacer()
-
-            HStack(spacing: 16) {
-                Button(action: { putItDown() }) {
-                    Text(t("Put it down", "Κατέβασέ το", "Leg es weg"))
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundColor(.primary)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 24)
-                                .fill(.ultraThinMaterial)
-                        )
-                }
-
-                Button(action: { showingContinueConfirm = true }) {
-                    Text(t("Continue", "Συνέχεια", "Weiter"))
-                        .font(.system(size: 16, weight: .regular, design: .rounded))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 24)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 24)
-                                .stroke(Color.white.opacity(0.6), lineWidth: 1)
-                        )
-                }
-            }
-
-            if store.currentStreak > 0 {
-                Text(t(
-                    "\(store.currentStreak)-day streak",
-                    "\(store.currentStreak) μέρες σερί",
-                    "\(store.currentStreak) Tage in Folge"
-                ))
-                .font(.system(size: 13, weight: .regular, design: .rounded))
-                .foregroundColor(.white.opacity(0.85))
-                .shadow(color: .black.opacity(0.3), radius: 2)
-            }
-
-            Spacer().frame(height: 100)
-        }
-        .alert(t("Are you sure?", "Είσαι σίγουρος;", "Bist du sicher?"),
-               isPresented: $showingContinueConfirm) {
-            Button(t("Yes, I need my phone", "Ναι, χρειάζομαι το κινητό", "Ja, ich brauche mein Handy"),
-                   role: .destructive) { dismissNudge() }
-            Button(t("You're right, I'll put it down", "Έχεις δίκιο, κατεβάζω το κινητό", "Du hast recht, ich lege es weg"),
-                   role: .cancel) { putItDown() }
-        }
-    }
-
-    // MARK: - Actions
-
-    private func triggerNudge() {
-        guard !showNudge else { return }
-        currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
-        store.recordPickup()
-        hourlyTracker.recordPickup()
-        lastPickupTimestamp = Date().timeIntervalSince1970
-        secondsOnScreen = 0
-        showNudge = true
-        startTimer()
-        liveActivity.update(pickupCount: store.todayPickups)
-        rewardManager.checkForRewards(tracker: hourlyTracker)
-    }
-
-    private func putItDown() {
-        stopTimer()
-        dismissNudge()
-    }
-
-    private func dismissNudge() {
-        stopTimer()
-        showNudge = false
-        detector.acknowledgePickup()
-    }
-
-    private func startTimer() {
-        timer?.invalidate()
-        secondsOnScreen = 0
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
-            secondsOnScreen += 1
-        }
-    }
-
-    private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
-        store.addUsageTime(seconds: secondsOnScreen)
-    }
-
-    private func formatTime(_ seconds: Int) -> String {
-        let mins = seconds / 60
-        let secs = seconds % 60
-        return String(format: "%d:%02d", mins, secs)
-    }
-
-    // MARK: - Last pickup tracking
+    // MARK: - Timer
 
     private func updateMinutesSinceLastPickup() {
         guard lastPickupTimestamp > 0 else {
@@ -500,10 +468,6 @@ struct NudgeView: View {
 #Preview {
     NudgeView()
         .environment(DataStore())
-        .environment(PickupDetector())
-        .environment(LiveActivityManager())
-        .environment(HourlyTracker())
-        .environment(RewardManager())
         .environment(WeatherManager())
         .environment(ActivityPreferences())
 }

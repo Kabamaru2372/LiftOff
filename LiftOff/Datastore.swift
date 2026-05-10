@@ -3,6 +3,10 @@
 //  Picksy
 //
 //  Created by Fotios Pongas on 24.03.2026
+//
+//  v1.6 UPDATE - Added ZoneNotificationManager hook in recordPickup().
+//  v1.6 UPDATE - Comprehensive reset για όλα τα Picksy-controlled data.
+//
 
 import Foundation
 import SwiftUI
@@ -51,6 +55,9 @@ class DataStore {
         weeklyPickups[currentDayIndex()] = todayPickups
         saveData()
         WidgetCenter.shared.reloadAllTimelines()
+
+        // v1.6: Check for zone transitions and trigger notifications
+        ZoneNotificationManager.shared.checkAndNotify(currentPickups: todayPickups)
     }
 
     func addUsageTime(seconds: Int) {
@@ -60,13 +67,10 @@ class DataStore {
 
     // MARK: - DeviceActivity Sync
 
-    /// Συγχρονίζει τα pickups με τα DeviceActivity data
-    /// Αν τα DeviceActivity data είναι μεγαλύτερα, τα χρησιμοποιεί
     func syncWithDeviceActivity() {
         let key = todayPickupsKey()
         let deviceActivityCount = defaults.integer(forKey: key)
 
-        // Χρησιμοποιούμε το μεγαλύτερο νούμερο (DeviceActivity είναι πιο ακριβές)
         if deviceActivityCount > todayPickups {
             let diff = deviceActivityCount - todayPickups
             todayPickups = deviceActivityCount
@@ -75,10 +79,11 @@ class DataStore {
             saveData()
             WidgetCenter.shared.reloadAllTimelines()
             print("📊 Synced with DeviceActivity: \(todayPickups) pickups today")
+
+            ZoneNotificationManager.shared.checkAndNotify(currentPickups: todayPickups)
         }
     }
 
-    /// Listen για Darwin notifications από το extension
     private func observeDeviceActivityPickups() {
         let name = "dev.fotiospongas.picksy.pickupRecorded" as CFString
         let observer = Unmanaged.passUnretained(self).toOpaque()
@@ -101,7 +106,11 @@ class DataStore {
 
     // MARK: - Reset all stats
 
+    /// v1.6: Σβήνει όλα τα Picksy-controlled data.
+    /// ΣΗΜΕΙΩΣΗ: App usage time από Apple Screen Time ΔΕΝ μπορούν να σβηστούν
+    /// (iOS limitation). Αυτά resetάρονται αυτόματα στις 00:00.
     func resetAllStats() {
+        // Core stats
         todayPickups = 0
         todayTotalSeconds = 0
         currentStreak = 0
@@ -109,6 +118,7 @@ class DataStore {
         totalPickups = 0
         totalDaysTracked = 0
 
+        // Clear core stat keys
         defaults.removeObject(forKey: "todayPickups")
         defaults.removeObject(forKey: "todayTotalSeconds")
         defaults.removeObject(forKey: "currentStreak")
@@ -117,10 +127,25 @@ class DataStore {
         defaults.removeObject(forKey: "totalDaysTracked")
         defaults.removeObject(forKey: "lastActiveDate")
 
-        // Reset και τα DeviceActivity data
+        // Reset DeviceActivity shared key
         defaults.removeObject(forKey: todayPickupsKey())
 
+        // v1.6: Clear ScreenUnlockDetector persisted state
+        UserDefaults.standard.removeObject(forKey: "ScreenUnlockDetector.lastPickupTime")
+
+        // v1.6: Clear last pickup timestamp στο NudgeView
+        UserDefaults.standard.removeObject(forKey: "lastPickupTimestamp")
+
+        // v1.6: Reset zone notifications - ώστε να μπορούν να ξανατριγκάρουν
+        ZoneNotificationManager.shared.resetForNewDay()
+
+        // v1.6: Reset session counter του ScreenUnlockDetector
+        ScreenUnlockDetector.shared.sessionPickupCount = 0
+
+        // Reload all widgets και Live Activity
         WidgetCenter.shared.reloadAllTimelines()
+
+        print("🔄 All Picksy stats reset")
     }
 
     var averageMinutes: Int {
@@ -131,6 +156,11 @@ class DataStore {
     var averageDailyPickups: Int {
         guard totalDaysTracked > 0 else { return totalPickups }
         return totalPickups / totalDaysTracked
+    }
+
+    /// v1.6: Current pickup zone based on todayPickups
+    var currentZone: PickupZone {
+        return PickupZone.zone(for: todayPickups)
     }
 
     // MARK: - Midnight Timer
@@ -151,6 +181,9 @@ class DataStore {
             guard let self else { return }
             self.checkNewDay()
             self.startMidnightTimer()
+
+            // v1.6: Reset zone notification triggers at midnight
+            ZoneNotificationManager.shared.resetForNewDay()
         }
     }
 
@@ -181,7 +214,7 @@ class DataStore {
         let language = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
         defaults.set(language, forKey: "appLanguage")
         let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
-        defaults.set(goal > 0 ? goal : 15, forKey: "dailyGoal")
+        defaults.set(goal > 0 ? goal : 50, forKey: "dailyGoal")
     }
 
     func checkNewDay() {
@@ -190,7 +223,7 @@ class DataStore {
 
         if lastDate != today && lastDate != "" {
             let dailyGoal = defaults.integer(forKey: "dailyGoal")
-            let goal = dailyGoal > 0 ? dailyGoal : 15
+            let goal = dailyGoal > 0 ? dailyGoal : 50
 
             if todayPickups <= goal && todayPickups > 0 {
                 currentStreak += 1
@@ -221,7 +254,6 @@ class DataStore {
         return formatter.string(from: Date())
     }
 
-    /// Key που χρησιμοποιεί το DeviceActivity extension
     private func todayPickupsKey() -> String {
         return "picksy_pickups_\(todayDateString())"
     }

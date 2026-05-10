@@ -4,9 +4,17 @@
 //
 //  Created by Fotios Pongas on 23.04.2026
 //
-//  Τραβάει καιρό από το Open-Meteo API (δωρεάν, χωρίς API key).
+//  v1.7 REWRITE: WeatherKit + CoreLocation
+//  - Αυτόματη τοποθεσία (When In Use)
+//  - Real-time καιρός από Apple WeatherKit
+//  - Manual refresh με tap στο temperature pill
+//  - Fallback σε Open-Meteo αν WeatherKit αποτύχει
+//  - Fixed conditionFromWeatherKit για iOS 26 compatibility
+//
 
 import Foundation
+import WeatherKit
+import CoreLocation
 
 // MARK: - Weather Condition
 
@@ -40,8 +48,7 @@ enum WeatherCondition: String, Codable {
     var isOutdoorFriendly: Bool {
         switch self {
         case .sunny, .partlyCloudy, .cloudy: return true
-        case .rainy, .thunderstorm, .snow, .foggy, .hot, .cold: return false
-        case .unknown: return true
+        default: return false
         }
     }
 }
@@ -59,39 +66,37 @@ struct WeatherData: Codable {
 // MARK: - Weather Manager
 
 @Observable
-class WeatherManager {
+class WeatherManager: NSObject {
 
     var currentWeather: WeatherData? = nil
     var isLoading: Bool = false
     var errorMessage: String? = nil
 
+    var locationStatus: CLAuthorizationStatus = .notDetermined
+
+    var hasLocationPermission: Bool {
+        locationStatus == .authorizedWhenInUse || locationStatus == .authorizedAlways
+    }
+
+    private let weatherService = WeatherService.shared
+    private let locationManager = CLLocationManager()
+    private var currentLocation: CLLocation? = nil
+
     private let defaults = UserDefaults.standard
     private let weatherKey = "picksyCachedWeather"
-    private let cityIdKey = "picksyWeatherCityId"
     private let overrideKey = "picksyWeatherOverride"
     private let overrideExpiryKey = "picksyWeatherOverrideExpiry"
+    private let refreshInterval: TimeInterval = 10 * 60
 
-    private let refreshInterval: TimeInterval = 10 * 60 // 30 λεπτά
-
-    init() {
+    override init() {
+        super.init()
+        locationManager.delegate = self
+        locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
         loadCached()
     }
 
-    // MARK: - Public API
+    // MARK: - Active Condition
 
-    /// Το id της επιλεγμένης πόλης
-    var savedCityId: String {
-        get { defaults.string(forKey: cityIdKey) ?? "" }
-        set { defaults.set(newValue, forKey: cityIdKey) }
-    }
-
-    /// Η City object που έχει επιλέξει ο χρήστης
-    var savedCity: City? {
-        guard !savedCityId.isEmpty else { return nil }
-        return CitiesDatabase.find(id: savedCityId)
-    }
-
-    /// Επιστρέφει το τρέχον condition (με override priority)
     var activeCondition: WeatherCondition {
         if let override = manualOverride, !isOverrideExpired {
             return override
@@ -99,32 +104,11 @@ class WeatherManager {
         return currentWeather?.condition ?? .unknown
     }
 
-    var hasCity: Bool {
-        savedCity != nil
-    }
+    // MARK: - Public API
 
-    // MARK: - Set city and fetch
-
-    /// Καλείται όταν ο χρήστης επιλέγει νέα πόλη από το picker
-    func selectCity(_ city: City) async {
-        // Clear τα παλιά δεδομένα καιρού (fix για το bug!)
-        await MainActor.run {
-            self.currentWeather = nil
-            self.errorMessage = nil
-            self.savedCityId = city.id
-        }
-
-        await fetchWeather(forceRefresh: true)
-    }
-
-    /// Τραβάει τον καιρό για την αποθηκευμένη πόλη
     func fetchWeather(forceRefresh: Bool = false) async {
-        guard let city = savedCity else { return }
-
-        // Αν έχουμε πρόσφατα δεδομένα για ΑΥΤΗ την πόλη, μην ξανατραβήξουμε
         if !forceRefresh,
            let cached = currentWeather,
-           cached.cityId == city.id,
            Date().timeIntervalSince(cached.fetchedAt) < refreshInterval {
             return
         }
@@ -134,26 +118,154 @@ class WeatherManager {
             errorMessage = nil
         }
 
-        do {
-            // Βήμα 1: Geocoding — city name → συντεταγμένες
-            let coords = try await getCoordinates(for: city)
+        switch locationManager.authorizationStatus {
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+            return
+        case .denied, .restricted:
+            await fetchWithOpenMeteoFallback()
+            return
+        case .authorizedWhenInUse, .authorizedAlways:
+            locationManager.requestLocation()
+        @unknown default:
+            await fetchWithOpenMeteoFallback()
+        }
+    }
 
-            // Βήμα 2: Weather request
-            let weather = try await getWeather(lat: coords.lat, lon: coords.lon)
+    func manualRefresh() async {
+        await fetchWeather(forceRefresh: true)
+    }
+
+    // MARK: - WeatherKit Fetch
+
+    private func fetchWithWeatherKit(location: CLLocation) async {
+        do {
+            let weather = try await weatherService.weather(for: location)
+            let condition = conditionFromWeatherKit(weather.currentWeather)
+            let temp = weather.currentWeather.temperature.converted(to: .celsius).value
+            let cityName = await getCityName(from: location)
 
             let data = WeatherData(
-                condition: weather.condition,
-                temperature: weather.temp,
-                cityId: city.id,
-                cityName: city.nameEN,
+                condition: condition,
+                temperature: temp,
+                cityId: "current_location",
+                cityName: cityName,
                 fetchedAt: Date()
             )
 
             await MainActor.run {
                 self.currentWeather = data
                 self.isLoading = false
+                self.errorMessage = nil
                 self.saveCached(data)
             }
+
+            print("[WeatherKit] ✅ \(cityName): \(condition.emoji) \(Int(temp))°C")
+
+        } catch {
+            print("[WeatherKit] ❌ \(error.localizedDescription)")
+            await fetchWithOpenMeteoFallback(location: location)
+        }
+    }
+
+    // MARK: - WeatherKit Condition Mapping
+    // Χρησιμοποιούμε description string matching για iOS 26 compatibility
+    // αντί για specific enum cases που αλλάζουν μεταξύ versions.
+
+    private func conditionFromWeatherKit(_ current: CurrentWeather) -> WeatherCondition {
+        let temp = current.temperature.converted(to: .celsius).value
+
+        if temp >= 35 { return .hot }
+        if temp <= 0 { return .cold }
+
+        // String-based matching - works across all iOS versions
+        let conditionString = current.condition.description.lowercased()
+
+        if conditionString.contains("thunder") || conditionString.contains("storm") {
+            return .thunderstorm
+        }
+        if conditionString.contains("snow") || conditionString.contains("blizzard") ||
+           conditionString.contains("sleet") || conditionString.contains("flurr") ||
+           conditionString.contains("wintry") || conditionString.contains("frigid") {
+            return .snow
+        }
+        if conditionString.contains("rain") || conditionString.contains("drizzle") ||
+           conditionString.contains("shower") || conditionString.contains("freezing") {
+            return .rainy
+        }
+        if conditionString.contains("fog") || conditionString.contains("haze") ||
+           conditionString.contains("hazy") || conditionString.contains("smoke") ||
+           conditionString.contains("dust") {
+            return .foggy
+        }
+        if conditionString.contains("partly") || conditionString.contains("mostly cloudy") ||
+           conditionString.contains("scattered") || conditionString.contains("isolated") {
+            return .partlyCloudy
+        }
+        if conditionString.contains("overcast") ||
+           (conditionString.contains("cloudy") && !conditionString.contains("partly")) {
+            return .cloudy
+        }
+        if conditionString.contains("clear") || conditionString.contains("sunny") ||
+           conditionString.contains("fair") || conditionString.contains("bright") {
+            return .sunny
+        }
+
+        // Fallback βάσει basic enum cases (υπάρχουν σε όλες τις iOS versions)
+        switch current.condition {
+        case .clear, .mostlyClear:
+            return .sunny
+        case .partlyCloudy, .mostlyCloudy:
+            return .partlyCloudy
+        default:
+            return .unknown
+        }
+    }
+
+    // MARK: - Open-Meteo Fallback
+
+    private func fetchWithOpenMeteoFallback(location: CLLocation? = nil) async {
+        print("[Weather] Using Open-Meteo fallback")
+
+        let lat: Double
+        let lon: Double
+
+        if let loc = location ?? currentLocation {
+            lat = loc.coordinate.latitude
+            lon = loc.coordinate.longitude
+        } else {
+            // Default: Vaihingen an der Enz
+            lat = 48.9287
+            lon = 9.0676
+        }
+
+        do {
+            let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code"
+            guard let url = URL(string: urlString) else { throw WeatherError.invalidURL }
+
+            let (data, _) = try await URLSession.shared.data(from: url)
+            let response = try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
+
+            let temp = response.current.temperature_2m
+            let condition = conditionFromWMO(code: response.current.weather_code, temp: temp)
+            let cityName = await getCityName(from: CLLocation(latitude: lat, longitude: lon))
+
+            let weatherData = WeatherData(
+                condition: condition,
+                temperature: temp,
+                cityId: "current_location",
+                cityName: cityName,
+                fetchedAt: Date()
+            )
+
+            await MainActor.run {
+                self.currentWeather = weatherData
+                self.isLoading = false
+                self.saveCached(weatherData)
+            }
+
+            print("[OpenMeteo] ✅ Fallback: \(condition.emoji) \(Int(temp))°C")
+
         } catch {
             await MainActor.run {
                 self.isLoading = false
@@ -162,12 +274,52 @@ class WeatherManager {
         }
     }
 
+    private struct OpenMeteoResponse: Codable {
+        let current: OpenMeteoCurrent
+    }
+
+    private struct OpenMeteoCurrent: Codable {
+        let temperature_2m: Double
+        let weather_code: Int
+    }
+
+    private func conditionFromWMO(code: Int, temp: Double) -> WeatherCondition {
+        if temp >= 35 { return .hot }
+        if temp <= 0 { return .cold }
+
+        switch code {
+        case 0:         return .sunny
+        case 1, 2:      return .partlyCloudy
+        case 3:         return .cloudy
+        case 45, 48:    return .foggy
+        case 51...67:   return .rainy
+        case 71...77:   return .snow
+        case 80...82:   return .rainy
+        case 85, 86:    return .snow
+        case 95...99:   return .thunderstorm
+        default:        return .unknown
+        }
+    }
+
+    // MARK: - Reverse Geocoding
+
+    private func getCityName(from location: CLLocation) async -> String {
+        let geocoder = CLGeocoder()
+        do {
+            let placemarks = try await geocoder.reverseGeocodeLocation(location)
+            return placemarks.first?.locality
+                ?? placemarks.first?.administrativeArea
+                ?? "Current Location"
+        } catch {
+            return "Current Location"
+        }
+    }
+
     // MARK: - Manual Override
 
     func setManualOverride(_ condition: WeatherCondition, duration: TimeInterval = 24 * 3600) {
-        let expiry = Date().addingTimeInterval(duration)
         defaults.set(condition.rawValue, forKey: overrideKey)
-        defaults.set(expiry, forKey: overrideExpiryKey)
+        defaults.set(Date().addingTimeInterval(duration), forKey: overrideExpiryKey)
     }
 
     func clearManualOverride() {
@@ -187,83 +339,7 @@ class WeatherManager {
     }
 
     var hasActiveOverride: Bool {
-        return manualOverride != nil && !isOverrideExpired
-    }
-
-    // MARK: - Geocoding (χρησιμοποιούμε το English name της πόλης)
-
-    private struct GeocodingResponse: Codable {
-        let results: [GeoResult]?
-    }
-
-    private struct GeoResult: Codable {
-        let latitude: Double
-        let longitude: Double
-    }
-
-    private func getCoordinates(for city: City) async throws -> (lat: Double, lon: Double) {
-        let encoded = city.nameEN.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? city.nameEN
-        let urlString = "https://geocoding-api.open-meteo.com/v1/search?name=\(encoded)&count=5&language=en&format=json"
-
-        guard let url = URL(string: urlString) else {
-            throw WeatherError.invalidURL
-        }
-
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let response = try JSONDecoder().decode(GeocodingResponse.self, from: data)
-
-        guard let first = response.results?.first else {
-            throw WeatherError.cityNotFound
-        }
-
-        return (first.latitude, first.longitude)
-    }
-
-    // MARK: - Weather API
-
-    private struct WeatherResponse: Codable {
-        let current: CurrentWeather
-    }
-
-    private struct CurrentWeather: Codable {
-        let temperature_2m: Double
-        let weather_code: Int
-    }
-
-    private func getWeather(lat: Double, lon: Double) async throws -> (condition: WeatherCondition, temp: Double) {
-        let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code"
-
-        guard let url = URL(string: urlString) else {
-            throw WeatherError.invalidURL
-        }
-
-        let (data, _) = try await URLSession.shared.data(from: url)
-        let response = try JSONDecoder().decode(WeatherResponse.self, from: data)
-
-        let temp = response.current.temperature_2m
-        let condition = conditionFrom(code: response.current.weather_code, temp: temp)
-
-        return (condition, temp)
-    }
-
-    /// Μετατρέπει τον WMO weather code σε WeatherCondition
-    private func conditionFrom(code: Int, temp: Double) -> WeatherCondition {
-        // Extreme temperature priority
-        if temp >= 30 { return .hot }
-        if temp <= 5 { return .cold }
-
-        switch code {
-        case 0:         return .sunny
-        case 1, 2:      return .partlyCloudy
-        case 3:         return .cloudy
-        case 45, 48:    return .foggy
-        case 51...67:   return .rainy
-        case 71...77:   return .snow
-        case 80...82:   return .rainy
-        case 85, 86:    return .snow
-        case 95...99:   return .thunderstorm
-        default:        return .unknown
-        }
+        manualOverride != nil && !isOverrideExpired
     }
 
     // MARK: - Cache
@@ -276,10 +352,52 @@ class WeatherManager {
     private func loadCached() {
         guard let data = defaults.data(forKey: weatherKey),
               let decoded = try? JSONDecoder().decode(WeatherData.self, from: data) else { return }
+        currentWeather = decoded
+    }
 
-        // Φόρτωσε μόνο αν ανήκει στην τρέχουσα πόλη
-        if decoded.cityId == savedCityId {
-            currentWeather = decoded
+    // MARK: - Compatibility
+
+    var savedCity: City? { nil }
+
+    func selectCity(_ city: City) async {
+        await fetchWeather(forceRefresh: true)
+    }
+}
+
+// MARK: - CLLocationManagerDelegate
+
+extension WeatherManager: CLLocationManagerDelegate {
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last else { return }
+        currentLocation = location
+        print("[WeatherKit] 📍 Location: \(location.coordinate.latitude), \(location.coordinate.longitude)")
+        Task {
+            await fetchWithWeatherKit(location: location)
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        print("[WeatherKit] ❌ Location error: \(error.localizedDescription)")
+        Task {
+            await fetchWithOpenMeteoFallback()
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        DispatchQueue.main.async {
+            self.locationStatus = manager.authorizationStatus
+        }
+
+        switch manager.authorizationStatus {
+        case .authorizedWhenInUse, .authorizedAlways:
+            print("[WeatherKit] ✅ Location authorized")
+            manager.requestLocation()
+        case .denied, .restricted:
+            print("[WeatherKit] ⚠️ Location denied, using fallback")
+            Task { await fetchWithOpenMeteoFallback() }
+        default:
+            break
         }
     }
 }
@@ -292,7 +410,7 @@ enum WeatherError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: return "Invalid URL"
+        case .invalidURL:   return "Invalid URL"
         case .cityNotFound: return "City not found"
         }
     }

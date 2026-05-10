@@ -4,8 +4,19 @@
 //
 //  Created by Fotios Pongas on 24.03.26.
 //
-//  Χρησιμοποιεί τον accelerometer για να ανιχνεύσει
-//  πότε ο χρήστης σηκώνει το κινητό — αυτόματα.
+//  v1.6 UPDATE - Passive enrichment mode.
+//
+//  Στις προηγούμενες versions, αυτή η class έκανε pickup detection.
+//  Λόγω accuracy issues (missed pickups όταν το κινητό ήταν σχετικά
+//  ακίνητο, π.χ. στο τραπέζι ή στο κρεβάτι), η detection logic μεταφέρθηκε
+//  στον ScreenUnlockDetector.
+//
+//  Αυτή η class τώρα τρέχει σε "passive mode": καταγράφει motion context
+//  (stationary/in_motion) χωρίς να μετράει pickups. Τα δεδομένα μπορούν να
+//  χρησιμοποιηθούν αργότερα για analytics όπως:
+//  - "Πόσα pickups γίνανε ενώ ο χρήστης ήταν ξαπλωμένος;"
+//  - "Pickups κατά τη διάρκεια walking vs sitting"
+//
 
 import Foundation
 import CoreMotion
@@ -14,31 +25,50 @@ import SwiftUI
 @Observable
 class PickupDetector {
 
-    private let motionManager = CMMotionManager()
+    // MARK: - State
 
     var isMonitoring: Bool = false
-    var pickupDetected: Bool = false
 
-    // Callback — καλείται αυτόματα κάθε φορά που ανιχνεύεται pickup
-    var onPickupDetected: (() -> Void)?
+    /// Current motion state (stationary, inMotion, walking).
+    /// Public για future analytics use.
+    var motionState: MotionState = .unknown
+
+    enum MotionState: String {
+        case unknown
+        case stationary
+        case inMotion
+    }
+
+    // MARK: - CoreMotion
+
+    private let motionManager = CMMotionManager()
 
     private var lastAcceleration: CMAcceleration?
-    private var isPhoneStationary: Bool = true
     private var stationaryTimer: Timer?
 
-    // Threshold: πόση αλλαγή = pickup
-    private let pickupThreshold: Double = 0.25
+    // MARK: - Configuration
 
-    // Πόσο συχνά ελέγχουμε
-    private let updateInterval: Double = 0.1
+    /// Threshold για detection αλλαγής στη motion state.
+    private let motionThreshold: Double = 0.25
 
-    // Cooldown: μετά από pickup, περίμενε πριν ανιχνεύσεις άλλο
-    private var lastPickupTime: Date = .distantPast
-    private let cooldownSeconds: Double = 30
+    /// Πόσο συχνά διαβάζουμε accelerometer.
+    /// 0.5s είναι αρκετά για motion state tracking, χωρίς να τρώει μπαταρία.
+    /// (Παλαιότερα ήταν 0.1s, αλλά τώρα δεν κάνουμε pickup detection
+    /// οπότε δεν χρειαζόμαστε υψηλή ακρίβεια.)
+    private let updateInterval: Double = 0.5
 
+    // MARK: - Public API
+
+    /// Ξεκινάει passive motion monitoring.
+    /// Δεν τριγκάρει pickup detection, μόνο καταγράφει motion state.
     func startMonitoring() {
         guard motionManager.isAccelerometerAvailable else {
-            print("Accelerometer not available")
+            log("⚠️ Accelerometer not available")
+            return
+        }
+
+        guard !isMonitoring else {
+            log("⚠️ Already monitoring, skip duplicate start")
             return
         }
 
@@ -50,13 +80,20 @@ class PickupDetector {
         }
 
         isMonitoring = true
+        log("✅ Started passive motion monitoring (enrichment mode)")
     }
 
+    /// Σταματάει το monitoring.
     func stopMonitoring() {
         motionManager.stopAccelerometerUpdates()
         stationaryTimer?.invalidate()
+        stationaryTimer = nil
         isMonitoring = false
+        motionState = .unknown
+        log("🛑 Stopped motion monitoring")
     }
+
+    // MARK: - Motion Processing
 
     private func processAcceleration(_ acceleration: CMAcceleration) {
         guard let last = lastAcceleration else {
@@ -72,40 +109,27 @@ class PickupDetector {
 
         lastAcceleration = acceleration
 
-        if magnitude > pickupThreshold {
-            if isPhoneStationary {
-                // Ήταν ακίνητο → τώρα κινείται = PICKUP!
-                handlePickup()
+        if magnitude > motionThreshold {
+            // Motion detected - update state
+            if motionState != .inMotion {
+                motionState = .inMotion
+                log("📱 Motion state: in_motion")
             }
 
-            isPhoneStationary = false
-
+            // Reset stationary timer
             stationaryTimer?.invalidate()
             stationaryTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
-                self?.isPhoneStationary = true
+                guard let self = self else { return }
+                self.motionState = .stationary
+                self.log("📱 Motion state: stationary")
             }
         }
     }
 
-    private func handlePickup() {
-        let timeSinceLastPickup = Date().timeIntervalSince(lastPickupTime)
-        guard timeSinceLastPickup > cooldownSeconds else { return }
+    // MARK: - Logging
 
-        lastPickupTime = Date()
-
-        // Αυτόματη καταγραφή — χωρίς να χρειάζεται ο χρήστης να πατήσει κάτι
-        onPickupDetected?()
-
-        // Ενημέρωσε το UI
-        pickupDetected = true
-
-        // Haptic feedback
-        let generator = UIImpactFeedbackGenerator(style: .light)
-        generator.impactOccurred()
-    }
-
-    func acknowledgePickup() {
-        pickupDetected = false
+    private func log(_ message: String) {
+        print("[PickupDetector] \(message)")
     }
 }
 

@@ -4,7 +4,8 @@
 //
 //  Created by Fotios Pongas on 27.04.2026
 //
-//  Εμφανίζει per-app usage time μέσω του DeviceActivityReport extension.
+//  v1.6 UPDATE - Filter μόνο για selected apps (αντί για όλες).
+//
 
 import SwiftUI
 import DeviceActivity
@@ -21,27 +22,29 @@ extension DeviceActivityReport.Context {
 
 struct AppsView: View {
     @AppStorage("appLanguage") private var appLanguage: String = "English"
+    @State private var refreshTrigger = AppsViewRefreshTrigger.shared
     @State private var isAuthorized: Bool = false
     @State private var hasSelectedApps: Bool = false
     @State private var showAppPicker: Bool = false
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
-    @State private var refreshID: UUID = UUID()
     @State private var midnightTimer: Timer? = nil
     @State private var currentDate: Date = Date()
-    @State private var foregroundObserver: NSObjectProtocol? = nil
-    @State private var isReportReady: Bool = false
 
-    /// Filter: σήμερα από 00:00 μέχρι 23:59
-    /// Safe fallback αν το dateInterval γυρίσει nil
+    /// v1.6 FIX: Filter για σήμερα ΚΑΙ μόνο για selected apps/categories.
+    /// Παλιά έδειχνε όλες τις apps που είχαν activity, τώρα μόνο τις tracked.
     private var todayFilter: DeviceActivityFilter {
         let calendar = Calendar.current
         let interval = calendar.dateInterval(of: .day, for: currentDate)
             ?? DateInterval(start: currentDate, duration: 86400)
 
+        let selection = AppSelectionStore.shared.selection
+
         return DeviceActivityFilter(
             segment: .daily(during: interval),
             users: .all,
-            devices: .init([.iPhone])
+            devices: .init([.iPhone]),
+            applications: selection.applicationTokens,
+            categories: selection.categoryTokens
         )
     }
 
@@ -67,12 +70,22 @@ struct AppsView: View {
                 Spacer()
 
                 if isAuthorized && hasSelectedApps {
-                    Button(action: { showAppPicker = true }) {
-                        Image(systemName: "slider.horizontal.3")
-                            .font(.system(size: 16))
-                            .foregroundColor(.blue)
-                            .frame(width: 36, height: 36)
-                            .background(Circle().fill(Color.blue.opacity(0.1)))
+                    HStack(spacing: 8) {
+                        Button(action: { refreshTrigger.refresh() }) {
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                                .frame(width: 36, height: 36)
+                                .background(Circle().fill(Color.gray.opacity(0.1)))
+                        }
+
+                        Button(action: { showAppPicker = true }) {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 16))
+                                .foregroundColor(.blue)
+                                .frame(width: 36, height: 36)
+                                .background(Circle().fill(Color.blue.opacity(0.1)))
+                        }
                     }
                 }
             }
@@ -85,10 +98,8 @@ struct AppsView: View {
                 authorizationNeededView
             } else if !hasSelectedApps {
                 noAppsSelectedView
-            } else if isReportReady {
-                reportView
             } else {
-                loadingView
+                reportView
             }
 
             Spacer()
@@ -97,45 +108,20 @@ struct AppsView: View {
         .onAppear {
             refreshState()
             startMidnightTimer()
-            registerForegroundObserver()
-
-            // Καθυστέρηση πριν εμφανίσουμε το DeviceActivityReport
-            // ώστε να προλάβει να φορτώσει το extension
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                isReportReady = true
-            }
         }
         .onDisappear {
             midnightTimer?.invalidate()
             midnightTimer = nil
-            unregisterForegroundObserver()
-            isReportReady = false
         }
         .onChange(of: pickerSelection) { _, newValue in
             AppSelectionStore.shared.selection = newValue
             refreshState()
-            // Force refresh με μικρή καθυστέρηση
-            isReportReady = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                refreshID = UUID()
-                isReportReady = true
-            }
+            UsageThresholdManager.shared.restartMonitoring()
+            refreshTrigger.refreshAfter(seconds: 0.3)
         }
     }
 
     // MARK: - States
-
-    private var loadingView: some View {
-        VStack(spacing: 16) {
-            Spacer().frame(height: 60)
-            ProgressView()
-                .scaleEffect(1.2)
-            Text(t("Loading...", "Φόρτωση...", "Lädt..."))
-                .font(.system(size: 13, weight: .regular, design: .rounded))
-                .foregroundColor(.secondary)
-            Spacer()
-        }
-    }
 
     private var authorizationNeededView: some View {
         VStack(spacing: 20) {
@@ -228,13 +214,12 @@ struct AppsView: View {
 
     private var reportView: some View {
         DeviceActivityReport(.totalActivity, filter: todayFilter)
-            .id(refreshID)
+            .id(refreshTrigger.refreshID)
             .padding(.horizontal, 16)
     }
 
     // MARK: - Helpers
 
-    /// Διαβάζει το ΠΡΑΓΜΑΤΙΚΟ status από το AuthorizationCenter
     @MainActor
     private func refreshState() {
         let status = AuthorizationCenter.shared.authorizationStatus
@@ -271,40 +256,12 @@ struct AppsView: View {
         let secondsUntilMidnight = midnight.timeIntervalSinceNow
         guard secondsUntilMidnight > 0 else { return }
 
-        midnightTimer = Timer.scheduledTimer(withTimeInterval: secondsUntilMidnight, repeats: false) { [weak midnightTimer] _ in
+        midnightTimer = Timer.scheduledTimer(withTimeInterval: secondsUntilMidnight, repeats: false) { _ in
             DispatchQueue.main.async {
                 self.currentDate = Date()
-                self.refreshID = UUID()
+                self.refreshTrigger.refresh()
                 self.startMidnightTimer()
             }
-        }
-    }
-
-    // MARK: - Foreground Observer (με proper cleanup)
-
-    private func registerForegroundObserver() {
-        // Defensive: αν υπάρχει ήδη, αφαίρεσέ τον πρώτα
-        unregisterForegroundObserver()
-
-        foregroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.willEnterForegroundNotification,
-            object: nil,
-            queue: .main
-        ) { _ in
-            let calendar = Calendar.current
-            let now = Date()
-            if !calendar.isDate(now, inSameDayAs: currentDate) {
-                currentDate = now
-                refreshID = UUID()
-                startMidnightTimer()
-            }
-        }
-    }
-
-    private func unregisterForegroundObserver() {
-        if let observer = foregroundObserver {
-            NotificationCenter.default.removeObserver(observer)
-            foregroundObserver = nil
         }
     }
 }
@@ -312,3 +269,4 @@ struct AppsView: View {
 #Preview {
     AppsView()
 }
+

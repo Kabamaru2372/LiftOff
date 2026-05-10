@@ -2,6 +2,9 @@
 // Picksy
 //
 // Created by Fotios Pongas 24.03.2026
+//
+// v1.6 UPDATE - Fix: refresh AppsView όταν user tap "See details"
+//                από usage insight modal.
 
 import SwiftUI
 
@@ -17,6 +20,9 @@ struct ContentView: View {
     @State private var showPaywall: Bool = false
     @State private var showCheckIn: Bool = false
     @State private var weeklySummaryItem: WeeklySummaryItem? = nil
+
+    @State private var zoneInsightData: ZoneInsightData? = nil
+    @State private var usageInsightData: UsageInsightData? = nil
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -54,7 +60,6 @@ struct ContentView: View {
                     }
                     .tag(1)
 
-                // NEW: Apps tab (αντικαθιστά το Heatmap)
                 AppsView()
                     .timeGradientBackground()
                     .tabItem {
@@ -123,9 +128,82 @@ struct ContentView: View {
         .fullScreenCover(item: $weeklySummaryItem) { item in
             WeeklySummaryView(summary: item.summary)
         }
+        // v1.6: Zone insight sheet
+        .sheet(item: $zoneInsightData) { data in
+            ZoneInsightView(
+                pickupCount: data.pickupCount,
+                zone: data.zone,
+                onDismiss: {
+                    zoneInsightData = nil
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
+        }
+        // v1.6: Usage insight sheet
+        .sheet(item: $usageInsightData) { data in
+            UsageInsightView(
+                level: data.level,
+                onSeeDetails: {
+                    handleSeeDetails()
+                },
+                onDismiss: {
+                    usageInsightData = nil
+                }
+            )
+            .presentationDetents([.large])  // v1.6: Πιο πολύ ύψος για να φαίνεται όλο
+            .presentationDragIndicator(.hidden)
+        }
         .onAppear {
             checkForDailyCheckIn()
             checkForWeeklySummary()
+
+            if let pending = NotificationDelegate.shared.pendingZoneInsight {
+                zoneInsightData = pending
+                NotificationDelegate.shared.pendingZoneInsight = nil
+            }
+
+            if let pending = NotificationDelegate.shared.pendingUsageInsight {
+                usageInsightData = pending
+                NotificationDelegate.shared.pendingUsageInsight = nil
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NotificationDelegate.zoneInsightRequestedNotification
+        )) { notification in
+            if let zoneRaw = notification.userInfo?["zone"] as? String,
+               let zone = PickupZone(rawValue: zoneRaw),
+               let pickups = notification.userInfo?["pickups"] as? Int {
+                zoneInsightData = ZoneInsightData(zone: zone, pickupCount: pickups)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: NotificationDelegate.usageInsightRequestedNotification
+        )) { notification in
+            if let level = notification.userInfo?["level"] as? Int {
+                usageInsightData = UsageInsightData(level: level)
+            }
+        }
+    }
+
+    /// v1.6 FIX: Handle "See details" from usage insight modal.
+    /// Κάνει τα εξής με σωστό ordering:
+    /// 1. Close το sheet
+    /// 2. Switch tab μετά από delay (sheet animation)
+    /// 3. Multiple refresh triggers για να σιγουρευτούμε ότι data φορτώνει
+    private func handleSeeDetails() {
+        // 1. Close sheet
+        usageInsightData = nil
+
+        // 2. Switch tab μετά το sheet animation (~0.4s)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+            tabSelection.selectedTab = 2
+
+            // 3. Trigger refresh ώστε να φορτώσει data στο tab
+            // Multiple refreshes για robust coverage
+            AppsViewRefreshTrigger.shared.refresh()
+            AppsViewRefreshTrigger.shared.refreshAfter(seconds: 0.5)
+            AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
         }
     }
 

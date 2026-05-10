@@ -2,9 +2,82 @@
 // Picksy
 //
 // Created by Fotios Pongas 24.03.2026
+//
+// v1.6 UPDATE:
+// - Silent push via Supabase για background tracking
+// - AppDelegate handles device token + silent push
+// - Background fetch ως fallback
 
 import SwiftUI
 import UserNotifications
+import BackgroundTasks
+
+// MARK: - App Delegate
+
+class AppDelegate: NSObject, UIApplicationDelegate {
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+
+        // BGTask registration - ΠΡΕΠΕΙ να γίνει εδώ
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: LiftOffApp.backgroundFetchTaskID,
+            using: nil
+        ) { task in
+            print("[BGTask] 🔄 Background fetch task received!")
+            LiftOffApp.handleBackgroundFetch(task: task as! BGAppRefreshTask)
+        }
+
+        print("[AppDelegate] ✅ BGTask registered")
+        return true
+    }
+
+    // MARK: - Remote Notification Registration
+
+    /// Καλείται όταν iOS δίνει device token για push notifications
+    func application(
+        _ application: UIApplication,
+        didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+        PushNotificationManager.shared.handleDeviceToken(deviceToken)
+    }
+
+    /// Καλείται αν αποτύχει η registration
+    func application(
+        _ application: UIApplication,
+        didFailToRegisterForRemoteNotificationsWithError error: Error
+    ) {
+        PushNotificationManager.shared.handleRegistrationFailure(error)
+    }
+
+    // MARK: - Silent Push Handler
+
+    /// Καλείται όταν έρχεται silent push (content-available: 1)
+    /// Αυτό είναι το κλειδί για background wake-up!
+    func application(
+        _ application: UIApplication,
+        didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+        fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+        print("[AppDelegate] 📩 Remote notification received")
+
+        // Ελέγχουμε αν είναι silent push από Picksy
+        guard let type = userInfo["type"] as? String,
+              type == "silent-refresh" else {
+            completionHandler(.noData)
+            return
+        }
+
+        PushNotificationManager.shared.handleSilentPush(
+            userInfo: userInfo,
+            store: LiftOffApp.sharedStore,
+            liveActivity: LiftOffApp.sharedLiveActivity,
+            completionHandler: completionHandler
+        )
+    }
+}
 
 // MARK: - Notification Delegate
 
@@ -13,20 +86,28 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationDelegate()
     weak var tabSelection: TabSelection?
 
-    // Όταν ο χρήστης πατάει σε notification
+    var pendingZoneInsight: ZoneInsightData?
+    var pendingUsageInsight: UsageInsightData?
+
+    static let zoneInsightRequestedNotification = Notification.Name("picksy.zoneInsightRequested")
+    static let usageInsightRequestedNotification = Notification.Name("picksy.usageInsightRequested")
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
         let identifier = response.notification.request.identifier
+        let userInfo = response.notification.request.content.userInfo
+        let categoryId = response.notification.request.content.categoryIdentifier
 
-        if identifier == "liftoff.evening" {
-            DispatchQueue.main.async {
-                self.tabSelection?.selectedTab = 1
-            }
+        if categoryId == ZoneNotificationManager.notificationCategory {
+            handleZoneNotificationTap(userInfo: userInfo)
         }
-        else if identifier == "liftoff.weekly" {
+        else if categoryId == "PICKSY_USAGE_THRESHOLD" {
+            handleUsageNotificationTap(userInfo: userInfo)
+        }
+        else if identifier == "liftoff.evening" || identifier == "liftoff.weekly" {
             DispatchQueue.main.async {
                 self.tabSelection?.selectedTab = 1
             }
@@ -42,10 +123,54 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     ) {
         completionHandler([.banner, .sound])
     }
+
+    private func handleZoneNotificationTap(userInfo: [AnyHashable: Any]) {
+        guard
+            let zoneRaw = userInfo[ZoneNotificationManager.userInfoZoneKey] as? String,
+            let zone = PickupZone(rawValue: zoneRaw),
+            let pickups = userInfo[ZoneNotificationManager.userInfoPickupsKey] as? Int
+        else { return }
+
+        let data = ZoneInsightData(zone: zone, pickupCount: pickups)
+        DispatchQueue.main.async {
+            self.tabSelection?.selectedTab = 0
+            self.pendingZoneInsight = data
+            NotificationCenter.default.post(
+                name: Self.zoneInsightRequestedNotification,
+                object: nil,
+                userInfo: ["zone": zone.rawValue, "pickups": pickups]
+            )
+        }
+    }
+
+    private func handleUsageNotificationTap(userInfo: [AnyHashable: Any]) {
+        guard let level = userInfo["level"] as? Int else { return }
+        let data = UsageInsightData(level: level)
+        DispatchQueue.main.async {
+            self.pendingUsageInsight = data
+            NotificationCenter.default.post(
+                name: Self.usageInsightRequestedNotification,
+                object: nil,
+                userInfo: ["level": level]
+            )
+        }
+    }
 }
+
+// MARK: - Zone Insight Data
+
+struct ZoneInsightData: Identifiable, Equatable {
+    let id = UUID()
+    let zone: PickupZone
+    let pickupCount: Int
+}
+
+// MARK: - App
 
 @main
 struct LiftOffApp: App {
+
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     @State private var store = DataStore()
     @State private var detector = PickupDetector()
@@ -60,18 +185,18 @@ struct LiftOffApp: App {
     @State private var activityPrefs = ActivityPreferences()
 
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
+    @State private var foregroundObserver: NSObjectProtocol? = nil
+
+    static let backgroundFetchTaskID = "dev.fotiospongas.picksy.refresh"
+    static var sharedStore: DataStore?
+    static var sharedLiveActivity: LiveActivityManager?
 
     init() {
-        // Setup notification delegate
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
-
-        // CRITICAL: Pre-warm τα Family Controls singletons.
-        // Διαβάζοντας τα static .shared properties, αναγκάζουμε
-        // το αρχικοποίηση να γίνει στο app launch, όχι όταν
-        // ο user πατήσει το Apps tab. Αυτό αποτρέπει race conditions.
         _ = AppSelectionStore.shared
         _ = FamilyControlsManager.shared
         _ = PickupScheduler.shared
+        _ = ScreenUnlockDetector.shared
     }
 
     var body: some Scene {
@@ -90,19 +215,9 @@ struct LiftOffApp: App {
                     .environment(weatherManager)
                     .environment(activityPrefs)
                     .onAppear {
-                        let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
-                        liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal > 0 ? goal : 15)
-                        scheduleNotifications(pickupCount: store.todayPickups)
-                        startAutoTrialIfNeeded()
-                        NotificationDelegate.shared.tabSelection = tabSelection
-                        Task { await weatherManager.fetchWeather() }
-
-                        // CRITICAL: Refresh Family Controls authorization μετά το cold start.
-                        // Το AuthorizationCenter επιστρέφει stale data στα πρώτα ms,
-                        // οπότε περιμένουμε λίγο και ξανα-ρωτάμε.
-                        Task {
-                            await FamilyControlsManager.shared.refreshAuthorizationStatusOnLaunch()
-                        }
+                        LiftOffApp.sharedStore = store
+                        LiftOffApp.sharedLiveActivity = liveActivity
+                        onAppLaunch()
                     }
             } else {
                 OnboardingView()
@@ -117,6 +232,125 @@ struct LiftOffApp: App {
         }
     }
 
+    // MARK: - App Launch
+
+    private func onAppLaunch() {
+        let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
+        let dailyGoal = goal > 0 ? goal : 50
+
+        store.syncWithDeviceActivity()
+        let g = dailyGoal > 0 ? dailyGoal : 50
+        if liveActivity.isRunning {
+            liveActivity.update(pickupCount: store.todayPickups)
+        } else {
+            liveActivity.start(pickupCount: store.todayPickups, dailyGoal: g)
+        }
+        scheduleAllNotifications(pickupCount: store.todayPickups)
+        startAutoTrialIfNeeded()
+        NotificationDelegate.shared.tabSelection = tabSelection
+
+        Task { await weatherManager.fetchWeather() }
+
+        Task {
+            await FamilyControlsManager.shared.refreshAuthorizationStatusOnLaunch()
+            await MainActor.run {
+                if FamilyControlsManager.shared.isAuthorized {
+                    UsageThresholdManager.shared.startMonitoring()
+                    PickupScheduler.shared.startMonitoring()
+                }
+            }
+        }
+
+        // ScreenUnlockDetector για foreground pickup detection
+        ScreenUnlockDetector.shared.onPickupDetected = {
+            store.recordPickup()
+            liveActivity.update(pickupCount: store.todayPickups)
+        }
+        ScreenUnlockDetector.shared.startMonitoring()
+
+        detector.startMonitoring()
+
+        // AppsView refresh
+        AppsViewRefreshTrigger.shared.refresh()
+        AppsViewRefreshTrigger.shared.refreshAfter(seconds: 0.5)
+        AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
+        AppsViewRefreshTrigger.shared.refreshAfter(seconds: 3.0)
+
+        // v1.6: Register για silent push notifications
+        PushNotificationManager.shared.registerForPushNotifications()
+
+        setupForegroundObserver()
+        scheduleBackgroundFetch()
+
+        print("[LiftOffApp] 🚀 App launched. Pickups today: \(store.todayPickups)")
+    }
+
+    // MARK: - Foreground Observer
+
+    private func setupForegroundObserver() {
+        if let observer = foregroundObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.willEnterForegroundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            print("[LiftOffApp] 🔆 App came to foreground")
+
+            store.syncWithDeviceActivity()
+            let g = UserDefaults.standard.integer(forKey: "dailyGoal")
+            let goal = g > 0 ? g : 50
+            if liveActivity.isRunning {
+                liveActivity.update(pickupCount: store.todayPickups)
+            } else {
+                liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal)
+            }
+            ScreenUnlockDetector.shared.startMonitoring()
+
+            AppsViewRefreshTrigger.shared.refresh()
+            AppsViewRefreshTrigger.shared.refreshAfter(seconds: 0.5)
+            AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
+            AppsViewRefreshTrigger.shared.refreshAfter(seconds: 3.0)
+
+            scheduleBackgroundFetch()
+        }
+    }
+
+    // MARK: - Background Fetch (fallback)
+
+    static func scheduleBackgroundFetch() {
+        let request = BGAppRefreshTaskRequest(identifier: backgroundFetchTaskID)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            print("[LiftOffApp] ⚠️ Background fetch schedule failed: \(error)")
+        }
+    }
+
+    private func scheduleBackgroundFetch() {
+        LiftOffApp.scheduleBackgroundFetch()
+    }
+
+    static func handleBackgroundFetch(task: BGAppRefreshTask) {
+        print("[LiftOffApp] 🔄 Background fetch executing...")
+        scheduleBackgroundFetch()
+
+        task.expirationHandler = {
+            task.setTaskCompleted(success: false)
+        }
+
+        sharedStore?.syncWithDeviceActivity()
+        sharedLiveActivity?.update(pickupCount: sharedStore?.todayPickups ?? 0)
+        ScreenUnlockDetector.shared.startMonitoring()
+
+        print("[LiftOffApp] ✅ Background fetch complete")
+        task.setTaskCompleted(success: true)
+    }
+
     // MARK: - Auto Trial
 
     private func startAutoTrialIfNeeded() {
@@ -128,90 +362,118 @@ struct LiftOffApp: App {
 
     // MARK: - Notifications
 
-    private func scheduleNotifications(pickupCount: Int) {
+    private func scheduleAllNotifications(pickupCount: Int) {
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: [
-            "liftoff.midday",
-            "liftoff.evening",
-            "liftoff.weekly",
-            "liftoff.background.warning"
+            "liftoff.midday", "liftoff.evening", "liftoff.weekly",
+            "liftoff.background.warning",
+            "picksy.summary.afternoon", "picksy.summary.evening"
         ])
 
         let language = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+        scheduleMiddayNotification(center: center, pickupCount: pickupCount, language: language)
+        scheduleEveningNotification(center: center, language: language)
+        scheduleWeeklyNotification(center: center, language: language)
+        scheduleSummaryNotifications(center: center, language: language)
+    }
 
-        // Midday 12:00
-        let middayContent = UNMutableNotificationContent()
-        middayContent.sound = .default
+    private func scheduleMiddayNotification(center: UNUserNotificationCenter, pickupCount: Int, language: String) {
+        let content = UNMutableNotificationContent()
+        content.sound = .default
         switch language {
         case "Ελληνικά":
-            middayContent.title = "Πώς πας μέχρι τώρα;"
-            middayContent.body = middayMessageGR(pickupCount: pickupCount)
+            content.title = "Πώς πας μέχρι τώρα;"
+            content.body = middayMessageGR(pickupCount: pickupCount)
         case "Deutsch":
-            middayContent.title = "Wie läuft es bisher?"
-            middayContent.body = middayMessageDE(pickupCount: pickupCount)
+            content.title = "Wie läuft es bisher?"
+            content.body = middayMessageDE(pickupCount: pickupCount)
         default:
-            middayContent.title = "How's it going so far?"
-            middayContent.body = middayMessageEN(pickupCount: pickupCount)
+            content.title = "How's it going so far?"
+            content.body = middayMessageEN(pickupCount: pickupCount)
         }
+        var c = DateComponents(); c.hour = 12; c.minute = 0
+        center.add(UNNotificationRequest(identifier: "liftoff.midday", content: content,
+            trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)))
+    }
 
-        var middayComponents = DateComponents()
-        middayComponents.hour = 12; middayComponents.minute = 0
-        center.add(UNNotificationRequest(
-            identifier: "liftoff.midday",
-            content: middayContent,
-            trigger: UNCalendarNotificationTrigger(dateMatching: middayComponents, repeats: true)
-        ))
+    private func scheduleEveningNotification(center: UNUserNotificationCenter, language: String) {
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+        switch language {
+        case "Ελληνικά":
+            content.title = "Ημερήσιος απολογισμός 📝"
+            content.body = "Πώς ήταν η σχέση σου με το κινητό σήμερα; Άνοιξε το Picksy για check-in."
+        case "Deutsch":
+            content.title = "Tages-Check-in 📝"
+            content.body = "Wie war deine Beziehung zum Handy heute? Öffne Picksy für den Check-in."
+        default:
+            content.title = "Daily Check-in 📝"
+            content.body = "How was your relationship with your phone today? Open Picksy to check in."
+        }
+        var c = DateComponents(); c.hour = 21; c.minute = 0
+        center.add(UNNotificationRequest(identifier: "liftoff.evening", content: content,
+            trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)))
+    }
 
-        // Evening 21:00 — Daily Check-in
+    private func scheduleWeeklyNotification(center: UNUserNotificationCenter, language: String) {
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+        switch language {
+        case "Ελληνικά":
+            content.title = "Η εβδομάδα σου είναι έτοιμη! 📊"
+            content.body = "Δες μια ματιά στις τελευταίες 7 μέρες σου. Άνοιξε το Picksy."
+        case "Deutsch":
+            content.title = "Deine Woche ist da! 📊"
+            content.body = "Schau dir deine letzten 7 Tage an. Öffne Picksy."
+        default:
+            content.title = "Your week is here! 📊"
+            content.body = "Take a look at your last 7 days. Open Picksy."
+        }
+        var c = DateComponents(); c.weekday = 1; c.hour = 20; c.minute = 0
+        center.add(UNNotificationRequest(identifier: "liftoff.weekly", content: content,
+            trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)))
+    }
+
+    private func scheduleSummaryNotifications(center: UNUserNotificationCenter, language: String) {
+        let afternoonContent = UNMutableNotificationContent()
+        afternoonContent.sound = .default
+        switch language {
+        case "Ελληνικά":
+            afternoonContent.title = "Picksy check-in ⚡"
+            afternoonContent.body = "Πώς πας σήμερα; Άνοιξε το Picksy για να δεις τα σηκώματά σου."
+        case "Deutsch":
+            afternoonContent.title = "Picksy Check-in ⚡"
+            afternoonContent.body = "Wie läuft dein Tag? Öffne Picksy, um deine Griffe zu sehen."
+        default:
+            afternoonContent.title = "Picksy check-in ⚡"
+            afternoonContent.body = "How's your day going? Open Picksy to see your pickups."
+        }
+        var ac = DateComponents(); ac.hour = 14; ac.minute = 0
+        center.add(UNNotificationRequest(identifier: "picksy.summary.afternoon",
+            content: afternoonContent,
+            trigger: UNCalendarNotificationTrigger(dateMatching: ac, repeats: true)))
+
         let eveningContent = UNMutableNotificationContent()
         eveningContent.sound = .default
         switch language {
         case "Ελληνικά":
-            eveningContent.title = "Ημερήσιος απολογισμός 📝"
-            eveningContent.body = "Πώς ήταν η σχέση σου με το κινητό σήμερα; Άνοιξε το Picksy για check-in."
+            eveningContent.title = "Βραδινό σύνολο 🌙"
+            eveningContent.body = "Δες πόσες φορές σήκωσες το κινητό σήμερα. Άνοιξε το Picksy."
         case "Deutsch":
-            eveningContent.title = "Tages-Check-in 📝"
-            eveningContent.body = "Wie war deine Beziehung zum Handy heute? Öffne Picksy für den Check-in."
+            eveningContent.title = "Abend-Zusammenfassung 🌙"
+            eveningContent.body = "Sieh, wie oft du heute zum Handy gegriffen hast. Öffne Picksy."
         default:
-            eveningContent.title = "Daily Check-in 📝"
-            eveningContent.body = "How was your relationship with your phone today? Open Picksy to check in."
+            eveningContent.title = "Evening summary 🌙"
+            eveningContent.body = "See how many times you picked up your phone today. Open Picksy."
         }
-
-        var eveningComponents = DateComponents()
-        eveningComponents.hour = 21; eveningComponents.minute = 0
-        center.add(UNNotificationRequest(
-            identifier: "liftoff.evening",
+        var ec = DateComponents(); ec.hour = 20; ec.minute = 0
+        center.add(UNNotificationRequest(identifier: "picksy.summary.evening",
             content: eveningContent,
-            trigger: UNCalendarNotificationTrigger(dateMatching: eveningComponents, repeats: true)
-        ))
-
-        // Sunday 20:00 — Weekly Summary
-        let weeklyContent = UNMutableNotificationContent()
-        weeklyContent.sound = .default
-        switch language {
-        case "Ελληνικά":
-            weeklyContent.title = "Η εβδομάδα σου είναι έτοιμη! 📊"
-            weeklyContent.body = "Δες μια ματιά στις τελευταίες 7 μέρες σου. Άνοιξε το Picksy."
-        case "Deutsch":
-            weeklyContent.title = "Deine Woche ist da! 📊"
-            weeklyContent.body = "Schau dir deine letzten 7 Tage an. Öffne Picksy."
-        default:
-            weeklyContent.title = "Your week is here! 📊"
-            weeklyContent.body = "Take a look at your last 7 days. Open Picksy."
-        }
-
-        var weeklyComponents = DateComponents()
-        weeklyComponents.weekday = 1
-        weeklyComponents.hour = 20
-        weeklyComponents.minute = 0
-        center.add(UNNotificationRequest(
-            identifier: "liftoff.weekly",
-            content: weeklyContent,
-            trigger: UNCalendarNotificationTrigger(dateMatching: weeklyComponents, repeats: true)
-        ))
+            trigger: UNCalendarNotificationTrigger(dateMatching: ec, repeats: true)))
     }
 
-    // MARK: - Midday EN
+    // MARK: - Midday Messages
+
     private func middayMessageEN(pickupCount: Int) -> String {
         switch pickupCount {
         case 0...5: return "Excellent morning! You're barely touching your phone. Keep it up! 💪"
@@ -222,7 +484,6 @@ struct LiftOffApp: App {
         }
     }
 
-    // MARK: - Midday GR
     private func middayMessageGR(pickupCount: Int) -> String {
         switch pickupCount {
         case 0...5: return "Εξαιρετικό πρωινό! Μόλις αγγίζεις το κινητό. Συνέχισε έτσι! 💪"
@@ -233,7 +494,6 @@ struct LiftOffApp: App {
         }
     }
 
-    // MARK: - Midday DE
     private func middayMessageDE(pickupCount: Int) -> String {
         switch pickupCount {
         case 0...5: return "Ausgezeichneter Morgen! Du greifst kaum zum Handy. Weiter so! 💪"
@@ -244,3 +504,4 @@ struct LiftOffApp: App {
         }
     }
 }
+

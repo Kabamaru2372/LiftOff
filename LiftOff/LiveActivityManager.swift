@@ -4,8 +4,10 @@
 //
 //  Created by Fotios Pongas on 24.03.26.
 //
-// Διαχειρίζεται το Live Activity — ξεκινάει, ενημερώνει, σταματάει.
-// Καλείται από τον PickupDetector και τον DataStore.
+//  v1.6 UPDATE: pushType: .token για remote Live Activity updates.
+//  Το Dynamic Island ενημερώνεται ΑΜΕΣΩΣ από APNs push
+//  χωρίς να χρειάζεται το main app να είναι alive.
+//
 
 import ActivityKit
 import Foundation
@@ -15,25 +17,48 @@ class LiveActivityManager {
 
     private var currentActivity: Activity<LiftOffActivityAttributes>?
 
+    /// Push token για Live Activity remote updates.
+    /// Αποθηκεύεται στο UserDefaults για access από extension.
+    private(set) var pushToken: String? {
+        didSet {
+            if let token = pushToken {
+                UserDefaults.standard.set(token, forKey: "liveActivityPushToken")
+                print("[LiveActivity] 🔑 Push token saved: \(token.prefix(16))...")
+
+                // Στείλε token στο Supabase
+                Task {
+                    await PushNotificationManager.shared.registerLiveActivityToken(token)
+                }
+            }
+        }
+    }
+
     var isRunning: Bool {
         currentActivity != nil
     }
 
     init() {
-        // Στο app start, βρες αν υπάρχει ήδη ενεργό Live Activity
-        // και κράτα το reference αντί να φτιάξεις νέο
         recoverExistingActivity()
     }
 
-    /// Αν υπάρχει ήδη ενεργό Live Activity από προηγούμενο session,
-    /// το χρησιμοποιούμε αντί να φτιάξουμε νέο
+    // MARK: - Recovery
+
     private func recoverExistingActivity() {
         let activities = Activity<LiftOffActivityAttributes>.activities
         if let existing = activities.first {
             currentActivity = existing
             print("✅ Recovered existing Live Activity")
 
-            // Σταμάτα τα τυχόν επιπλέον (αν υπάρχουν duplicates)
+            // Observe push token αν υπάρχει ήδη
+            Task {
+                for await pushTokenData in existing.pushTokenUpdates {
+                    let token = pushTokenData.map { String(format: "%02x", $0) }.joined()
+                    await MainActor.run {
+                        self.pushToken = token
+                    }
+                }
+            }
+
             if activities.count > 1 {
                 Task {
                     for activity in activities.dropFirst() {
@@ -45,21 +70,20 @@ class LiveActivityManager {
         }
     }
 
+    // MARK: - Start
+
     func start(pickupCount: Int, dailyGoal: Int) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
             print("Live Activities not enabled")
             return
         }
 
-        // ΣΗΜΑΝΤΙΚΟ: Έλεγχος αν υπάρχει ήδη activity (από προηγούμενο session)
         if let existing = currentActivity {
-            // Update αντί για new
             update(pickupCount: pickupCount)
             print("ℹ️ Live Activity already running — updated instead")
             return
         }
 
-        // Έλεγχος και στο system-level activities list (extra safety)
         let systemActivities = Activity<LiftOffActivityAttributes>.activities
         if let existing = systemActivities.first {
             currentActivity = existing
@@ -78,16 +102,32 @@ class LiveActivityManager {
         let content = ActivityContent(state: state, staleDate: nil)
 
         do {
+            // v1.6: pushType: .token για remote updates από APNs
             currentActivity = try Activity.request(
                 attributes: attributes,
                 content: content,
-                pushType: nil
+                pushType: .token
             )
             print("✅ Live Activity started!")
+
+            // Observe push token updates
+            if let activity = currentActivity {
+                Task {
+                    for await pushTokenData in activity.pushTokenUpdates {
+                        let token = pushTokenData.map { String(format: "%02x", $0) }.joined()
+                        await MainActor.run {
+                            self.pushToken = token
+                        }
+                    }
+                }
+            }
+
         } catch {
             print("❌ Error starting Live Activity: \(error)")
         }
     }
+
+    // MARK: - Update (local)
 
     func update(pickupCount: Int) {
         guard let activity = currentActivity else { return }
@@ -105,6 +145,8 @@ class LiveActivityManager {
         }
     }
 
+    // MARK: - Stop
+
     func stop() {
         guard let activity = currentActivity else { return }
 
@@ -120,9 +162,10 @@ class LiveActivityManager {
             await activity.end(content, dismissalPolicy: .immediate)
         }
         currentActivity = nil
+        pushToken = nil
+        UserDefaults.standard.removeObject(forKey: "liveActivityPushToken")
     }
 
-    /// Σταματάει ΟΛΑ τα ενεργά Live Activities (cleanup)
     func stopAll() {
         Task {
             for activity in Activity<LiftOffActivityAttributes>.activities {
@@ -130,6 +173,8 @@ class LiveActivityManager {
             }
         }
         currentActivity = nil
+        pushToken = nil
+        UserDefaults.standard.removeObject(forKey: "liveActivityPushToken")
     }
 }
 
