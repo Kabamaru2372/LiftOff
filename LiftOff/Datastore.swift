@@ -36,6 +36,7 @@ class DataStore {
     }
 
     func loadData() {
+        
         todayPickups = defaults.integer(forKey: "todayPickups")
         todayTotalSeconds = defaults.integer(forKey: "todayTotalSeconds")
         currentStreak = defaults.integer(forKey: "currentStreak")

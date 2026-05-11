@@ -3,14 +3,11 @@
 //
 // Created by Fotios Pongas 24.03.2026
 //
-// v1.6 UPDATE:
-// - Silent push via Supabase για background tracking
-// - AppDelegate handles device token + silent push
-// - Background fetch ως fallback
+// v1.6 UPDATE: Silent push via Supabase για background tracking
+// v1.7 FIX: Αφαιρέθηκε BGTask (Supabase silent push το αντικαθιστά)
 
 import SwiftUI
 import UserNotifications
-import BackgroundTasks
 
 // MARK: - App Delegate
 
@@ -20,23 +17,10 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-
-        // BGTask registration - ΠΡΕΠΕΙ να γίνει εδώ
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: LiftOffApp.backgroundFetchTaskID,
-            using: nil
-        ) { task in
-            print("[BGTask] 🔄 Background fetch task received!")
-            LiftOffApp.handleBackgroundFetch(task: task as! BGAppRefreshTask)
-        }
-
-        print("[AppDelegate] ✅ BGTask registered")
+        print("[AppDelegate] ✅ App launched")
         return true
     }
 
-    // MARK: - Remote Notification Registration
-
-    /// Καλείται όταν iOS δίνει device token για push notifications
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
@@ -44,7 +28,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         PushNotificationManager.shared.handleDeviceToken(deviceToken)
     }
 
-    /// Καλείται αν αποτύχει η registration
     func application(
         _ application: UIApplication,
         didFailToRegisterForRemoteNotificationsWithError error: Error
@@ -52,10 +35,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         PushNotificationManager.shared.handleRegistrationFailure(error)
     }
 
-    // MARK: - Silent Push Handler
-
-    /// Καλείται όταν έρχεται silent push (content-available: 1)
-    /// Αυτό είναι το κλειδί για background wake-up!
     func application(
         _ application: UIApplication,
         didReceiveRemoteNotification userInfo: [AnyHashable: Any],
@@ -63,7 +42,6 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) {
         print("[AppDelegate] 📩 Remote notification received")
 
-        // Ελέγχουμε αν είναι silent push από Picksy
         guard let type = userInfo["type"] as? String,
               type == "silent-refresh" else {
             completionHandler(.noData)
@@ -103,11 +81,9 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 
         if categoryId == ZoneNotificationManager.notificationCategory {
             handleZoneNotificationTap(userInfo: userInfo)
-        }
-        else if categoryId == "PICKSY_USAGE_THRESHOLD" {
+        } else if categoryId == "PICKSY_USAGE_THRESHOLD" {
             handleUsageNotificationTap(userInfo: userInfo)
-        }
-        else if identifier == "liftoff.evening" || identifier == "liftoff.weekly" {
+        } else if identifier == "liftoff.evening" || identifier == "liftoff.weekly" {
             DispatchQueue.main.async {
                 self.tabSelection?.selectedTab = 1
             }
@@ -187,7 +163,6 @@ struct LiftOffApp: App {
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
     @State private var foregroundObserver: NSObjectProtocol? = nil
 
-    static let backgroundFetchTaskID = "dev.fotiospongas.picksy.refresh"
     static var sharedStore: DataStore?
     static var sharedLiveActivity: LiveActivityManager?
 
@@ -239,12 +214,13 @@ struct LiftOffApp: App {
         let dailyGoal = goal > 0 ? goal : 50
 
         store.syncWithDeviceActivity()
-        let g = dailyGoal > 0 ? dailyGoal : 50
+
         if liveActivity.isRunning {
             liveActivity.update(pickupCount: store.todayPickups)
         } else {
-            liveActivity.start(pickupCount: store.todayPickups, dailyGoal: g)
+            liveActivity.start(pickupCount: store.todayPickups, dailyGoal: dailyGoal)
         }
+
         scheduleAllNotifications(pickupCount: store.todayPickups)
         startAutoTrialIfNeeded()
         NotificationDelegate.shared.tabSelection = tabSelection
@@ -261,26 +237,36 @@ struct LiftOffApp: App {
             }
         }
 
-        // ScreenUnlockDetector για foreground pickup detection
         ScreenUnlockDetector.shared.onPickupDetected = {
             store.recordPickup()
             liveActivity.update(pickupCount: store.todayPickups)
         }
         ScreenUnlockDetector.shared.startMonitoring()
-
         detector.startMonitoring()
 
-        // AppsView refresh
         AppsViewRefreshTrigger.shared.refresh()
         AppsViewRefreshTrigger.shared.refreshAfter(seconds: 0.5)
         AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
         AppsViewRefreshTrigger.shared.refreshAfter(seconds: 3.0)
 
-        // v1.6: Register για silent push notifications
         PushNotificationManager.shared.registerForPushNotifications()
 
+        // Στείλε Live Activity token στο Supabase αν υπάρχει
+        Task {
+            if let token = UserDefaults.standard.string(forKey: "liveActivityPushToken") {
+                await PushNotificationManager.shared.registerLiveActivityToken(token)
+            }
+        }
+
+        // Observe Live Activity push token changes
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if let token = liveActivity.pushToken {
+                await PushNotificationManager.shared.registerLiveActivityToken(token)
+            }
+        }
+
         setupForegroundObserver()
-        scheduleBackgroundFetch()
 
         print("[LiftOffApp] 🚀 App launched. Pickups today: \(store.todayPickups)")
     }
@@ -302,11 +288,13 @@ struct LiftOffApp: App {
             store.syncWithDeviceActivity()
             let g = UserDefaults.standard.integer(forKey: "dailyGoal")
             let goal = g > 0 ? g : 50
+
             if liveActivity.isRunning {
                 liveActivity.update(pickupCount: store.todayPickups)
             } else {
                 liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal)
             }
+
             ScreenUnlockDetector.shared.startMonitoring()
 
             AppsViewRefreshTrigger.shared.refresh()
@@ -314,41 +302,12 @@ struct LiftOffApp: App {
             AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
             AppsViewRefreshTrigger.shared.refreshAfter(seconds: 3.0)
 
-            scheduleBackgroundFetch()
+            Task {
+                if let token = liveActivity.pushToken {
+                    await PushNotificationManager.shared.registerLiveActivityToken(token)
+                }
+            }
         }
-    }
-
-    // MARK: - Background Fetch (fallback)
-
-    static func scheduleBackgroundFetch() {
-        let request = BGAppRefreshTaskRequest(identifier: backgroundFetchTaskID)
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
-
-        do {
-            try BGTaskScheduler.shared.submit(request)
-        } catch {
-            print("[LiftOffApp] ⚠️ Background fetch schedule failed: \(error)")
-        }
-    }
-
-    private func scheduleBackgroundFetch() {
-        LiftOffApp.scheduleBackgroundFetch()
-    }
-
-    static func handleBackgroundFetch(task: BGAppRefreshTask) {
-        print("[LiftOffApp] 🔄 Background fetch executing...")
-        scheduleBackgroundFetch()
-
-        task.expirationHandler = {
-            task.setTaskCompleted(success: false)
-        }
-
-        sharedStore?.syncWithDeviceActivity()
-        sharedLiveActivity?.update(pickupCount: sharedStore?.todayPickups ?? 0)
-        ScreenUnlockDetector.shared.startMonitoring()
-
-        print("[LiftOffApp] ✅ Background fetch complete")
-        task.setTaskCompleted(success: true)
     }
 
     // MARK: - Auto Trial

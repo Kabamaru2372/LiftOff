@@ -5,8 +5,8 @@
 //  Created by Fotios Pongas on 24.03.26.
 //
 //  v1.6 UPDATE: pushType: .token για remote Live Activity updates.
-//  Το Dynamic Island ενημερώνεται ΑΜΕΣΩΣ από APNs push
-//  χωρίς να χρειάζεται το main app να είναι alive.
+//  v1.7 FIX: Αφαιρέθηκε η εξάρτηση από PushNotificationManager.
+//  Το token αποθηκεύεται στο UserDefaults και το LiftOffApp το στέλνει στο Supabase.
 //
 
 import ActivityKit
@@ -17,18 +17,12 @@ class LiveActivityManager {
 
     private var currentActivity: Activity<LiftOffActivityAttributes>?
 
-    /// Push token για Live Activity remote updates.
-    /// Αποθηκεύεται στο UserDefaults για access από extension.
     private(set) var pushToken: String? {
         didSet {
             if let token = pushToken {
                 UserDefaults.standard.set(token, forKey: "liveActivityPushToken")
                 print("[LiveActivity] 🔑 Push token saved: \(token.prefix(16))...")
-
-                // Στείλε token στο Supabase
-                Task {
-                    await PushNotificationManager.shared.registerLiveActivityToken(token)
-                }
+                // LiftOffApp observer θα στείλει το token στο Supabase
             }
         }
     }
@@ -49,7 +43,6 @@ class LiveActivityManager {
             currentActivity = existing
             print("✅ Recovered existing Live Activity")
 
-            // Observe push token αν υπάρχει ήδη
             Task {
                 for await pushTokenData in existing.pushTokenUpdates {
                     let token = pushTokenData.map { String(format: "%02x", $0) }.joined()
@@ -73,12 +66,16 @@ class LiveActivityManager {
     // MARK: - Start
 
     func start(pickupCount: Int, dailyGoal: Int) {
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-            print("Live Activities not enabled")
+        let info = ActivityAuthorizationInfo()
+        print("[LiveActivity] areActivitiesEnabled: \(info.areActivitiesEnabled)")
+        print("[LiveActivity] frequentPushesEnabled: \(info.frequentPushesEnabled)")
+
+        guard info.areActivitiesEnabled else {
+            print("[LiveActivity] ❌ Live Activities not enabled by user")
             return
         }
 
-        if let existing = currentActivity {
+        if currentActivity != nil {
             update(pickupCount: pickupCount)
             print("ℹ️ Live Activity already running — updated instead")
             return
@@ -102,15 +99,13 @@ class LiveActivityManager {
         let content = ActivityContent(state: state, staleDate: nil)
 
         do {
-            // v1.6: pushType: .token για remote updates από APNs
             currentActivity = try Activity.request(
                 attributes: attributes,
                 content: content,
-                pushType: .token
+                pushType: nil
             )
             print("✅ Live Activity started!")
 
-            // Observe push token updates
             if let activity = currentActivity {
                 Task {
                     for await pushTokenData in activity.pushTokenUpdates {
@@ -127,7 +122,7 @@ class LiveActivityManager {
         }
     }
 
-    // MARK: - Update (local)
+    // MARK: - Update
 
     func update(pickupCount: Int) {
         guard let activity = currentActivity else { return }
