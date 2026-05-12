@@ -96,7 +96,10 @@ class LiveActivityManager {
             lastPickupTime: Date()
         )
 
-        let content = ActivityContent(state: state, staleDate: nil)
+        let content = ActivityContent(
+            state: state,
+            staleDate: Calendar.current.date(byAdding: .hour, value: 8, to: Date())
+        )
 
         do {
             currentActivity = try Activity.request(
@@ -133,8 +136,10 @@ class LiveActivityManager {
             lastPickupTime: Date()
         )
 
-        let content = ActivityContent(state: state, staleDate: nil)
-
+        let content = ActivityContent(
+            state: state,
+            staleDate: Calendar.current.date(byAdding: .hour, value: 8, to: Date())
+        )
         Task {
             await activity.update(content)
         }

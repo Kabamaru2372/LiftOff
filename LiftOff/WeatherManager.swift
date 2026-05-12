@@ -5,11 +5,7 @@
 //  Created by Fotios Pongas on 23.04.2026
 //
 //  v1.7 REWRITE: WeatherKit + CoreLocation
-//  - Αυτόματη τοποθεσία (When In Use)
-//  - Real-time καιρός από Apple WeatherKit
-//  - Manual refresh με tap στο temperature pill
-//  - Fallback σε Open-Meteo αν WeatherKit αποτύχει
-//  - Fixed conditionFromWeatherKit για iOS 26 compatibility
+//  v1.7.1 FIX: Single fetch guard, prevent multiple simultaneous fetches
 //
 
 import Foundation
@@ -71,7 +67,6 @@ class WeatherManager: NSObject {
     var currentWeather: WeatherData? = nil
     var isLoading: Bool = false
     var errorMessage: String? = nil
-
     var locationStatus: CLAuthorizationStatus = .notDetermined
 
     var hasLocationPermission: Bool {
@@ -81,6 +76,10 @@ class WeatherManager: NSObject {
     private let weatherService = WeatherService.shared
     private let locationManager = CLLocationManager()
     private var currentLocation: CLLocation? = nil
+
+    // v1.7.1: Guard against multiple simultaneous fetches
+    private var isFetching: Bool = false
+    private var locationRequested: Bool = false
 
     private let defaults = UserDefaults.standard
     private let weatherKey = "picksyCachedWeather"
@@ -107,6 +106,14 @@ class WeatherManager: NSObject {
     // MARK: - Public API
 
     func fetchWeather(forceRefresh: Bool = false) async {
+
+        // v1.7.1: Αν ήδη φέρνει, skip
+        guard !isFetching else {
+            print("[Weather] Already fetching, skip")
+            return
+        }
+
+        // Αν έχουμε πρόσφατα δεδομένα και δεν είναι force refresh, skip
         if !forceRefresh,
            let cached = currentWeather,
            Date().timeIntervalSince(cached.fetchedAt) < refreshInterval {
@@ -115,24 +122,49 @@ class WeatherManager: NSObject {
 
         await MainActor.run {
             isLoading = true
+            isFetching = true
             errorMessage = nil
         }
 
         switch locationManager.authorizationStatus {
         case .notDetermined:
             locationManager.requestWhenInUseAuthorization()
+            // Θα συνεχίσει από το delegate
+            await MainActor.run { isLoading = false }
             return
         case .denied, .restricted:
             await fetchWithOpenMeteoFallback()
-            return
         case .authorizedWhenInUse, .authorizedAlways:
-            locationManager.requestLocation()
+            // v1.7.1: Αν έχουμε ήδη location, χρησιμοποίησέ το
+            if let location = currentLocation {
+                await fetchWithWeatherKit(location: location)
+            } else {
+                // Μόνο αν δεν έχουμε ήδη ζητήσει location
+                if !locationRequested {
+                    locationRequested = true
+                    locationManager.requestLocation()
+                    // Θα συνεχίσει από το delegate
+                    await MainActor.run { isLoading = false }
+                } else {
+                    await fetchWithOpenMeteoFallback()
+                }
+            }
         @unknown default:
             await fetchWithOpenMeteoFallback()
+        }
+
+        await MainActor.run {
+            isFetching = false
+            locationRequested = false
         }
     }
 
     func manualRefresh() async {
+        await MainActor.run {
+            isFetching = false
+            locationRequested = false
+            currentLocation = nil
+        }
         await fetchWeather(forceRefresh: true)
     }
 
@@ -156,6 +188,7 @@ class WeatherManager: NSObject {
             await MainActor.run {
                 self.currentWeather = data
                 self.isLoading = false
+                self.isFetching = false
                 self.errorMessage = nil
                 self.saveCached(data)
             }
@@ -164,13 +197,12 @@ class WeatherManager: NSObject {
 
         } catch {
             print("[WeatherKit] ❌ \(error.localizedDescription)")
+            // Fallback σε Open-Meteo
             await fetchWithOpenMeteoFallback(location: location)
         }
     }
 
     // MARK: - WeatherKit Condition Mapping
-    // Χρησιμοποιούμε description string matching για iOS 26 compatibility
-    // αντί για specific enum cases που αλλάζουν μεταξύ versions.
 
     private func conditionFromWeatherKit(_ current: CurrentWeather) -> WeatherCondition {
         let temp = current.temperature.converted(to: .celsius).value
@@ -178,7 +210,6 @@ class WeatherManager: NSObject {
         if temp >= 35 { return .hot }
         if temp <= 0 { return .cold }
 
-        // String-based matching - works across all iOS versions
         let conditionString = current.condition.description.lowercased()
 
         if conditionString.contains("thunder") || conditionString.contains("storm") {
@@ -211,7 +242,6 @@ class WeatherManager: NSObject {
             return .sunny
         }
 
-        // Fallback βάσει basic enum cases (υπάρχουν σε όλες τις iOS versions)
         switch current.condition {
         case .clear, .mostlyClear:
             return .sunny
@@ -234,7 +264,6 @@ class WeatherManager: NSObject {
             lat = loc.coordinate.latitude
             lon = loc.coordinate.longitude
         } else {
-            // Default: Vaihingen an der Enz
             lat = 48.9287
             lon = 9.0676
         }
@@ -261,6 +290,7 @@ class WeatherManager: NSObject {
             await MainActor.run {
                 self.currentWeather = weatherData
                 self.isLoading = false
+                self.isFetching = false
                 self.saveCached(weatherData)
             }
 
@@ -269,6 +299,7 @@ class WeatherManager: NSObject {
         } catch {
             await MainActor.run {
                 self.isLoading = false
+                self.isFetching = false
                 self.errorMessage = error.localizedDescription
             }
         }
@@ -369,16 +400,26 @@ class WeatherManager: NSObject {
 extension WeatherManager: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last else { return }
+        // v1.7.1: Αποδέξου μόνο το πρώτο location update
+        guard let location = locations.last, currentLocation == nil || isFetching else {
+            return
+        }
+
         currentLocation = location
         print("[WeatherKit] 📍 Location: \(location.coordinate.latitude), \(location.coordinate.longitude)")
+
         Task {
+            await MainActor.run {
+                self.isFetching = true
+                self.isLoading = true
+            }
             await fetchWithWeatherKit(location: location)
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         print("[WeatherKit] ❌ Location error: \(error.localizedDescription)")
+        guard !isFetching else { return }
         Task {
             await fetchWithOpenMeteoFallback()
         }
@@ -392,9 +433,12 @@ extension WeatherManager: CLLocationManagerDelegate {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             print("[WeatherKit] ✅ Location authorized")
-            manager.requestLocation()
+            // v1.7.1: Μόνο αν δεν φέρνουμε ήδη
+            guard !isFetching else { return }
+            locationManager.requestLocation()
         case .denied, .restricted:
             print("[WeatherKit] ⚠️ Location denied, using fallback")
+            guard !isFetching else { return }
             Task { await fetchWithOpenMeteoFallback() }
         default:
             break
