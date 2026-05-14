@@ -103,6 +103,7 @@
 		480D45C62F7318F500E5BB27 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		480D45C82F7318F500E5BB27 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		482BA0642F87BD5800E9E4B8 /* UnPluq.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = UnPluq.entitlements; sourceTree = "<group>"; };
+		4830B9C82FB210B20025D7BA /* UnPluq-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "UnPluq-Info.plist"; sourceTree = "<group>"; };
 		48625D272F8806EF0009DDB3 /* DeviceActivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceActivity.framework; path = System/Library/Frameworks/DeviceActivity.framework; sourceTree = SDKROOT; };
 		48625D402F8823180009DDB3 /* PicksyWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PicksyWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		48625D582F8824D70009DDB3 /* PicksyWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PicksyWidgetExtension.entitlements; sourceTree = "<group>"; };
@@ -119,14 +120,19 @@
 		482BA0222F85322F00E9E4B8 /* Exceptions for "LiftOff" folder in "UnPluqLiveExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				AboutScienceView.swift,
 				AppSelectionStore.swift,
 				AppsView.swift,
 				ContentView.swift,
 				LiftOffApp.swift,
+				LiveActivityManager.swift,
 				NudgeView.swift,
 				OnboardingView.swift,
 				PickupScheduler.swift,
+				Pushnotificationmanager.swift,
 				SettingsView.swift,
+				UsageInsightView.swift,
+				UsageThresholdManager.swift,
 			);
 			target = 480D45C32F7318F500E5BB27 /* UnPluqLiveExtension */;
 		};
@@ -252,6 +258,7 @@
 		480D45972F72D3DD00E5BB27 = {
 			isa = PBXGroup;
 			children = (
+				4830B9C82FB210B20025D7BA /* UnPluq-Info.plist */,
 				48A870982F9EC7C000D08642 /* FamilyControlsManager.swift */,
 				486A3AF92F9BF015007DA1F9 /* CitiesDatabaseWorld.swift */,
 				486A3AD82F9B67D1007DA1F9 /* CitiesDatabase.swift */,
@@ -706,17 +713,21 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = UnPluq.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 14;
+				DEVELOPMENT_TEAM = 7B27547635;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "UnPluq-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Picksy;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Picksy uses your location to show accurate local weather as your background.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -724,6 +735,7 @@
 				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -745,17 +757,21 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = UnPluq.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 14;
+				DEVELOPMENT_TEAM = 7B27547635;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "UnPluq-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Picksy;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Picksy uses your location to show accurate local weather as your background.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -763,6 +779,7 @@
 				MARKETING_VERSION = 1.5;
 				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
