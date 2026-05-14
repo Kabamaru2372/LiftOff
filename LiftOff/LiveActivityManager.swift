@@ -43,14 +43,7 @@ class LiveActivityManager {
             currentActivity = existing
             print("✅ Recovered existing Live Activity")
 
-            Task {
-                for await pushTokenData in existing.pushTokenUpdates {
-                    let token = pushTokenData.map { String(format: "%02x", $0) }.joined()
-                    await MainActor.run {
-                        self.pushToken = token
-                    }
-                }
-            }
+            observeActivity(existing)
 
             if activities.count > 1 {
                 Task {
@@ -58,6 +51,29 @@ class LiveActivityManager {
                         await activity.end(nil, dismissalPolicy: .immediate)
                     }
                     print("🧹 Cleaned up \(activities.count - 1) duplicate Live Activities")
+                }
+            }
+        }
+    }
+
+    private func observeActivity(_ activity: Activity<LiftOffActivityAttributes>) {
+        Task {
+            for await pushTokenData in activity.pushTokenUpdates {
+                let token = pushTokenData.map { String(format: "%02x", $0) }.joined()
+                await MainActor.run { self.pushToken = token }
+            }
+        }
+
+        Task {
+            for await state in activity.activityStateUpdates {
+                if state == .ended || state == .dismissed {
+                    await MainActor.run {
+                        if self.currentActivity?.id == activity.id {
+                            self.currentActivity = nil
+                            self.pushToken = nil
+                            print("[LiveActivity] ⚠️ Activity ended externally — cleared reference")
+                        }
+                    }
                 }
             }
         }
@@ -102,24 +118,14 @@ class LiveActivityManager {
         )
 
         do {
-            currentActivity = try Activity.request(
+            let activity = try Activity.request(
                 attributes: attributes,
                 content: content,
                 pushType: nil
             )
+            currentActivity = activity
             print("✅ Live Activity started!")
-
-            if let activity = currentActivity {
-                Task {
-                    for await pushTokenData in activity.pushTokenUpdates {
-                        let token = pushTokenData.map { String(format: "%02x", $0) }.joined()
-                        await MainActor.run {
-                            self.pushToken = token
-                        }
-                    }
-                }
-            }
-
+            observeActivity(activity)
         } catch {
             print("❌ Error starting Live Activity: \(error)")
         }
