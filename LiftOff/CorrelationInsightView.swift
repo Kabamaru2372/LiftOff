@@ -186,11 +186,10 @@ private struct ConditionBarRow: View {
 // MARK: - Preview
 
 #Preview {
-    let store = CorrelationStore.shared
-    return ScrollView {
+    ScrollView {
         CorrelationInsightView()
             .padding(24)
-            .environment(store)
+            .environment(CorrelationStore.shared)
     }
     .background(Color(.systemBackground))
 }
