@@ -92,17 +92,25 @@ class LiveActivityManager {
             return
         }
 
-        if currentActivity != nil {
+        // Μόνο αν η activity είναι πραγματικά .active — stale/ended πέφτουν through
+        if isRunning {
             update(pickupCount: pickupCount)
             print("ℹ️ Live Activity already running — updated instead")
             return
         }
 
+        // Καθάρισε stale/ended reference
+        if currentActivity != nil {
+            currentActivity = nil
+        }
+
+        // Έλεγξε αν υπάρχει system activity που μπορεί να ανακτηθεί
         let systemActivities = Activity<LiftOffActivityAttributes>.activities
-        if let existing = systemActivities.first {
+        if let existing = systemActivities.first, existing.activityState != .ended {
             currentActivity = existing
+            observeActivity(existing)
             update(pickupCount: pickupCount)
-            print("ℹ️ Found existing system Live Activity — using it")
+            print("ℹ️ Recovered system Live Activity (state: \(existing.activityState)) — updating")
             return
         }
 
