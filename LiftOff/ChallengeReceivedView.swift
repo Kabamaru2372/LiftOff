@@ -285,7 +285,9 @@ struct ChallengeReceivedView: View {
         ), language: appLanguage)
 
         shareItems = [msg, url.absoluteString]
-        showShareSheet = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            showShareSheet = true
+        }
     }
 }
 
