@@ -151,7 +151,6 @@ class WeatherManager: NSObject {
     func manualRefresh() async {
         await MainActor.run {
             isFetching = false
-            locationRequested = false
             currentLocation = nil
         }
         await fetchWeather(forceRefresh: true)
