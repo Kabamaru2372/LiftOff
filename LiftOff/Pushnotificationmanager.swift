@@ -105,6 +105,7 @@ class PushNotificationManager {
             "is_production": isProduction,
             "is_active": true,
             "token_type": type,  // "device" ή "live_activity"
+            "device_id": FriendSyncManager.shared.deviceID,  // anonymous UUID for friend sync
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
 
