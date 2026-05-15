@@ -27,6 +27,8 @@ private struct DeviceStatusRow: Decodable {
     let device_id: String
     let pickups_today: Int
     let daily_goal: Int
+    let pickups_last_2h: Int
+    let screen_time_last_2h_seconds: Int
     let updated_at: String
 }
 
@@ -142,16 +144,18 @@ class FriendSyncManager {
     /// Uploads current pickup count to Supabase.
     /// Skipped silently if no pairs exist — no data leaves the device unless the user
     /// has explicitly connected with at least one friend.
-    func uploadStatus(pickups: Int, dailyGoal: Int) async {
+    func uploadStatus(pickups: Int, dailyGoal: Int, pickupsLast2h: Int = 0, screenTimeLast2hSecs: Int = 0) async {
         guard hasPairs else { return }
 
         guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/device_status") else { return }
 
         let body: [String: Any] = [
-            "device_id":    deviceID,
-            "pickups_today": pickups,
-            "daily_goal":   dailyGoal,
-            "updated_at":   ISO8601DateFormatter().string(from: Date())
+            "device_id":                  deviceID,
+            "pickups_today":              pickups,
+            "daily_goal":                 dailyGoal,
+            "pickups_last_2h":            pickupsLast2h,
+            "screen_time_last_2h_seconds": screenTimeLast2hSecs,
+            "updated_at":                 ISO8601DateFormatter().string(from: Date())
         ]
 
         var req = makeRequest(url: url, method: "POST")
@@ -172,8 +176,9 @@ class FriendSyncManager {
     ///   • My own pickups ≥ 40 % of my daily goal
     ///   • Partner's pickups ≥ 40 % of *their* daily goal
     ///   • Not already notified today for this partner
-    func checkOverusingPartners(myPickups: Int, myGoal: Int) async -> [OverusingPartner] {
-        print("[FriendSync] 🔍 checkOverusingPartners — hasPairs=\(hasPairs), pairs=\(registeredPairs.map(\.deviceID))")
+    /// - myScreenTimeLast2hSecs: from DataStore.screenTimeLastTwoHours
+    func checkOverusingPartners(myPickups: Int, myGoal: Int, myScreenTimeLast2hSecs: Int) async -> [OverusingPartner] {
+        print("[FriendSync] 🔍 checkOverusingPartners — hasPairs=\(hasPairs), screenTime2h=\(myScreenTimeLast2hSecs)s")
         guard hasPairs else {
             print("[FriendSync] ⏭ No pairs — skipping check")
             return []
@@ -184,8 +189,11 @@ class FriendSyncManager {
             print("[FriendSync] ⏭ Before 14:00 — skipping partner check")
             return []
         }
-        guard myPickups >= Int(Double(myGoal) * 0.4) else {
-            print("[FriendSync] ⏭ My pickups (\(myPickups)) below threshold — skipping")
+
+        // Require ≥ 20 min screen time in last 2 hours as "currently overusing" signal
+        let myThresholdSecs = 20 * 60  // 20 minutes
+        guard myScreenTimeLast2hSecs >= myThresholdSecs else {
+            print("[FriendSync] ⏭ My screen time (\(myScreenTimeLast2hSecs)s) below 20 min threshold — skipping")
             return []
         }
 
@@ -201,9 +209,9 @@ class FriendSyncManager {
                 print("[FriendSync] ⚠️ No status found for \(pair.name)")
                 continue
             }
-            let threshold = Int(Double(row.daily_goal) * 0.4)
-            print("[FriendSync] 📊 \(pair.name): \(row.pickups_today) pickups, threshold=\(threshold)")
-            if row.pickups_today >= threshold {
+            let partnerThreshold = 20 * 60  // 20 min screen time in last 2h
+            print("[FriendSync] 📊 \(pair.name): screenTime2h=\(row.screen_time_last_2h_seconds)s, pickups2h=\(row.pickups_last_2h)")
+            if row.screen_time_last_2h_seconds >= partnerThreshold {
                 result.append(OverusingPartner(
                     deviceID: pair.deviceID,
                     friendName: pair.name,

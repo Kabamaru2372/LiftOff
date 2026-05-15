@@ -268,6 +268,18 @@ struct LiftOffApp: App {
         ScreenUnlockDetector.shared.onPickupDetected = {
             store.recordPickup()
             focusSessionManager.onPickup(currentPickups: store.todayPickups)
+
+            // Upload updated status to Supabase on every pickup (rate-limited by hasPairs guard)
+            Task {
+                let g = UserDefaults.standard.integer(forKey: "dailyGoal")
+                let goal = g > 0 ? g : 50
+                await FriendSyncManager.shared.uploadStatus(
+                    pickups: store.todayPickups,
+                    dailyGoal: goal,
+                    pickupsLast2h: pickupsLast2h(),
+                    screenTimeLast2hSecs: store.screenTimeLastTwoHours
+                )
+            }
             if focusSessionManager.isActive {
                 liveActivity.updateForFocus(
                     pickupCount: store.todayPickups,
@@ -291,9 +303,17 @@ struct LiftOffApp: App {
         // Friend sync — upload status on launch too
         Task {
             let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-            await FriendSyncManager.shared.uploadStatus(pickups: store.todayPickups, dailyGoal: dailyGoal)
+            let last2hPickups = pickupsLast2h()
+            await FriendSyncManager.shared.uploadStatus(
+                pickups: store.todayPickups,
+                dailyGoal: dailyGoal,
+                pickupsLast2h: last2hPickups,
+                screenTimeLast2hSecs: store.screenTimeLastTwoHours
+            )
             let overusing = await FriendSyncManager.shared.checkOverusingPartners(
-                myPickups: store.todayPickups, myGoal: dailyGoal
+                myPickups: store.todayPickups,
+                myGoal: dailyGoal,
+                myScreenTimeLast2hSecs: store.screenTimeLastTwoHours
             )
             if let partner = overusing.first {
                 await MainActor.run {
@@ -381,11 +401,19 @@ struct LiftOffApp: App {
                 let g2 = UserDefaults.standard.integer(forKey: "dailyGoal")
                 let goal2 = g2 > 0 ? g2 : 50
                 let pickups = store.todayPickups
-                await FriendSyncManager.shared.uploadStatus(pickups: pickups, dailyGoal: goal2)
+                let last2hPickups = pickupsLast2h()
+                await FriendSyncManager.shared.uploadStatus(
+                    pickups: pickups,
+                    dailyGoal: goal2,
+                    pickupsLast2h: last2hPickups,
+                    screenTimeLast2hSecs: store.screenTimeLastTwoHours
+                )
 
                 let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
                 let overusing = await FriendSyncManager.shared.checkOverusingPartners(
-                    myPickups: pickups, myGoal: goal2
+                    myPickups: pickups,
+                    myGoal: goal2,
+                    myScreenTimeLast2hSecs: store.screenTimeLastTwoHours
                 )
                 if let partner = overusing.first {
                     await MainActor.run {
@@ -395,6 +423,15 @@ struct LiftOffApp: App {
                 }
             }
         }
+    }
+
+    // MARK: - Friend Sync Helpers
+
+    /// Pickups in the current + previous hour from HourlyTracker
+    private func pickupsLast2h() -> Int {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let prev = hour > 0 ? hour - 1 : 0
+        return hourlyTracker.hourlyData[0][hour] + hourlyTracker.hourlyData[0][prev]
     }
 
     // MARK: - Friend Overusing Notification

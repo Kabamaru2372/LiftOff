@@ -22,6 +22,17 @@ class DataStore {
     var totalPickups: Int = 0
     var totalDaysTracked: Int = 0
 
+    /// Screen time in seconds per hour today (index 0–23 = hour of day).
+    /// Updated every time addUsageTime() is called.
+    var hourlyScreenTimeSecs: [Int] = Array(repeating: 0, count: 24)
+
+    /// Total screen time in seconds for the current + previous hour (rolling 2-hour window).
+    var screenTimeLastTwoHours: Int {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let prev = hour > 0 ? hour - 1 : 0
+        return hourlyScreenTimeSecs[hour] + hourlyScreenTimeSecs[prev]
+    }
+
     private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
     private var midnightTimer: Timer?
 
@@ -46,6 +57,9 @@ class DataStore {
         if let saved = defaults.array(forKey: "weeklyPickups") as? [Int] {
             weeklyPickups = saved
         }
+        if let saved = defaults.array(forKey: "hourlyScreenTimeSecs") as? [Int], saved.count == 24 {
+            hourlyScreenTimeSecs = saved
+        }
 
         checkNewDay()
     }
@@ -63,6 +77,9 @@ class DataStore {
 
     func addUsageTime(seconds: Int) {
         todayTotalSeconds += seconds
+        // Also track in the per-hour bucket for friend sync
+        let hour = Calendar.current.component(.hour, from: Date())
+        hourlyScreenTimeSecs[hour] += seconds
         saveData()
     }
 
@@ -213,6 +230,7 @@ class DataStore {
         defaults.set(weeklyPickups, forKey: "weeklyPickups")
         defaults.set(totalPickups, forKey: "totalPickups")
         defaults.set(totalDaysTracked, forKey: "totalDaysTracked")
+        defaults.set(hourlyScreenTimeSecs, forKey: "hourlyScreenTimeSecs")
         defaults.set(todayDateString(), forKey: "lastActiveDate")
         let language = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
         defaults.set(language, forKey: "appLanguage")
@@ -254,6 +272,7 @@ class DataStore {
 
             todayPickups = 0
             todayTotalSeconds = 0
+            hourlyScreenTimeSecs = Array(repeating: 0, count: 24)
             weeklyPickups[currentDayIndex()] = 0
             defaults.removeObject(forKey: todayPickupsKey())
             saveData()
