@@ -24,6 +24,8 @@ struct LiftOffActivityAttributes: ActivityAttributes {
         var pickupCount: Int
         var currentQuote: String
         var lastPickupTime: Date
+        var focusEndTime: Date?       // nil = not in focus mode
+        var focusPickupCount: Int     // pickups during this focus session
     }
     
     // Στατικά δεδομένα (δεν αλλάζουν κατά τη διάρκεια)

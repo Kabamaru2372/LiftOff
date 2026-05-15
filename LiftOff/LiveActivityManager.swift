@@ -118,7 +118,9 @@ class LiveActivityManager {
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: QuoteBank.random(),
-            lastPickupTime: Date()
+            lastPickupTime: Date(),
+            focusEndTime: nil,
+            focusPickupCount: 0
         )
 
         let content = ActivityContent(
@@ -148,7 +150,9 @@ class LiveActivityManager {
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: QuoteBank.random(),
-            lastPickupTime: Date()
+            lastPickupTime: Date(),
+            focusEndTime: nil,
+            focusPickupCount: 0
         )
 
         let content = ActivityContent(
@@ -160,6 +164,24 @@ class LiveActivityManager {
         }
     }
 
+    // MARK: - Focus Update
+
+    func updateForFocus(pickupCount: Int, focusEndTime: Date?, focusPickupCount: Int) {
+        guard let activity = currentActivity else { return }
+        let state = LiftOffActivityAttributes.ContentState(
+            pickupCount: pickupCount,
+            currentQuote: focusEndTime != nil ? "Stay present 🍃" : QuoteBank.random(),
+            lastPickupTime: Date(),
+            focusEndTime: focusEndTime,
+            focusPickupCount: focusPickupCount
+        )
+        let content = ActivityContent(
+            state: state,
+            staleDate: Calendar.current.date(byAdding: .hour, value: 8, to: Date())
+        )
+        Task { await activity.update(content) }
+    }
+
     // MARK: - Stop
 
     func stop() {
@@ -168,7 +190,9 @@ class LiveActivityManager {
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: 0,
             currentQuote: "See you tomorrow!",
-            lastPickupTime: Date()
+            lastPickupTime: Date(),
+            focusEndTime: nil,
+            focusPickupCount: 0
         )
 
         let content = ActivityContent(state: state, staleDate: nil)

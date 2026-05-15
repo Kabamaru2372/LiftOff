@@ -15,6 +15,7 @@ struct NudgeView: View {
     @Environment(DataStore.self) var store
     @Environment(WeatherManager.self) var weatherManager
     @Environment(ActivityPreferences.self) var activityPrefs
+    @Environment(FocusSessionManager.self) var focusManager
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     @AppStorage("dailyGoal") private var dailyGoal: Int = 15
     @AppStorage("lastPickupTimestamp") private var lastPickupTimestamp: Double = 0
@@ -26,6 +27,9 @@ struct NudgeView: View {
 
     // v1.7: Activity suggestions sheet
     @State private var showActivitySuggestions: Bool = false
+
+    // Focus Session sheet
+    @State private var showFocusSession: Bool = false
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -102,6 +106,17 @@ struct NudgeView: View {
             })
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
+        }
+        // Focus Session sheet
+        .sheet(isPresented: $showFocusSession) {
+            FocusSessionView()
+                .presentationDetents([.medium, .large])
+        }
+        .onChange(of: focusManager.sessionState) { _, newState in
+            // Auto-open sheet when session completes so user sees results
+            if case .completed = newState {
+                showFocusSession = true
+            }
         }
         .onAppear {
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
@@ -213,6 +228,10 @@ struct NudgeView: View {
                     .padding(.horizontal, 32)
             }
 
+            // Focus Session button
+            focusSessionButton
+                .padding(.horizontal, 32)
+
             // v1.7: "Τι να κάνω τώρα;" button
             activitySuggestionsButton
                 .padding(.horizontal, 32)
@@ -270,6 +289,46 @@ struct NudgeView: View {
             )
             .padding(.horizontal, 32)
             .padding(.bottom, 90)
+        }
+    }
+
+    // MARK: - Focus Session Button
+
+    private var focusSessionButton: some View {
+        Button(action: { showFocusSession = true }) {
+            HStack(spacing: 8) {
+                Text("⏱")
+                    .font(.system(size: 16))
+
+                if focusManager.isActive {
+                    Text(focusManager.formattedTimeRemaining + " " + t("remaining", "απομένουν", "verbleibend"))
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.orange)
+                } else {
+                    Text(t("Focus Session", "Περίοδος Εστίασης", "Fokus-Session"))
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                        .foregroundColor(.white)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(focusManager.isActive ? .orange.opacity(0.8) : .white.opacity(0.7))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(focusManager.isActive
+                          ? Color.orange.opacity(0.18)
+                          : Color.clear)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(.ultraThinMaterial)
+                            .opacity(0.7)
+                    )
+            )
         }
     }
 
@@ -473,5 +532,6 @@ struct NudgeView: View {
         .environment(DataStore())
         .environment(WeatherManager())
         .environment(ActivityPreferences())
+        .environment(FocusSessionManager())
 }
 

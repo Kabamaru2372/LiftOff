@@ -151,6 +151,7 @@ struct LiftOffApp: App {
     @State private var store = DataStore()
     @State private var detector = PickupDetector()
     @State private var liveActivity = LiveActivityManager()
+    @State private var focusSessionManager = FocusSessionManager()
     @State private var hourlyTracker = HourlyTracker()
     @State private var rewardManager = RewardManager()
     @State private var proManager = ProManager.shared
@@ -181,6 +182,7 @@ struct LiftOffApp: App {
                     .environment(store)
                     .environment(detector)
                     .environment(liveActivity)
+                    .environment(focusSessionManager)
                     .environment(hourlyTracker)
                     .environment(rewardManager)
                     .environment(proManager)
@@ -239,7 +241,16 @@ struct LiftOffApp: App {
 
         ScreenUnlockDetector.shared.onPickupDetected = {
             store.recordPickup()
-            liveActivity.update(pickupCount: store.todayPickups)
+            focusSessionManager.onPickup(currentPickups: store.todayPickups)
+            if focusSessionManager.isActive {
+                liveActivity.updateForFocus(
+                    pickupCount: store.todayPickups,
+                    focusEndTime: focusSessionManager.endTime,
+                    focusPickupCount: focusSessionManager.pickupsDuringSession
+                )
+            } else {
+                liveActivity.update(pickupCount: store.todayPickups)
+            }
         }
         ScreenUnlockDetector.shared.startMonitoring()
         detector.startMonitoring()
@@ -290,7 +301,15 @@ struct LiftOffApp: App {
             let goal = g > 0 ? g : 50
 
             if liveActivity.isRunning {
-                liveActivity.update(pickupCount: store.todayPickups)
+                if focusSessionManager.isActive {
+                    liveActivity.updateForFocus(
+                        pickupCount: store.todayPickups,
+                        focusEndTime: focusSessionManager.endTime,
+                        focusPickupCount: focusSessionManager.pickupsDuringSession
+                    )
+                } else {
+                    liveActivity.update(pickupCount: store.todayPickups)
+                }
             } else {
                 liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal)
             }
