@@ -87,6 +87,10 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             DispatchQueue.main.async {
                 self.tabSelection?.selectedTab = 1
             }
+        } else if identifier.hasPrefix("picksy.friend.overusing.") {
+            DispatchQueue.main.async {
+                self.tabSelection?.selectedTab = 0  // Nudge tab
+            }
         }
 
         completionHandler()
@@ -284,6 +288,21 @@ struct LiftOffApp: App {
 
         PushNotificationManager.shared.registerForPushNotifications()
 
+        // Friend sync — upload status on launch too
+        Task {
+            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+            await FriendSyncManager.shared.uploadStatus(pickups: store.todayPickups, dailyGoal: dailyGoal)
+            let overusing = await FriendSyncManager.shared.checkOverusingPartners(
+                myPickups: store.todayPickups, myGoal: dailyGoal
+            )
+            if let partner = overusing.first {
+                await MainActor.run {
+                    scheduleFriendOverusingNotification(partner: partner, language: lang)
+                    FriendSyncManager.shared.markNotifiedToday(for: partner.deviceID)
+                }
+            }
+        }
+
         // Στείλε Live Activity token στο Supabase αν υπάρχει
         Task {
             if let token = UserDefaults.standard.string(forKey: "liveActivityPushToken") {
@@ -356,7 +375,57 @@ struct LiftOffApp: App {
                     await PushNotificationManager.shared.registerLiveActivityToken(token)
                 }
             }
+
+            // Friend sync — upload own status & check if any pair is also overusing
+            Task {
+                let g2 = UserDefaults.standard.integer(forKey: "dailyGoal")
+                let goal2 = g2 > 0 ? g2 : 50
+                let pickups = store.todayPickups
+                await FriendSyncManager.shared.uploadStatus(pickups: pickups, dailyGoal: goal2)
+
+                let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+                let overusing = await FriendSyncManager.shared.checkOverusingPartners(
+                    myPickups: pickups, myGoal: goal2
+                )
+                if let partner = overusing.first {
+                    await MainActor.run {
+                        scheduleFriendOverusingNotification(partner: partner, language: lang)
+                        FriendSyncManager.shared.markNotifiedToday(for: partner.deviceID)
+                    }
+                }
+            }
         }
+    }
+
+    // MARK: - Friend Overusing Notification
+
+    private func scheduleFriendOverusingNotification(partner: OverusingPartner, language: String) {
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+        content.categoryIdentifier = "PICKSY_FRIEND_OVERUSING"
+
+        switch language {
+        case "Ελληνικά":
+            content.title = "Εσύ και \(partner.friendName) 📱"
+            content.body  = "Και οι δυο σας φαίνεται να σηκώνετε πολύ το κινητό σήμερα. Τι λέτε για μια μικρή αποτοξίνωση μαζί;"
+        case "Deutsch":
+            content.title = "Du und \(partner.friendName) 📱"
+            content.body  = "Ihr beide greift heute viel zum Handy. Wie wäre ein kleiner gemeinsamer Digital Detox?"
+        default:
+            content.title = "You and \(partner.friendName) 📱"
+            content.body  = "You're both reaching for your phones a lot today. How about a little detox together?"
+        }
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 2, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "picksy.friend.overusing.\(partner.deviceID)",
+            content: content,
+            trigger: trigger
+        )
+        UNUserNotificationCenter.current().add(request) { err in
+            if let err { print("[FriendSync] ❌ Notification error: \(err)") }
+        }
+        print("[FriendSync] 🔔 Friend overusing notification scheduled for \(partner.friendName)")
     }
 
     // MARK: - Auto Trial

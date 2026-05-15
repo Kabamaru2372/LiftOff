@@ -367,7 +367,8 @@ struct FocusSessionView: View {
             weekly: store.weeklyPickups,
             streak: store.currentStreak,
             goal: dailyGoal,
-            sentAt: Date().timeIntervalSince1970
+            sentAt: Date().timeIntervalSince1970,
+            senderDeviceID: FriendSyncManager.shared.deviceID
         )
         let msg: String
         switch appLanguage {

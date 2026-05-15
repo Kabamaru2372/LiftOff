@@ -18,6 +18,7 @@ struct ChallengeReceivedView: View {
 
     @State private var showShareSheet = false
     @State private var shareItems: [Any] = []
+    @State private var pairingRegistered = false
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -105,6 +106,18 @@ struct ChallengeReceivedView: View {
         }
         .sheet(isPresented: $showShareSheet) {
             ActivityShareSheet(items: shareItems)
+        }
+        .onAppear {
+            // Register anonymous pair if sender included their device ID
+            if let senderID = payload.senderDeviceID, !senderID.isEmpty {
+                Task {
+                    await FriendSyncManager.shared.registerPair(
+                        theirDeviceID: senderID,
+                        theirName: payload.name
+                    )
+                    await MainActor.run { pairingRegistered = true }
+                }
+            }
         }
     }
 
@@ -272,7 +285,33 @@ struct ChallengeReceivedView: View {
                     .foregroundColor(.secondary)
             }
             .buttonStyle(.plain)
+
+            // Privacy notice — shown only when pairing was auto-registered
+            if pairingRegistered || payload.senderDeviceID != nil {
+                privacyNotice
+            }
         }
+    }
+
+    private var privacyNotice: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            Text(t(
+                "Your daily pickup count will be shared anonymously with \(payload.name) so Picksy can alert you both when you're both reaching for your phones a lot. No account, no name, no personal data.",
+                "Ο αριθμός σηκωμάτων σου θα μοιραστεί ανώνυμα με τον \(payload.name) ώστε το Picksy να σας ειδοποιεί και τους δύο αν σηκώνετε πολύ το κινητό. Χωρίς λογαριασμό, χωρίς όνομα, χωρίς προσωπικά δεδομένα.",
+                "Deine tägliche Greifanzahl wird anonym mit \(payload.name) geteilt, damit Picksy euch beide benachrichtigen kann, wenn ihr beide viel zum Handy greift. Kein Konto, kein Name, keine persönlichen Daten."
+            ))
+            .font(.system(size: 11, weight: .regular, design: .rounded))
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.leading)
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(.systemGray6))
+        )
     }
 
     // MARK: - Actions
@@ -290,7 +329,8 @@ struct ChallengeReceivedView: View {
             weekly: store.weeklyPickups,
             streak: store.currentStreak,
             goal: dailyGoal,
-            sentAt: Date().timeIntervalSince1970
+            sentAt: Date().timeIntervalSince1970,
+            senderDeviceID: FriendSyncManager.shared.deviceID
         ), language: appLanguage)
 
         shareItems = [msg, url.absoluteString]

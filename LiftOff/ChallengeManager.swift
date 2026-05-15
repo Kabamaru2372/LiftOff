@@ -14,11 +14,12 @@ struct ChallengePayload: Codable, Identifiable {
     // Identifiable so it works with .sheet(item:)
     var id: String { "\(name)-\(sentAt)" }
 
-    let name: String          // sender display name ("A friend" if blank)
-    let weekly: [Int]         // last 7 days of pickups (Mon → Sun)
+    let name: String           // sender display name ("A friend" if blank)
+    let weekly: [Int]          // last 7 days of pickups (Mon → Sun)
     let streak: Int
     let goal: Int
-    let sentAt: TimeInterval  // Unix timestamp — helps recipient see how fresh the data is
+    let sentAt: TimeInterval   // Unix timestamp — helps recipient see how fresh the data is
+    var senderDeviceID: String? // Anonymous UUID for optional friend pairing (never personal info)
 }
 
 // MARK: - Challenge Manager
@@ -46,7 +47,8 @@ enum ChallengeManager {
             weekly: weeklyPickups,
             streak: streak,
             goal: dailyGoal,
-            sentAt: Date().timeIntervalSince1970
+            sentAt: Date().timeIntervalSince1970,
+            senderDeviceID: FriendSyncManager.shared.deviceID
         )
 
         guard let data = try? JSONEncoder().encode(payload) else { return nil }
