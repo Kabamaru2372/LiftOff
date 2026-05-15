@@ -95,7 +95,7 @@ struct ChallengeReceivedView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            ShareSheet(items: shareItems)
+            ActivityShareSheet(items: shareItems)
         }
     }
 
@@ -289,9 +289,9 @@ struct ChallengeReceivedView: View {
     }
 }
 
-// MARK: - UIKit Share Sheet
+// MARK: - UIKit Share Sheet (multi-item)
 
-struct ShareSheet: UIViewControllerRepresentable {
+struct ActivityShareSheet: UIViewControllerRepresentable {
     let items: [Any]
     func makeUIViewController(context: Context) -> UIActivityViewController {
         UIActivityViewController(activityItems: items, applicationActivities: nil)

@@ -61,7 +61,7 @@ struct FocusSessionView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            ShareSheet(items: shareItems)
+            ActivityShareSheet(items: shareItems)
         }
     }
 

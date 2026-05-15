@@ -116,7 +116,7 @@ struct NudgeView: View {
         }
         // Challenge share sheet
         .sheet(isPresented: $showShareSheet) {
-            ShareSheet(items: challengeShareItems)
+            ActivityShareSheet(items: challengeShareItems)
         }
         // Focus Session sheet
         .sheet(isPresented: $showFocusSession) {
