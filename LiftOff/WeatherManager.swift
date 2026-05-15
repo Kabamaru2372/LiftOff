@@ -77,9 +77,8 @@ class WeatherManager: NSObject {
     private let locationManager = CLLocationManager()
     private var currentLocation: CLLocation? = nil
 
-    // v1.7.1: Guard against multiple simultaneous fetches
+    // Guard against multiple simultaneous fetches
     private var isFetching: Bool = false
-    private var locationRequested: Bool = false
 
     private let defaults = UserDefaults.standard
     private let weatherKey = "picksyCachedWeather"
@@ -129,33 +128,23 @@ class WeatherManager: NSObject {
         switch locationManager.authorizationStatus {
         case .notDetermined:
             locationManager.requestWhenInUseAuthorization()
-            // Θα συνεχίσει από το delegate
-            await MainActor.run { isLoading = false }
+            // Reset γιατί απλά περιμένουμε authorization — το fetch θα ξεκινήσει από delegate
+            await MainActor.run { isLoading = false; isFetching = false }
             return
         case .denied, .restricted:
             await fetchWithOpenMeteoFallback()
         case .authorizedWhenInUse, .authorizedAlways:
-            // v1.7.1: Αν έχουμε ήδη location, χρησιμοποίησέ το
             if let location = currentLocation {
                 await fetchWithWeatherKit(location: location)
             } else {
-                // Μόνο αν δεν έχουμε ήδη ζητήσει location
-                if !locationRequested {
-                    locationRequested = true
-                    locationManager.requestLocation()
-                    // Θα συνεχίσει από το delegate
-                    await MainActor.run { isLoading = false }
-                } else {
-                    await fetchWithOpenMeteoFallback()
-                }
+                // Ζήτησε location και επέστρεψε — το fetch συνεχίζει από didUpdateLocations
+                // ΜΗΝ κάνεις reset το isFetching εδώ, παραμένει true μέχρι να έρθει το location
+                locationManager.requestLocation()
+                await MainActor.run { isLoading = false }
+                return
             }
         @unknown default:
             await fetchWithOpenMeteoFallback()
-        }
-
-        await MainActor.run {
-            isFetching = false
-            locationRequested = false
         }
     }
 
@@ -400,19 +389,13 @@ class WeatherManager: NSObject {
 extension WeatherManager: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        // v1.7.1: Αποδέξου μόνο το πρώτο location update
-        guard let location = locations.last, currentLocation == nil || isFetching else {
-            return
-        }
+        // Αποδέξου μόνο το πρώτο location update — αγνόησε duplicates
+        guard let location = locations.last, currentLocation == nil else { return }
 
         currentLocation = location
         print("[WeatherKit] 📍 Location: \(location.coordinate.latitude), \(location.coordinate.longitude)")
 
         Task {
-            await MainActor.run {
-                self.isFetching = true
-                self.isLoading = true
-            }
             await fetchWithWeatherKit(location: location)
         }
     }
@@ -433,13 +416,11 @@ extension WeatherManager: CLLocationManagerDelegate {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             print("[WeatherKit] ✅ Location authorized")
-            // v1.7.1: Μόνο αν δεν φέρνουμε ήδη
-            guard !isFetching else { return }
-            locationManager.requestLocation()
+            // Πέρασε από fetchWeather() για να τηρηθεί ο isFetching guard
+            Task { await self.fetchWeather() }
         case .denied, .restricted:
             print("[WeatherKit] ⚠️ Location denied, using fallback")
-            guard !isFetching else { return }
-            Task { await fetchWithOpenMeteoFallback() }
+            Task { await self.fetchWeather() }
         default:
             break
         }
