@@ -191,6 +191,7 @@ struct LiftOffApp: App {
                     .environment(tabSelection)
                     .environment(weatherManager)
                     .environment(activityPrefs)
+                    .environment(AchievementManager.shared)
                     .onAppear {
                         LiftOffApp.sharedStore = store
                         LiftOffApp.sharedLiveActivity = liveActivity
@@ -199,8 +200,11 @@ struct LiftOffApp: App {
                     // Όταν το focus session τελειώσει (αυτόματα ή manually),
                     // επαναφέρουμε το Live Activity σε normal pickup mode
                     .onChange(of: focusSessionManager.sessionState) { _, newState in
-                        if case .completed = newState {
+                        if case .completed(let pickupsDuring, _, _) = newState {
                             liveActivity.update(pickupCount: store.todayPickups)
+                            if pickupsDuring == 0 {
+                                AchievementManager.shared.onFocusPerfectSession()
+                            }
                         }
                     }
             } else {

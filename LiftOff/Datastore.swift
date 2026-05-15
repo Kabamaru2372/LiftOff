@@ -146,6 +146,8 @@ class DataStore {
         // Reload all widgets και Live Activity
         WidgetCenter.shared.reloadAllTimelines()
 
+        // Note: we do NOT reset achievements — they're permanent
+
         print("🔄 All Picksy stats reset")
     }
 
@@ -233,6 +235,19 @@ class DataStore {
             }
 
             if todayPickups > 0 { totalDaysTracked += 1 }
+
+            // Save previous day pickups for Big Drop badge calculation
+            let previousPickups = defaults.integer(forKey: "ach_previousDayPickups")
+            defaults.set(todayPickups, forKey: "ach_previousDayPickups")
+
+            // Notify AchievementManager before resetting
+            AchievementManager.shared.onDayCompleted(
+                pickups: todayPickups,
+                goal: goal,
+                streak: currentStreak,
+                totalDays: totalDaysTracked,
+                previousDayPickups: previousPickups
+            )
 
             todayPickups = 0
             todayTotalSeconds = 0

@@ -15,6 +15,7 @@ struct ContentView: View {
     @Environment(CheckInManager.self) var checkInManager
     @Environment(WeeklySummaryManager.self) var weeklyManager
     @Environment(TabSelection.self) var tabSelection
+    @Environment(AchievementManager.self) var achievementManager
     @AppStorage("appLanguage") private var appLanguage: String = "English"
 
     @State private var showPaywall: Bool = false
@@ -68,28 +69,13 @@ struct ContentView: View {
                     }
                     .tag(2)
 
-                Group {
-                    if proManager.isPro {
-                        RewardsView()
-                    } else {
-                        ProLockedView(
-                            feature: t("Rewards", "Επιβραβεύσεις", "Belohnungen"),
-                            description: t(
-                                "Unlock quote packs, badges, and gift codes as you improve.",
-                                "Ξεκλείδωσε quote packs, badges και gift codes καθώς βελτιώνεσαι.",
-                                "Schalte Zitatpakete, Abzeichen und Geschenkcodes frei."
-                            ),
-                            icon: "gift",
-                            onUnlock: { showPaywall = true }
-                        )
+                AchievementsView()
+                    .timeGradientBackground()
+                    .tabItem {
+                        Image(systemName: "trophy")
+                        Text(t("Trophies", "Τρόπαια", "Trophäen"))
                     }
-                }
-                .timeGradientBackground()
-                .tabItem {
-                    Image(systemName: "gift")
-                    Text(t("Rewards", "Δώρα", "Belohnungen"))
-                }
-                .tag(3)
+                    .tag(3)
 
                 SettingsView()
                     .timeGradientBackground()
@@ -302,5 +288,7 @@ struct ProLockedView: View {
         .environment(CheckInManager())
         .environment(WeeklySummaryManager())
         .environment(TabSelection())
+        .environment(AchievementManager.shared)
+        .environment(WeatherManager())
 }
 
