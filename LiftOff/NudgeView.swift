@@ -169,8 +169,8 @@ struct NudgeView: View {
             if let weather = weatherManager.currentWeather {
                 HStack {
                     temperaturePill(weather: weather)
-                        .padding(.leading, 24)
-                        .padding(.top, 8)
+                        .padding(.leading, 20)
+                        .padding(.top, 20)
                     Spacer()
                 }
             }
@@ -406,48 +406,57 @@ struct NudgeView: View {
         Button(action: {
             Task { await weatherManager.manualRefresh() }
         }) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    if weatherManager.isLoading {
-                        ProgressView()
-                            .scaleEffect(0.7)
-                            .tint(.white)
-                    } else {
-                        Text(displayEmoji(for: weather.condition))
-                            .font(.system(size: 14))
-                    }
-                    Text("\(Int(weather.temperature))°")
-                        .font(.system(size: 14, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
-
-                    // City name αν υπάρχει
-                    if !weather.cityName.isEmpty && weather.cityName != "Current Location" {
-                        Text(weather.cityName)
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                            .foregroundColor(.white.opacity(0.8))
-                    }
+            HStack(spacing: 5) {
+                // Weather icon or loading spinner
+                if weatherManager.isLoading {
+                    ProgressView()
+                        .scaleEffect(0.65)
+                        .tint(.white)
+                        .frame(width: 16)
+                } else {
+                    Text(displayEmoji(for: weather.condition))
+                        .font(.system(size: 13))
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(
-                    ZStack {
-                        if isLightBackground {
-                            Capsule()
-                                .fill(Color.black.opacity(0.35))
-                        }
-                        Capsule()
-                            .fill(.ultraThinMaterial)
-                            .opacity(isLightBackground ? 0.4 : 0.6)
-                    }
-                )
-                .shadow(color: .black.opacity(0.3), radius: 3)
 
-                Text(conditionName(for: weather.condition))
-                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                // Temperature
+                Text("\(Int(weather.temperature))°")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundColor(.white)
-                    .padding(.leading, 12)
-                    .shadow(color: .black.opacity(0.5), radius: 3)
+
+                // Condition name (merged into pill — no more second line)
+                let condition = conditionName(for: weather.condition)
+                if !condition.isEmpty {
+                    Text("·")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.45))
+                    Text(condition)
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundColor(.white.opacity(0.85))
+                }
+
+                // City name
+                if !weather.cityName.isEmpty && weather.cityName != "Current Location" {
+                    Text("·")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.45))
+                    Text(weather.cityName)
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundColor(.white.opacity(0.7))
+                }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                ZStack {
+                    if isLightBackground {
+                        Capsule().fill(Color.black.opacity(0.3))
+                    }
+                    Capsule()
+                        .fill(.ultraThinMaterial)
+                        .opacity(isLightBackground ? 0.4 : 0.65)
+                }
+            )
+            .shadow(color: .black.opacity(0.25), radius: 4)
         }
         .buttonStyle(.plain)
     }
