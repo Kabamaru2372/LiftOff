@@ -332,6 +332,10 @@ struct LiftOffApp: App {
 
             ScreenUnlockDetector.shared.startMonitoring()
 
+            // Refresh evening notification with latest pickup count
+            // so the 21:00 message reflects actual day data
+            scheduleAllNotifications(pickupCount: store.todayPickups)
+
             AppsViewRefreshTrigger.shared.refresh()
             AppsViewRefreshTrigger.shared.refreshAfter(seconds: 0.5)
             AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
@@ -365,8 +369,11 @@ struct LiftOffApp: App {
         ])
 
         let language = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+        let g = UserDefaults.standard.integer(forKey: "dailyGoal")
+        let dailyGoal = g > 0 ? g : 50
+
         scheduleMiddayNotification(center: center, pickupCount: pickupCount, language: language)
-        scheduleEveningNotification(center: center, language: language)
+        scheduleEveningNotification(center: center, pickupCount: pickupCount, dailyGoal: dailyGoal, language: language)
         scheduleWeeklyNotification(center: center, language: language)
         scheduleSummaryNotifications(center: center, language: language)
     }
@@ -390,20 +397,20 @@ struct LiftOffApp: App {
             trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)))
     }
 
-    private func scheduleEveningNotification(center: UNUserNotificationCenter, language: String) {
+    private func scheduleEveningNotification(
+        center: UNUserNotificationCenter,
+        pickupCount: Int,
+        dailyGoal: Int,
+        language: String
+    ) {
         let content = UNMutableNotificationContent()
         content.sound = .default
-        switch language {
-        case "Ελληνικά":
-            content.title = "Ημερήσιος απολογισμός 📝"
-            content.body = "Πώς ήταν η σχέση σου με το κινητό σήμερα; Άνοιξε το Picksy για check-in."
-        case "Deutsch":
-            content.title = "Tages-Check-in 📝"
-            content.body = "Wie war deine Beziehung zum Handy heute? Öffne Picksy für den Check-in."
-        default:
-            content.title = "Daily Check-in 📝"
-            content.body = "How was your relationship with your phone today? Open Picksy to check in."
-        }
+        content.categoryIdentifier = "PICKSY_EVENING_SUMMARY"
+
+        let (title, body) = eveningMessage(pickupCount: pickupCount, dailyGoal: dailyGoal, language: language)
+        content.title = title
+        content.body  = body
+
         var c = DateComponents(); c.hour = 21; c.minute = 0
         center.add(UNNotificationRequest(identifier: "liftoff.evening", content: content,
             trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)))
@@ -495,6 +502,94 @@ struct LiftOffApp: App {
         case 11...20: return "Du hast dein Handy \(pickupCount) Mal aufgehoben. Der Nachmittag gehört dir zur Verbesserung."
         case 21...30: return "\(pickupCount) Griffe bereits. Tief durchatmen. Du kannst es am Nachmittag noch drehen."
         default: return "\(pickupCount) Griffe vor dem Mittag. Der Nachmittag ist ein Neustart. Du kannst es besser."
+        }
+    }
+
+    // MARK: - Evening Messages (personalized, data-driven)
+
+    /// Returns (title, body) for the 21:00 personalized summary notification.
+    /// Segments by pickups relative to dailyGoal so every user gets a relevant message.
+    private func eveningMessage(pickupCount: Int, dailyGoal: Int, language: String) -> (String, String) {
+        // Thresholds relative to goal
+        let excellent  = Int(Double(dailyGoal) * 0.4)   // ≤ 40% of goal → excellent
+        let good       = dailyGoal                       // ≤ 100% → good
+        let slightOver = Int(Double(dailyGoal) * 1.5)   // ≤ 150% → slightly over
+
+        switch language {
+        case "Ελληνικά":
+            if pickupCount <= excellent {
+                return (
+                    "Ήσουν παρών σήμερα 🌿",
+                    "Μόνο \(pickupCount) σηκώματα — από τις καλύτερές σου μέρες! Απόλαυσε το βράδυ σου."
+                )
+            } else if pickupCount <= good {
+                let under = dailyGoal - pickupCount
+                return (
+                    "Κάτω από τον στόχο 🎯",
+                    "\(pickupCount) σηκώματα σήμερα — \(under) λιγότερα από τον στόχο σου (\(dailyGoal)). Συνέχισε έτσι!"
+                )
+            } else if pickupCount <= slightOver {
+                let over = pickupCount - dailyGoal
+                return (
+                    "Κοντά στον στόχο 💪",
+                    "\(pickupCount) σηκώματα σήμερα — \(over) πάνω από τον στόχο. Αύριο είναι μια νέα αρχή 🌅"
+                )
+            } else {
+                return (
+                    "Πολύ κινητό σήμερα 📱",
+                    "\(pickupCount) σηκώματα — ήταν δύσκολη μέρα. Βάλε το κινητό κάτω και χαλάρωσε 🌙"
+                )
+            }
+
+        case "Deutsch":
+            if pickupCount <= excellent {
+                return (
+                    "Du warst heute präsent 🌿",
+                    "Nur \(pickupCount) Griffe — einer deiner besten Tage! Genieße deinen Abend."
+                )
+            } else if pickupCount <= good {
+                let under = dailyGoal - pickupCount
+                return (
+                    "Unter deinem Ziel 🎯",
+                    "\(pickupCount) Griffe heute — \(under) weniger als dein Ziel (\(dailyGoal)). Weiter so!"
+                )
+            } else if pickupCount <= slightOver {
+                let over = pickupCount - dailyGoal
+                return (
+                    "Knapp über dem Ziel 💪",
+                    "\(pickupCount) Griffe — \(over) über deinem Ziel. Morgen ist ein frischer Start 🌅"
+                )
+            } else {
+                return (
+                    "Viel Handy heute 📱",
+                    "\(pickupCount) Griffe — das war ein anstrengender Tag. Leg es weg und entspann dich 🌙"
+                )
+            }
+
+        default: // English
+            if pickupCount <= excellent {
+                return (
+                    "You were present today 🌿",
+                    "Only \(pickupCount) pickups — one of your best days! Enjoy your evening phone-free."
+                )
+            } else if pickupCount <= good {
+                let under = dailyGoal - pickupCount
+                return (
+                    "Under your goal! 🎯",
+                    "\(pickupCount) pickups today — \(under) under your \(dailyGoal) goal. You're building a great habit."
+                )
+            } else if pickupCount <= slightOver {
+                let over = pickupCount - dailyGoal
+                return (
+                    "Almost there 💪",
+                    "\(pickupCount) pickups today — \(over) over your goal. Tomorrow is a fresh start 🌅"
+                )
+            } else {
+                return (
+                    "Busy phone day 📱",
+                    "\(pickupCount) pickups — that was a tough one. Put it down and unwind for the evening 🌙"
+                )
+            }
         }
     }
 }
