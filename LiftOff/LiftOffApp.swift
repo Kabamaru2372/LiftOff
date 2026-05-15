@@ -192,6 +192,7 @@ struct LiftOffApp: App {
                     .environment(weatherManager)
                     .environment(activityPrefs)
                     .environment(AchievementManager.shared)
+                    .environment(CorrelationStore.shared)
                     .onAppear {
                         LiftOffApp.sharedStore = store
                         LiftOffApp.sharedLiveActivity = liveActivity

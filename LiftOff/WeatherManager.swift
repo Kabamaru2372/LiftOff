@@ -188,6 +188,7 @@ class WeatherManager: NSObject {
                 self.isFetching = false
                 self.errorMessage = nil
                 self.saveCached(data)
+                CorrelationStore.shared.updateCurrentWeather(condition: condition, temperature: temp)
             }
 
             print("[WeatherKit] ✅ \(cityName): \(condition.emoji) \(Int(temp))°C")
@@ -295,6 +296,7 @@ class WeatherManager: NSObject {
                 self.isLoading = false
                 self.isFetching = false
                 self.saveCached(weatherData)
+                CorrelationStore.shared.updateCurrentWeather(condition: condition, temperature: temp)
             }
 
             print("[OpenMeteo] ✅ Fallback: \(condition.emoji) \(Int(temp))°C")

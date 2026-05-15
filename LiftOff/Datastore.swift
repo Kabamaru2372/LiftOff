@@ -249,6 +249,9 @@ class DataStore {
                 previousDayPickups: previousPickups
             )
 
+            // Record weather correlation snapshot for the day that just ended
+            CorrelationStore.shared.recordDayEnd(pickups: todayPickups, date: lastDate)
+
             todayPickups = 0
             todayTotalSeconds = 0
             weeklyPickups[currentDayIndex()] = 0

@@ -21,6 +21,7 @@ struct DashboardView: View {
     @Environment(CheckInManager.self) var checkInManager
     @Environment(WeeklySummaryManager.self) var weeklyManager
     @Environment(ProManager.self) var proManager
+    @Environment(CorrelationStore.self) var correlationStore
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     @AppStorage("dailyGoal") private var dailyGoal: Int = 15
 
@@ -118,6 +119,10 @@ struct DashboardView: View {
 
                 WeeklyChart(data: store.weeklyPickups, dayNames: dayNames)
                     .frame(height: 120)
+
+                // MARK: - Correlation Insights
+                CorrelationInsightView()
+                    .environment(correlationStore)
 
                 // MARK: - Heatmap section (NEW!)
                 heatmapSection
@@ -528,5 +533,6 @@ struct WeeklyChart: View {
         .environment(CheckInManager())
         .environment(WeeklySummaryManager())
         .environment(ProManager.shared)
+        .environment(CorrelationStore.shared)
 }
 

@@ -290,5 +290,6 @@ struct ProLockedView: View {
         .environment(TabSelection())
         .environment(AchievementManager.shared)
         .environment(WeatherManager())
+        .environment(CorrelationStore.shared)
 }
 
