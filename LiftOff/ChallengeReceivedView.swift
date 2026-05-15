@@ -54,11 +54,20 @@ struct ChallengeReceivedView: View {
 
     private var sentAgoText: String {
         let ago = Date().timeIntervalSince1970 - payload.sentAt
-        let hours = Int(ago / 3600)
-        if hours < 1 { return t("just now", "μόλις τώρα", "gerade eben") }
-        if hours < 24 { return t("\(hours)h ago", "πριν \(hours)ώ", "vor \(hours)h") }
+        let minutes = Int(ago / 60)
+        let hours = minutes / 60
         let days = hours / 24
-        return t("\(days)d ago", "πριν \(days)μ", "vor \(days)T")
+
+        if minutes < 2  { return t("just now", "μόλις τώρα", "gerade eben") }
+        if minutes < 60 { return t("\(minutes)m ago", "πριν \(minutes)λ", "vor \(minutes)m") }
+        if hours < 24   { return t("\(hours)h ago", "πριν \(hours)ώ", "vor \(hours)h") }
+        if days < 7     { return t("\(days)d ago", "πριν \(days) μέρες", "vor \(days) Tagen") }
+
+        // Older than a week — show the actual date
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f.string(from: Date(timeIntervalSince1970: payload.sentAt))
     }
 
     // MARK: - Body
