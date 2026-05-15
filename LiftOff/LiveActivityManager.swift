@@ -28,7 +28,8 @@ class LiveActivityManager {
     }
 
     var isRunning: Bool {
-        currentActivity != nil
+        guard let activity = currentActivity else { return false }
+        return activity.activityState == .active
     }
 
     init() {

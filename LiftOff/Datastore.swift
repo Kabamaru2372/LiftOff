@@ -237,6 +237,7 @@ class DataStore {
             todayPickups = 0
             todayTotalSeconds = 0
             weeklyPickups[currentDayIndex()] = 0
+            defaults.removeObject(forKey: todayPickupsKey())
             saveData()
             WidgetCenter.shared.reloadAllTimelines()
         } else if lastDate == "" {

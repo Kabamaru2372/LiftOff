@@ -83,8 +83,13 @@ class PickupScheduler {
 
         let center = DeviceActivityCenter()
 
-        // Stop any existing monitoring first για clean state
-        center.stopMonitoring([Self.dailyActivityName])
+        // Αν τρέχει ήδη, μην κάνεις reset — θα μηδένιζε τους event counters
+        if center.activities.contains(Self.dailyActivityName) {
+            log("ℹ️ Monitoring already active, skipping restart")
+            isMonitoring = true
+            currentTrackedAppsCount = Array(selection.applicationTokens.prefix(Self.maxTrackedApps)).count
+            return
+        }
 
         // Schedule: από 00:00 μέχρι 23:59 κάθε μέρα
         let schedule = DeviceActivitySchedule(
