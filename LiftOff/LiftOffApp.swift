@@ -196,6 +196,13 @@ struct LiftOffApp: App {
                         LiftOffApp.sharedLiveActivity = liveActivity
                         onAppLaunch()
                     }
+                    // Όταν το focus session τελειώσει (αυτόματα ή manually),
+                    // επαναφέρουμε το Live Activity σε normal pickup mode
+                    .onChange(of: focusSessionManager.sessionState) { _, newState in
+                        if case .completed = newState {
+                            liveActivity.update(pickupCount: store.todayPickups)
+                        }
+                    }
             } else {
                 OnboardingView()
                     .environment(checkInManager)
@@ -301,10 +308,14 @@ struct LiftOffApp: App {
             let goal = g > 0 ? g : 50
 
             if liveActivity.isRunning {
-                if focusSessionManager.isActive {
+                // Αν το focus session ήταν ενεργό αλλά έληξε ενώ η app ήταν σε background,
+                // το endTime είναι στο παρελθόν — αντιμετωπίζουμε ως normal mode
+                if focusSessionManager.isActive,
+                   let endTime = focusSessionManager.endTime,
+                   endTime > Date() {
                     liveActivity.updateForFocus(
                         pickupCount: store.todayPickups,
-                        focusEndTime: focusSessionManager.endTime,
+                        focusEndTime: endTime,
                         focusPickupCount: focusSessionManager.pickupsDuringSession
                     )
                 } else {
