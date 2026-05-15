@@ -13,6 +13,11 @@ struct FocusSessionView: View {
     @Environment(FocusSessionManager.self) var focusManager
     @Environment(DataStore.self) var store
     @AppStorage("appLanguage") private var appLanguage: String = "English"
+    @AppStorage("dailyGoal") private var dailyGoal: Int = 50
+    @AppStorage("challengeDisplayName") private var displayName: String = ""
+
+    @State private var showShareSheet = false
+    @State private var shareItems: [Any] = []
 
     @Environment(\.dismiss) private var dismiss
 
@@ -45,6 +50,7 @@ struct FocusSessionView: View {
             Color(red: 0.08, green: 0.08, blue: 0.10)
                 .ignoresSafeArea()
 
+
             switch focusManager.sessionState {
             case .idle:
                 startView
@@ -53,6 +59,9 @@ struct FocusSessionView: View {
             case .completed(let pickupsDuring, let durationMinutes, let success):
                 completedView(pickupsDuring: pickupsDuring, durationMinutes: durationMinutes, success: success)
             }
+        }
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: shareItems)
         }
     }
 
@@ -299,30 +308,77 @@ struct FocusSessionView: View {
 
             Spacer()
 
-            // Done button
-            Button(action: {
-                focusManager.dismissCompleted()
-                dismiss()
-            }) {
-                Text(t("Done", "Τέλος", "Fertig"))
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 18)
-                    .background(
-                        LinearGradient(
-                            colors: success
-                                ? [Color.green.opacity(0.8), Color(red: 0.2, green: 0.75, blue: 0.35)]
-                                : [Color.orange, Color(red: 1.0, green: 0.55, blue: 0.1)],
-                            startPoint: .leading,
-                            endPoint: .trailing
+            VStack(spacing: 12) {
+                // Done button
+                Button(action: {
+                    focusManager.dismissCompleted()
+                    dismiss()
+                }) {
+                    Text(t("Done", "Τέλος", "Fertig"))
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                        .background(
+                            LinearGradient(
+                                colors: success
+                                    ? [Color.green.opacity(0.8), Color(red: 0.2, green: 0.75, blue: 0.35)]
+                                    : [Color.orange, Color(red: 1.0, green: 0.55, blue: 0.1)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
                         )
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                    )
+                }
+                .buttonStyle(.plain)
+
+                // Challenge a friend — only on perfect session
+                if success {
+                    Button(action: shareFocusChallenge) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "trophy.fill")
+                                .font(.system(size: 13))
+                                .foregroundColor(.yellow)
+                            Text(t("Challenge a friend", "Προκάλεσε φίλο", "Freund herausfordern"))
+                                .font(.system(size: 15, weight: .medium, design: .rounded))
+                                .foregroundColor(.white.opacity(0.8))
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .buttonStyle(.plain)
             .padding(.horizontal, 24)
             .padding(.bottom, 32)
         }
+    }
+
+    // MARK: - Share focus challenge
+
+    private func shareFocusChallenge() {
+        guard let url = ChallengeManager.buildURL(
+            displayName: displayName,
+            weeklyPickups: store.weeklyPickups,
+            streak: store.currentStreak,
+            dailyGoal: dailyGoal
+        ) else { return }
+
+        let payload = ChallengePayload(
+            name: displayName.isEmpty ? "A friend" : displayName,
+            weekly: store.weeklyPickups,
+            streak: store.currentStreak,
+            goal: dailyGoal,
+            sentAt: Date().timeIntervalSince1970
+        )
+        let msg: String
+        switch appLanguage {
+        case "Ελληνικά":
+            msg = "Μόλις έκανα μια τέλεια Focus Session στο Picksy — μηδέν σηκώματα! 🎯 Μπορείς να το κάνεις κι εσύ;"
+        case "Deutsch":
+            msg = "Ich habe gerade eine perfekte Focus Session bei Picksy abgeschlossen — null Griffe! 🎯 Kannst du das auch?"
+        default:
+            msg = "Just completed a perfect Focus Session on Picksy — zero pickups! 🎯 Can you beat that?"
+        }
+        shareItems = [msg, url.absoluteString]
+        showShareSheet = true
     }
 }

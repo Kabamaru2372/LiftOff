@@ -163,6 +163,7 @@ struct LiftOffApp: App {
 
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
     @State private var foregroundObserver: NSObjectProtocol? = nil
+    @State private var pendingChallenge: ChallengePayload? = nil
 
     static var sharedStore: DataStore?
     static var sharedLiveActivity: LiveActivityManager?
@@ -193,6 +194,15 @@ struct LiftOffApp: App {
                     .environment(activityPrefs)
                     .environment(AchievementManager.shared)
                     .environment(CorrelationStore.shared)
+                    .onOpenURL { url in
+                        if let payload = ChallengeManager.parse(url: url) {
+                            pendingChallenge = payload
+                        }
+                    }
+                    .sheet(item: $pendingChallenge) { payload in
+                        ChallengeReceivedView(payload: payload)
+                            .environment(store)
+                    }
                     .onAppear {
                         LiftOffApp.sharedStore = store
                         LiftOffApp.sharedLiveActivity = liveActivity

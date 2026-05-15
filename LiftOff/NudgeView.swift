@@ -20,6 +20,7 @@ struct NudgeView: View {
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     @AppStorage("dailyGoal") private var dailyGoal: Int = 15
     @AppStorage("lastPickupTimestamp") private var lastPickupTimestamp: Double = 0
+    @AppStorage("challengeDisplayName") private var displayName: String = ""
 
     @State private var currentQuote: String = ""
     @State private var minutesSinceLastPickup: Int = 0
@@ -31,6 +32,11 @@ struct NudgeView: View {
 
     // Focus Session sheet
     @State private var showFocusSession: Bool = false
+
+    // Challenge share
+    @State private var showChallengeBanner: Bool = false
+    @State private var showShareSheet: Bool = false
+    @State private var challengeShareItems: [Any] = []
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -108,6 +114,10 @@ struct NudgeView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
         }
+        // Challenge share sheet
+        .sheet(isPresented: $showShareSheet) {
+            ShareSheet(items: challengeShareItems)
+        }
         // Focus Session sheet
         .sheet(isPresented: $showFocusSession) {
             FocusSessionView(
@@ -134,6 +144,7 @@ struct NudgeView: View {
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
             updateMinutesSinceLastPickup()
             startRefreshTimer()
+            checkChallengeBanner()
 
             NotificationCenter.default.addObserver(
                 forName: .picksyPickupDetected,
@@ -249,6 +260,13 @@ struct NudgeView: View {
                 .padding(.horizontal, 32)
 
             Spacer()
+
+            // Challenge share banner — εμφανίζεται μόνο σε καλή μέρα μετά τις 16:00
+            if showChallengeBanner {
+                challengeBanner
+                    .padding(.horizontal, 32)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
 
             // Stats card
             VStack(spacing: 10) {
@@ -527,6 +545,93 @@ struct NudgeView: View {
                 "Letzter Griff: vor \(hours)h \(mins)m"
             )
         }
+    }
+
+    // MARK: - Challenge Banner
+
+    private var challengeBanner: some View {
+        HStack(spacing: 12) {
+            Text("🏆")
+                .font(.system(size: 20))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(t("Great day!", "Εξαιρετική μέρα!", "Toller Tag!"))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                Text(t(
+                    "Challenge a friend to beat your score?",
+                    "Προκάλεσε έναν φίλο να τα πάει καλύτερα;",
+                    "Fordere einen Freund heraus?"
+                ))
+                .font(.system(size: 12, weight: .regular, design: .rounded))
+                .foregroundColor(.white.opacity(0.8))
+            }
+
+            Spacer()
+
+            Button(action: shareChallenge) {
+                Text(t("Share", "Μοιράσου", "Teilen"))
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundColor(.black)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.yellow))
+            }
+            .buttonStyle(.plain)
+
+            Button(action: {
+                withAnimation(.easeOut(duration: 0.25)) {
+                    showChallengeBanner = false
+                }
+                ChallengeManager.markSuggestedToday()
+            }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.white.opacity(0.6))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(LinearGradient(
+                    colors: [Color(red: 0.2, green: 0.55, blue: 0.9), Color(red: 0.4, green: 0.3, blue: 0.9)],
+                    startPoint: .leading, endPoint: .trailing
+                ))
+        )
+    }
+
+    private func checkChallengeBanner() {
+        let show = ChallengeManager.shouldSuggestShare(
+            pickups: store.todayPickups,
+            dailyGoal: dailyGoal > 0 ? dailyGoal : 15
+        )
+        withAnimation(.easeIn(duration: 0.3).delay(0.5)) {
+            showChallengeBanner = show
+        }
+    }
+
+    private func shareChallenge() {
+        guard let url = ChallengeManager.buildURL(
+            displayName: displayName,
+            weeklyPickups: store.weeklyPickups,
+            streak: store.currentStreak,
+            dailyGoal: dailyGoal > 0 ? dailyGoal : 15
+        ) else { return }
+
+        let payload = ChallengePayload(
+            name: displayName.isEmpty ? "A friend" : displayName,
+            weekly: store.weeklyPickups,
+            streak: store.currentStreak,
+            goal: dailyGoal > 0 ? dailyGoal : 15,
+            sentAt: Date().timeIntervalSince1970
+        )
+        let msg = ChallengeManager.shareMessage(payload: payload, language: appLanguage)
+        challengeShareItems = [msg, url.absoluteString]
+        showShareSheet = true
+        ChallengeManager.markSuggestedToday()
+        withAnimation { showChallengeBanner = false }
     }
 
     // MARK: - Timer

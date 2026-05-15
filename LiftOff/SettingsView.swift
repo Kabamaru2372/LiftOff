@@ -20,6 +20,7 @@ struct SettingsView: View {
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     @AppStorage("liveActivityEnabled") private var liveActivityEnabled: Bool = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled: Bool = true
+    @AppStorage("challengeDisplayName") private var challengeDisplayName: String = ""
 
     @Environment(ProManager.self) var proManager
     @Environment(LiveActivityManager.self) var liveActivity
@@ -132,6 +133,19 @@ struct SettingsView: View {
                     }
                     .padding(.bottom, 20)
                 }
+
+                // Display name for challenges
+                SettingRow(
+                    title: t("Your name", "Το όνομά σου", "Dein Name"),
+                    subtitle: t("Shown when you send a challenge", "Εμφανίζεται όταν στέλνεις πρόκληση", "Wird bei Herausforderungen angezeigt")
+                ) {
+                    TextField(t("Optional", "Προαιρετικό", "Optional"), text: $challengeDisplayName)
+                        .font(.system(size: 15, design: .rounded))
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 120)
+                }
+
+                Divider()
 
                 // Language
                 SettingRow(
