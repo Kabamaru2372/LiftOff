@@ -79,10 +79,9 @@ struct LiftOffLiveLiveActivity: Widget {
             // DYNAMIC ISLAND views
 
             DynamicIsland {
-                // Expanded
-                if let focusEnd = context.state.focusEndTime {
-                    // Focus mode expanded
-                    DynamicIslandExpandedRegion(.leading) {
+                // Expanded — if/else πρέπει να είναι ΜΕΣΑ σε κάθε Region
+                DynamicIslandExpandedRegion(.leading) {
+                    if let focusEnd = context.state.focusEndTime {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Focus")
                                 .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -92,30 +91,7 @@ struct LiftOffLiveLiveActivity: Widget {
                                 .foregroundStyle(.orange)
                         }
                         .padding(.leading, 4)
-                    }
-
-                    DynamicIslandExpandedRegion(.trailing) {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(context.state.focusPickupCount)")
-                                .font(.system(size: 28, weight: .medium, design: .rounded))
-                                .foregroundStyle(.white)
-                            Text("during focus")
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.trailing, 4)
-                    }
-
-                    DynamicIslandExpandedRegion(.bottom) {
-                        Text("Stay present 🍃")
-                            .font(.system(size: 13, weight: .regular, design: .rounded))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .padding(.top, 4)
-                    }
-                } else {
-                    // Normal expanded
-                    DynamicIslandExpandedRegion(.leading) {
+                    } else {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("\(context.state.pickupCount)")
                                 .font(.system(size: 28, weight: .medium, design: .rounded))
@@ -125,8 +101,20 @@ struct LiftOffLiveLiveActivity: Widget {
                         }
                         .padding(.leading, 4)
                     }
+                }
 
-                    DynamicIslandExpandedRegion(.trailing) {
+                DynamicIslandExpandedRegion(.trailing) {
+                    if context.state.focusEndTime != nil {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text("\(context.state.focusPickupCount)")
+                                .font(.system(size: 28, weight: .medium, design: .rounded))
+                                .foregroundStyle(.white)
+                            Text("during focus")
+                                .font(.system(size: 11, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.trailing, 4)
+                    } else {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text("\(context.attributes.dailyGoal)")
                                 .font(.system(size: 28, weight: .medium, design: .rounded))
@@ -137,8 +125,16 @@ struct LiftOffLiveLiveActivity: Widget {
                         }
                         .padding(.trailing, 4)
                     }
+                }
 
-                    DynamicIslandExpandedRegion(.bottom) {
+                DynamicIslandExpandedRegion(.bottom) {
+                    if context.state.focusEndTime != nil {
+                        Text("Stay present 🍃")
+                            .font(.system(size: 13, weight: .regular, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .padding(.top, 4)
+                    } else {
                         Text(context.state.currentQuote)
                             .font(.system(size: 13, weight: .regular, design: .rounded))
                             .foregroundStyle(.secondary)
