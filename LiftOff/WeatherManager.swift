@@ -57,6 +57,8 @@ struct WeatherData: Codable {
     let cityId: String
     let cityName: String
     let fetchedAt: Date
+    let sunrise: Date?
+    let sunset: Date?
 }
 
 // MARK: - Weather Manager
@@ -165,12 +167,19 @@ class WeatherManager: NSObject {
             let temp = weather.currentWeather.temperature.converted(to: .celsius).value
             let cityName = await getCityName(from: location)
 
+            // Extract today's sunrise/sunset from daily forecast
+            let todayForecast = weather.dailyForecast.forecast.first
+            let sunriseDate = todayForecast?.sun.sunrise
+            let sunsetDate  = todayForecast?.sun.sunset
+
             let data = WeatherData(
                 condition: condition,
                 temperature: temp,
                 cityId: "current_location",
                 cityName: cityName,
-                fetchedAt: Date()
+                fetchedAt: Date(),
+                sunrise: sunriseDate,
+                sunset: sunsetDate
             )
 
             await MainActor.run {
@@ -257,7 +266,7 @@ class WeatherManager: NSObject {
         }
 
         do {
-            let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code"
+            let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code&daily=sunrise,sunset&timezone=auto"
             guard let url = URL(string: urlString) else { throw WeatherError.invalidURL }
 
             let (data, _) = try await URLSession.shared.data(from: url)
@@ -267,12 +276,18 @@ class WeatherManager: NSObject {
             let condition = conditionFromWMO(code: response.current.weather_code, temp: temp)
             let cityName = await getCityName(from: CLLocation(latitude: lat, longitude: lon))
 
+            // Parse today's sunrise/sunset (first entry in daily arrays)
+            let sunriseDate = response.daily?.sunrise?.first.flatMap { Self.parseOpenMeteoDateTime($0) }
+            let sunsetDate  = response.daily?.sunset?.first.flatMap  { Self.parseOpenMeteoDateTime($0) }
+
             let weatherData = WeatherData(
                 condition: condition,
                 temperature: temp,
                 cityId: "current_location",
                 cityName: cityName,
-                fetchedAt: Date()
+                fetchedAt: Date(),
+                sunrise: sunriseDate,
+                sunset: sunsetDate
             )
 
             await MainActor.run {
@@ -295,11 +310,25 @@ class WeatherManager: NSObject {
 
     private struct OpenMeteoResponse: Codable {
         let current: OpenMeteoCurrent
+        let daily: OpenMeteoDaily?
     }
 
     private struct OpenMeteoCurrent: Codable {
         let temperature_2m: Double
         let weather_code: Int
+    }
+
+    private struct OpenMeteoDaily: Codable {
+        let sunrise: [String]?
+        let sunset: [String]?
+    }
+
+    /// Open-Meteo επιστρέφει datetime ως "2026-05-15T05:32" (χωρίς seconds)
+    private static func parseOpenMeteoDateTime(_ string: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.date(from: string)
     }
 
     private func conditionFromWMO(code: Int, temp: Double) -> WeatherCondition {

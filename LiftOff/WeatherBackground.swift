@@ -25,13 +25,39 @@ enum TimeOfDay {
     case sunset
     case night
 
-    static func from(date: Date = Date()) -> TimeOfDay {
+    /// Υπολογίζει το TimeOfDay χρησιμοποιώντας πραγματικά δεδομένα ηλιανατολής/δύσης.
+    /// Αν δεν υπάρχουν (nil), χρησιμοποιεί fallback με ώρα ρολογιού.
+    static func from(date: Date = Date(), sunrise: Date? = nil, sunset: Date? = nil) -> TimeOfDay {
+
+        // Solar path — χρησιμοποιεί πραγματικές ώρες ηλιανατολής/δύσης
+        if let sr = sunrise, let ss = sunset, sr < ss {
+            let now = date.timeIntervalSinceReferenceDate
+            let srT  = sr.timeIntervalSinceReferenceDate
+            let ssT  = ss.timeIntervalSinceReferenceDate
+            let dayLength = ssT - srT
+
+            // Νύχτα: πριν 30λ πριν ανατολή ή μετά 30λ μετά δύση
+            if now < srT - 1800 || now > ssT + 1800 { return .night }
+
+            // Sunrise: από 30λ πριν ανατολή έως 45λ μετά
+            if now < srT + 2700 { return .sunrise }
+
+            // Sunset: από 90λ πριν δύση έως 30λ μετά
+            if now >= ssT - 5400 { return .sunset }
+
+            // Morning → Midday στο 45% της ημέρας (solar noon ≈ 50%)
+            if now < srT + dayLength * 0.45 { return .morning }
+
+            return .midday
+        }
+
+        // Fallback: ώρα ρολογιού (χρησιμοποιείται πριν έρθουν τα weather data)
         let hour = Calendar.current.component(.hour, from: date)
         switch hour {
         case 5..<8:   return .sunrise
         case 8..<12:  return .morning
         case 12..<17: return .midday
-        case 17..<20: return .sunset
+        case 17..<21: return .sunset
         default:      return .night
         }
     }

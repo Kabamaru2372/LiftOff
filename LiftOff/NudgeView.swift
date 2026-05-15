@@ -45,7 +45,10 @@ struct NudgeView: View {
     }
 
     private var timeOfDay: TimeOfDay {
-        TimeOfDay.from()
+        TimeOfDay.from(
+            sunrise: weatherManager.currentWeather?.sunrise,
+            sunset:  weatherManager.currentWeather?.sunset
+        )
     }
 
     private var isLightBackground: Bool {
