@@ -16,6 +16,7 @@ struct NudgeView: View {
     @Environment(WeatherManager.self) var weatherManager
     @Environment(ActivityPreferences.self) var activityPrefs
     @Environment(FocusSessionManager.self) var focusManager
+    @Environment(LiveActivityManager.self) var liveActivity
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     @AppStorage("dailyGoal") private var dailyGoal: Int = 15
     @AppStorage("lastPickupTimestamp") private var lastPickupTimestamp: Double = 0
@@ -109,8 +110,19 @@ struct NudgeView: View {
         }
         // Focus Session sheet
         .sheet(isPresented: $showFocusSession) {
-            FocusSessionView()
-                .presentationDetents([.medium, .large])
+            FocusSessionView(
+                onFocusStart: { endTime in
+                    liveActivity.updateForFocus(
+                        pickupCount: store.todayPickups,
+                        focusEndTime: endTime,
+                        focusPickupCount: 0
+                    )
+                },
+                onFocusEnd: {
+                    liveActivity.update(pickupCount: store.todayPickups)
+                }
+            )
+            .presentationDetents([.medium, .large])
         }
         .onChange(of: focusManager.sessionState) { _, newState in
             // Auto-open sheet when session completes so user sees results

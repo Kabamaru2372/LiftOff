@@ -12,10 +12,14 @@ struct FocusSessionView: View {
 
     @Environment(FocusSessionManager.self) var focusManager
     @Environment(DataStore.self) var store
-    @Environment(LiveActivityManager.self) var liveActivity
     @AppStorage("appLanguage") private var appLanguage: String = "English"
 
     @Environment(\.dismiss) private var dismiss
+
+    /// Καλείται όταν ξεκινάει η session — περνάει το endTime για Live Activity
+    var onFocusStart: (Date?) -> Void = { _ in }
+    /// Καλείται όταν τελειώνει/σταματάει η session
+    var onFocusEnd: () -> Void = {}
 
     // Duration picker selection (in seconds)
     @State private var selectedDuration: TimeInterval = 1800
@@ -105,11 +109,7 @@ struct FocusSessionView: View {
             // Start button
             Button(action: {
                 focusManager.start(duration: selectedDuration, currentPickups: store.todayPickups)
-                liveActivity.updateForFocus(
-                    pickupCount: store.todayPickups,
-                    focusEndTime: focusManager.endTime,
-                    focusPickupCount: 0
-                )
+                onFocusStart(focusManager.endTime)
             }) {
                 Text(t("Start", "Έναρξη", "Starten"))
                     .font(.system(size: 18, weight: .bold, design: .rounded))
@@ -197,7 +197,7 @@ struct FocusSessionView: View {
 
             // End session button
             Button(action: {
-                liveActivity.update(pickupCount: store.todayPickups)
+                onFocusEnd()
                 focusManager.stop()
                 dismiss()
             }) {
