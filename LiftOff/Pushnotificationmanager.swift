@@ -93,7 +93,7 @@ class PushNotificationManager {
     // MARK: - Supabase Registration
 
     private func registerTokenWithSupabase(token: String, type: String) async {
-        guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/device_tokens") else {
+        guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/device_tokens?on_conflict=token") else {
             return
         }
 
