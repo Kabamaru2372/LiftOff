@@ -70,6 +70,13 @@ class ScreenUnlockDetector {
     /// (μετά από cooldown check). Set this from DataStore initialization.
     var onPickupDetected: (() -> Void)?
 
+    /// Καλείται όταν η οθόνη κλειδώνει, με τη διάρκεια της session σε δευτερόλεπτα.
+    /// Χρησιμοποιείται για screen time tracking.
+    var onScreenSessionEnded: ((Int) -> Void)?
+
+    /// Timestamp που ξεκίνησε η τρέχουσα screen session (unlock time).
+    private var sessionStartTime: Date?
+
     // MARK: - Init
 
     private init() {}
@@ -93,6 +100,14 @@ class ScreenUnlockDetector {
             self,
             selector: #selector(handlePotentialPickup(_:)),
             name: UIApplication.protectedDataDidBecomeAvailableNotification,
+            object: nil
+        )
+
+        // Screen lock detection — fires when device is about to lock
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleScreenLock(_:)),
+            name: UIApplication.protectedDataWillBecomeUnavailableNotification,
             object: nil
         )
 
@@ -131,6 +146,7 @@ class ScreenUnlockDetector {
         let isFirstPickup = lastPickupTime == .distantPast
         lastPickupTime = now
         sessionPickupCount += 1
+        sessionStartTime = now  // ξεκινάει μέτρηση screen time
 
         if isFirstPickup {
             log("🎯 PICKUP DETECTED via screen_unlock (session: \(sessionPickupCount), first pickup)")
@@ -148,6 +164,18 @@ class ScreenUnlockDetector {
                 object: nil,
                 userInfo: ["source": "screen_unlock"]
             )
+        }
+    }
+
+    // MARK: - Screen Lock
+
+    @objc private func handleScreenLock(_ notification: Notification) {
+        guard let start = sessionStartTime else { return }
+        let duration = max(1, Int(Date().timeIntervalSince(start)))
+        sessionStartTime = nil
+        log("🔒 Screen locked — session duration: \(duration)s")
+        DispatchQueue.main.async { [weak self] in
+            self?.onScreenSessionEnded?(duration)
         }
     }
 

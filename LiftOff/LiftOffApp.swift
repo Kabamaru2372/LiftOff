@@ -290,6 +290,10 @@ struct LiftOffApp: App {
                 liveActivity.update(pickupCount: store.todayPickups)
             }
         }
+        ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in
+            store.addUsageTime(seconds: seconds)
+            print("[ScreenTime] ⏱ Session ended: \(seconds)s, total today: \(store.todayTotalSeconds)s, last2h: \(store.screenTimeLastTwoHours)s")
+        }
         ScreenUnlockDetector.shared.startMonitoring()
         detector.startMonitoring()
 
