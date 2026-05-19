@@ -95,3 +95,6 @@ Screenshots/
 
 # Screenshots folder (not used currently)
 Screenshots/
+
+# Supabase CLI tooling state
+supabase/.temp/

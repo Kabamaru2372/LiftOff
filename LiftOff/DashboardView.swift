@@ -93,7 +93,7 @@ struct DashboardView: View {
 
                 HStack(spacing: 12) {
                     StatCard(title: t("Pickups", "Σηκώματα", "Griffe"), value: "\(store.todayPickups)")
-                    StatCard(title: t("Avg time", "Μέσος χρόνος", "Ø Zeit"), value: "\(store.averageMinutes)m")
+                    StatCard(title: t("Avg time", "Μέσος χρόνος", "Ø Zeit"), value: store.averageSessionLabel)
                 }
 
                 // Mood Timeline

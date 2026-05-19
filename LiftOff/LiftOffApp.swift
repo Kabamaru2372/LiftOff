@@ -83,13 +83,18 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             handleZoneNotificationTap(userInfo: userInfo)
         } else if categoryId == "PICKSY_USAGE_THRESHOLD" {
             handleUsageNotificationTap(userInfo: userInfo)
-        } else if identifier == "liftoff.evening" || identifier == "liftoff.weekly" {
+        } else if identifier == "liftoff.midday"
+               || identifier == "picksy.summary.afternoon"
+               || identifier == "picksy.morning.wakeup"
+               || identifier.hasPrefix("picksy.friend.overusing.") {
             DispatchQueue.main.async {
-                self.tabSelection?.selectedTab = 1
+                self.tabSelection?.selectedTab = 0  // NudgeView
             }
-        } else if identifier.hasPrefix("picksy.friend.overusing.") {
+        } else if identifier == "liftoff.evening"
+               || identifier == "liftoff.weekly"
+               || identifier == "picksy.summary.evening" {
             DispatchQueue.main.async {
-                self.tabSelection?.selectedTab = 0  // Nudge tab
+                self.tabSelection?.selectedTab = 1  // Stats/Dashboard
             }
         }
 
@@ -255,6 +260,9 @@ struct LiftOffApp: App {
 
         Task { await weatherManager.fetchWeather() }
 
+        // Upload our public key so friends can send us encrypted messages
+        Task { await MessagingManager.shared.uploadPublicKey() }
+
         Task {
             await FamilyControlsManager.shared.refreshAuthorizationStatusOnLaunch()
             await MainActor.run {
@@ -280,7 +288,13 @@ struct LiftOffApp: App {
                     screenTimeLast2hSecs: store.screenTimeLastTwoHours
                 )
             }
-            if focusSessionManager.isActive {
+            let g2 = UserDefaults.standard.integer(forKey: "dailyGoal")
+            let goal2 = g2 > 0 ? g2 : 50
+
+            // If iOS killed the Live Activity overnight, restart it on the first pickup
+            if !liveActivity.isRunning {
+                liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal2)
+            } else if focusSessionManager.isActive {
                 liveActivity.updateForFocus(
                     pickupCount: store.todayPickups,
                     focusEndTime: focusSessionManager.endTime,
@@ -398,6 +412,9 @@ struct LiftOffApp: App {
                 if let token = liveActivity.pushToken {
                     await PushNotificationManager.shared.registerLiveActivityToken(token)
                 }
+                // Ensure our public key is always up-to-date in Supabase
+                // so friends can send us encrypted messages
+                await MessagingManager.shared.uploadPublicKey()
             }
 
             // Friend sync — upload own status & check if any pair is also overusing
@@ -485,17 +502,48 @@ struct LiftOffApp: App {
         center.removePendingNotificationRequests(withIdentifiers: [
             "liftoff.midday", "liftoff.evening", "liftoff.weekly",
             "liftoff.background.warning",
-            "picksy.summary.afternoon", "picksy.summary.evening"
+            "picksy.summary.afternoon", "picksy.summary.evening",
+            "picksy.morning.wakeup"
         ])
 
         let language = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
         let g = UserDefaults.standard.integer(forKey: "dailyGoal")
         let dailyGoal = g > 0 ? g : 50
 
+        scheduleMorningWakeupNotification(center: center, language: language)
         scheduleMiddayNotification(center: center, pickupCount: pickupCount, language: language)
         scheduleEveningNotification(center: center, pickupCount: pickupCount, dailyGoal: dailyGoal, language: language)
         scheduleWeeklyNotification(center: center, language: language)
         scheduleSummaryNotifications(center: center, language: language)
+    }
+
+    private func scheduleMorningWakeupNotification(center: UNUserNotificationCenter, language: String) {
+        let content = UNMutableNotificationContent()
+
+        switch language {
+        case "Ελληνικά":
+            content.title = "Καλημέρα! ☀️"
+            content.body  = "Δες τις συμβουλές σου για σήμερα και ξεκίνα τη μέρα σου καλά."
+        case "Deutsch":
+            content.title = "Guten Morgen! ☀️"
+            content.body  = "Schau dir deine Tipps für heute an und starte gut in den Tag."
+        default:
+            content.title = "Good morning! ☀️"
+            content.body  = "Check your tips for today and start your day on the right foot."
+        }
+
+        content.sound = .default
+        content.userInfo = ["action": "open_nudge"]
+
+        var c = DateComponents()
+        c.hour   = 6
+        c.minute = 0
+
+        center.add(UNNotificationRequest(
+            identifier: "picksy.morning.wakeup",
+            content: content,
+            trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)
+        ))
     }
 
     private func scheduleMiddayNotification(center: UNUserNotificationCenter, pickupCount: Int, language: String) {

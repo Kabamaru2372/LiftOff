@@ -40,6 +40,15 @@ struct OverusingPartner {
     let dailyGoal: Int
 }
 
+/// Data for the "together overuse" in-app banner.
+struct TogetherBannerData: Identifiable {
+    var id: String { pair.deviceID }
+    let pair: RegisteredPair
+    let theirScreenTimeMins: Int
+    let myScreenTimeMins: Int
+    var totalMins: Int { myScreenTimeMins + theirScreenTimeMins }
+}
+
 // MARK: - FriendSyncManager
 
 @Observable
@@ -242,7 +251,7 @@ class FriendSyncManager {
     private func fetchStatus(for partnerDeviceID: String) async -> DeviceStatusRow? {
         let escaped = partnerDeviceID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? partnerDeviceID
         guard let url = URL(string:
-            "\(Self.supabaseURL)/rest/v1/device_status?device_id=eq.\(escaped)&select=device_id,pickups_today,daily_goal,updated_at"
+            "\(Self.supabaseURL)/rest/v1/device_status?device_id=eq.\(escaped)&select=device_id,pickups_today,daily_goal,pickups_last_2h,screen_time_last_2h_seconds,updated_at"
         ) else { return nil }
 
         var req = makeRequest(url: url, method: "GET")
@@ -258,6 +267,52 @@ class FriendSyncManager {
            Date().timeIntervalSince(updated) > 86_400 { return nil }
 
         return row
+    }
+
+    // MARK: - Together Banner
+
+    /// Returns friends who are ALSO currently on their phone — for the in-app banner.
+    /// Lower threshold (15 min) and no time-of-day restriction vs push notifications.
+    /// Uses a 2-hour slot key so the banner re-appears at most once per 2h per friend.
+    func checkForTogetherBanner(myScreenTimeSecs: Int) async -> [TogetherBannerData] {
+        guard hasPairs else { return [] }
+
+        let myMins = myScreenTimeSecs / 60
+        guard myMins >= 15 else { return [] }
+
+        var result: [TogetherBannerData] = []
+
+        for pair in registeredPairs {
+            guard !bannerShownThisSlot(for: pair.deviceID) else { continue }
+            guard let row = await fetchStatus(for: pair.deviceID) else { continue }
+            let theirMins = row.screen_time_last_2h_seconds / 60
+            if theirMins >= 15 {
+                result.append(TogetherBannerData(
+                    pair: pair,
+                    theirScreenTimeMins: theirMins,
+                    myScreenTimeMins: myMins
+                ))
+            }
+        }
+        return result
+    }
+
+    /// Mark that we showed the banner for this friend in the current 2h slot.
+    func markBannerShown(for partnerDeviceID: String) {
+        let key = "picksy_together_banner_\(partnerDeviceID)"
+        UserDefaults.standard.set(currentTwoHourSlot(), forKey: key)
+    }
+
+    private func bannerShownThisSlot(for partnerDeviceID: String) -> Bool {
+        UserDefaults.standard.string(forKey: "picksy_together_banner_\(partnerDeviceID)") == currentTwoHourSlot()
+    }
+
+    /// Returns a string like "2026-05-18-14" (date + 2h slot index 0..11).
+    private func currentTwoHourSlot() -> String {
+        let now = Date()
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let hour = Calendar.current.component(.hour, from: now)
+        return "\(f.string(from: now))-\(hour / 2)"
     }
 
     private func makeRequest(url: URL, method: String) -> URLRequest {

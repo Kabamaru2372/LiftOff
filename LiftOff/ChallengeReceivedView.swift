@@ -16,9 +16,8 @@ struct ChallengeReceivedView: View {
     @AppStorage("dailyGoal")        private var dailyGoal:  Int    = 50
     @AppStorage("challengeDisplayName") private var displayName: String = ""
 
-    @State private var showShareSheet = false
-    @State private var shareItems: [Any] = []
     @State private var pairingRegistered = false
+    @State private var sentBack = false          // shows confirmation after sending
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -103,9 +102,6 @@ struct ChallengeReceivedView: View {
                         .font(.system(size: 15, design: .rounded))
                 }
             }
-        }
-        .sheet(isPresented: $showShareSheet) {
-            ActivityShareSheet(items: shareItems)
         }
         .onAppear {
             // Register anonymous pair if sender included their device ID
@@ -258,37 +254,104 @@ struct ChallengeReceivedView: View {
 
     private var ctaSection: some View {
         VStack(spacing: 12) {
-            // Send mine back
-            Button(action: sendMineBack) {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.turn.up.right")
-                        .font(.system(size: 14))
-                    Text(t("Send mine back", "Στείλε τα δικά μου", "Meine zurückschicken"))
-                        .font(.system(size: 16, weight: .semibold, design: .rounded))
-                }
-                .foregroundColor(.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(
-                    LinearGradient(
-                        colors: [Color.blue, Color.blue.opacity(0.7)],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
-                )
-            }
-            .buttonStyle(.plain)
+            if sentBack {
+                // ── Confirmation state ──────────────────────────────────────
+                VStack(spacing: 10) {
+                    Text("🤝")
+                        .font(.system(size: 40))
 
-            Button(action: { dismiss() }) {
-                Text(t("Maybe later", "Ίσως αργότερα", "Vielleicht später"))
+                    Text(t(
+                        "You're connected!",
+                        "Είστε συνδεδεμένοι!",
+                        "Ihr seid verbunden!"
+                    ))
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+
+                    Text(t(
+                        "Picksy will nudge both of you when you're both reaching for your phone a lot. No accounts, no data shared.",
+                        "Το Picksy θα σας ειδοποιεί και τους δύο όταν σηκώνετε πολύ το κινητό. Χωρίς λογαριασμούς, χωρίς κοινά δεδομένα.",
+                        "Picksy benachrichtigt euch beide, wenn ihr oft zum Handy greift. Keine Konten, keine geteilten Daten."
+                    ))
                     .font(.system(size: 14, weight: .regular, design: .rounded))
                     .foregroundColor(.secondary)
-            }
-            .buttonStyle(.plain)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 8)
+                }
+                .padding(20)
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemGray6)))
 
-            // Privacy notice — shown only when pairing was auto-registered
-            if pairingRegistered || payload.senderDeviceID != nil {
-                privacyNotice
+                Button(action: { dismiss() }) {
+                    Text(t("Close", "Κλείσιμο", "Schließen"))
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.blue))
+                }
+                .buttonStyle(.plain)
+
+            } else {
+                // ── Default state ────────────────────────────────────────────
+                // ShareLink — native iOS 16+ share sheet, no UIApplication needed.
+                // Works correctly even when ChallengeReceivedView is itself presented
+                // as a sheet (avoids the black-screen UIActivityViewController bug).
+                Group {
+                    if let url   = ChallengeManager.buildURL(
+                            displayName:   displayName,
+                            weeklyPickups: store.weeklyPickups,
+                            streak:        store.currentStreak,
+                            dailyGoal:     dailyGoal),
+                       let shareURL = URL(string: url.absoluteString) {
+
+                        let msg = ChallengeManager.shareMessage(
+                            payload: ChallengePayload(
+                                name:           displayName.isEmpty ? "A friend" : displayName,
+                                weekly:         store.weeklyPickups,
+                                streak:         store.currentStreak,
+                                goal:           dailyGoal,
+                                sentAt:         Date().timeIntervalSince1970,
+                                senderDeviceID: FriendSyncManager.shared.deviceID
+                            ),
+                            language: appLanguage
+                        )
+
+                        ShareLink(item: shareURL, message: Text(msg)) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "arrow.turn.up.right")
+                                    .font(.system(size: 14))
+                                Text(t("Send mine back", "Στείλε τα δικά μου", "Meine zurückschicken"))
+                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color.blue, Color.blue.opacity(0.7)],
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                                .clipShape(RoundedRectangle(cornerRadius: 14))
+                            )
+                        }
+                        .simultaneousGesture(TapGesture().onEnded {
+                            // Show confirmation after a short delay (share sheet appears first)
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                withAnimation { sentBack = true }
+                            }
+                        })
+                    }
+                }
+
+                Button(action: { dismiss() }) {
+                    Text(t("Maybe later", "Ίσως αργότερα", "Vielleicht später"))
+                        .font(.system(size: 14, weight: .regular, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+
+                if pairingRegistered || payload.senderDeviceID != nil {
+                    privacyNotice
+                }
             }
         }
     }
@@ -316,28 +379,6 @@ struct ChallengeReceivedView: View {
 
     // MARK: - Actions
 
-    private func sendMineBack() {
-        guard let url = ChallengeManager.buildURL(
-            displayName: displayName,
-            weeklyPickups: store.weeklyPickups,
-            streak: store.currentStreak,
-            dailyGoal: dailyGoal
-        ) else { return }
-
-        let msg = ChallengeManager.shareMessage(payload: ChallengePayload(
-            name: displayName.isEmpty ? "A friend" : displayName,
-            weekly: store.weeklyPickups,
-            streak: store.currentStreak,
-            goal: dailyGoal,
-            sentAt: Date().timeIntervalSince1970,
-            senderDeviceID: FriendSyncManager.shared.deviceID
-        ), language: appLanguage)
-
-        shareItems = [msg, url.absoluteString]
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            showShareSheet = true
-        }
-    }
 }
 
 // MARK: - UIKit Share Sheet (multi-item)

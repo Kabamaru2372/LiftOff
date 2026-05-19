@@ -173,6 +173,16 @@ class DataStore {
         return (todayTotalSeconds / todayPickups) / 60
     }
 
+    /// Human-readable average session length: shows seconds when < 60s to avoid "0m".
+    var averageSessionLabel: String {
+        guard todayPickups > 0, todayTotalSeconds > 0 else { return "—" }
+        let avgSecs = todayTotalSeconds / todayPickups
+        if avgSecs < 60 { return "\(avgSecs)s" }
+        let mins = avgSecs / 60
+        let secs = avgSecs % 60
+        return secs > 0 ? "\(mins)m \(secs)s" : "\(mins)m"
+    }
+
     var averageDailyPickups: Int {
         guard totalDaysTracked > 0 else { return totalPickups }
         return totalPickups / totalDaysTracked

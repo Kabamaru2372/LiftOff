@@ -82,8 +82,15 @@ class PushNotificationManager {
         store?.syncWithDeviceActivity()
 
         if let store = store, let liveActivity = liveActivity {
-            liveActivity.update(pickupCount: store.todayPickups)
-            print("[PushManager] ✅ Synced. Pickups: \(store.todayPickups)")
+            let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
+            let dailyGoal = goal > 0 ? goal : 50
+            if liveActivity.isRunning {
+                liveActivity.update(pickupCount: store.todayPickups)
+                print("[PushManager] ✅ Live Activity updated. Pickups: \(store.todayPickups)")
+            } else {
+                liveActivity.start(pickupCount: store.todayPickups, dailyGoal: dailyGoal)
+                print("[PushManager] 🔄 Live Activity restarted via silent push. Pickups: \(store.todayPickups)")
+            }
         }
 
         ScreenUnlockDetector.shared.startMonitoring()

@@ -26,12 +26,15 @@ struct ChallengePayload: Codable, Identifiable {
 
 enum ChallengeManager {
 
-    private static let scheme = "picksy"
-    private static let host   = "challenge"
+    private static let scheme   = "picksy"
+    private static let host     = "challenge"
+    private static let webBase  = "https://fotiospongas.dev/challenge"
 
     // MARK: - Encode
 
-    /// Generates a `picksy://challenge?d=…` URL from the current user's stats.
+    /// Generates a shareable `https://fotiospongas.dev/challenge?d=…` URL.
+    /// If the recipient has Picksy installed the web page opens the app directly.
+    /// If not, they are redirected to the App Store.
     static func buildURL(
         displayName: String,
         weeklyPickups: [Int],
@@ -57,6 +60,14 @@ enum ChallengeManager {
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
 
+        // Build HTTPS share link — web page handles app redirect + App Store fallback
+        var comps = URLComponents(string: webBase)
+        comps?.queryItems = [URLQueryItem(name: "d", value: b64)]
+        return comps?.url
+    }
+
+    /// Internal deep link used when the app is already installed (e.g. from Universal Links).
+    static func buildDeepLink(from b64: String) -> URL? {
         var comps = URLComponents()
         comps.scheme = scheme
         comps.host   = host

@@ -25,6 +25,7 @@ struct ContentView: View {
     @State private var zoneInsightData: ZoneInsightData? = nil
     @State private var usageInsightData: UsageInsightData? = nil
 
+
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
         case "Ελληνικά": return gr
@@ -103,6 +104,11 @@ struct ContentView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
+        .overlay(alignment: .topTrailing) {
+            ChallengeFABView()
+                .padding(.trailing, 16)
+                .padding(.top, 56)
+        }
         .animation(.easeInOut(duration: 0.3), value: rewardManager.pendingReward != nil)
         .fullScreenCover(isPresented: $showPaywall) {
             PaywallView().environment(proManager)
@@ -172,6 +178,7 @@ struct ContentView: View {
         }
     }
 
+
     /// v1.6 FIX: Handle "See details" from usage insight modal.
     /// Κάνει τα εξής με σωστό ordering:
     /// 1. Close το sheet
@@ -216,6 +223,175 @@ struct ContentView: View {
             weeklyManager.markAsShown()
         }
     }
+}
+
+// MARK: - Challenge FAB (draggable)
+//
+// Approach: simultaneousGesture(DragGesture) directly on the ShareLink.
+//
+//   Tap  → DragGesture never fires (minimumDistance: 8 not met) → isDragging stays
+//          false → ShareLink enabled → share sheet opens normally.
+//
+//   Drag → DragGesture fires → isDragging = true → ShareLink gets .disabled(true)
+//          → finger lift does NOT trigger share sheet.
+//          → 150ms after drag ends, isDragging resets to false.
+//
+//   Position: stored per-tab in AppStorage (5 tabs × 2 axes = 10 vars).
+//   Origin: topTrailing anchor + .offset(x:y:) from that corner.
+//   dragStart captures the saved offset at gesture begin, then we add
+//   translation on each .onChanged — no drift, full 1:1 tracking.
+
+private struct ChallengeFABView: View {
+
+    @Environment(DataStore.self)    private var store
+    @Environment(TabSelection.self) private var tabSelection
+    @AppStorage("challengeDisplayName") private var displayName: String = ""
+    @AppStorage("dailyGoal")            private var dailyGoal: Int = 50
+    @AppStorage("appLanguage")          private var appLanguage: String = "English"
+
+    // Ξεχωριστή θέση ανά tab (5 tabs × 2 axes = 10 vars)
+    @AppStorage("challengeFABX_0") private var x0: Double = 0
+    @AppStorage("challengeFABY_0") private var y0: Double = 0
+    @AppStorage("challengeFABX_1") private var x1: Double = 0
+    @AppStorage("challengeFABY_1") private var y1: Double = 0
+    @AppStorage("challengeFABX_2") private var x2: Double = 0
+    @AppStorage("challengeFABY_2") private var y2: Double = 0
+    @AppStorage("challengeFABX_3") private var x3: Double = 0
+    @AppStorage("challengeFABY_3") private var y3: Double = 0
+    @AppStorage("challengeFABX_4") private var x4: Double = 0
+    @AppStorage("challengeFABY_4") private var y4: Double = 0
+
+    @State private var dragStart: CGSize = .zero
+    @State private var isDragging: Bool = false
+    @State private var showShareSheet: Bool = false
+    @State private var shareItems: [Any] = []
+
+    // Διαβάζει offset του ενεργού tab
+    private var currentX: Double {
+        switch tabSelection.selectedTab {
+        case 0: return x0; case 1: return x1; case 2: return x2
+        case 3: return x3; default: return x4
+        }
+    }
+    private var currentY: Double {
+        switch tabSelection.selectedTab {
+        case 0: return y0; case 1: return y1; case 2: return y2
+        case 3: return y3; default: return y4
+        }
+    }
+
+    // Γράφει offset στο ενεργό tab
+    private func saveOffset(x: Double, y: Double) {
+        switch tabSelection.selectedTab {
+        case 0: x0 = x; y0 = y
+        case 1: x1 = x; y1 = y
+        case 2: x2 = x; y2 = y
+        case 3: x3 = x; y3 = y
+        default: x4 = x; y4 = y
+        }
+    }
+
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage {
+        case "Ελληνικά": return gr
+        case "Deutsch":  return de
+        default:         return en
+        }
+    }
+
+    var body: some View {
+        let goal = dailyGoal > 0 ? dailyGoal : 50
+        let url: URL = ChallengeManager.buildURL(
+            displayName: displayName,
+            weeklyPickups: store.weeklyPickups,
+            streak: store.currentStreak,
+            dailyGoal: goal
+        ) ?? URL(string: "https://fotiospongas.dev/challenge")!
+
+        let payload = ChallengePayload(
+            name: displayName.isEmpty ? "A friend" : displayName,
+            weekly: store.weeklyPickups,
+            streak: store.currentStreak,
+            goal: goal,
+            sentAt: Date().timeIntervalSince1970,
+            senderDeviceID: FriendSyncManager.shared.deviceID
+        )
+        let msg = ChallengeManager.shareMessage(payload: payload, language: appLanguage)
+
+        ZStack {
+            // Bottom: visual capsule (the button look)
+            buttonLabel
+
+            // Top: clear layer handles BOTH tap (share) and drag (move).
+            // Color.clear is not a Button, so onTapGesture and DragGesture
+            // coexist here without the conflicts we hit on ShareLink.
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard !isDragging else { return }
+                    shareItems = [url, msg]
+                    showShareSheet = true
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                        .onChanged { value in
+                            if !isDragging {
+                                dragStart = CGSize(width: currentX, height: currentY)
+                                isDragging = true
+                            }
+                            saveOffset(
+                                x: dragStart.width  + Double(value.translation.width),
+                                y: dragStart.height + Double(value.translation.height)
+                            )
+                        }
+                        .onEnded { _ in
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                isDragging = false
+                            }
+                        }
+                )
+        }
+        .offset(x: CGFloat(currentX), y: CGFloat(currentY))
+        .sheet(isPresented: $showShareSheet) {
+            FABShareSheet(items: shareItems)
+        }
+    }
+
+    private var buttonLabel: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "trophy.fill")
+                .font(.system(size: 14, weight: .semibold))
+            Text(t("Challenge", "Πρόκληση", "Challenge"))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+        }
+        .foregroundColor(.black)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            Capsule()
+                .fill(LinearGradient(
+                    colors: [.yellow, .orange.opacity(0.85)],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ))
+                .shadow(color: .black.opacity(0.2), radius: 6, y: 3)
+        )
+    }
+}
+
+// MARK: - Share Sheet wrapper for FAB
+// UIActivityViewController avoids the SwiftUI ShareLink gesture conflict.
+private struct FABShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let vc = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        vc.completionWithItemsHandler = { _, _, _, _ in dismiss() }
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 // MARK: - Pro Locked View

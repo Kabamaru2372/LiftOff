@@ -125,7 +125,7 @@ class LiveActivityManager {
 
         let content = ActivityContent(
             state: state,
-            staleDate: Calendar.current.date(byAdding: .hour, value: 8, to: Date())
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) // midnight tonight
         )
 
         do {
@@ -157,7 +157,7 @@ class LiveActivityManager {
 
         let content = ActivityContent(
             state: state,
-            staleDate: Calendar.current.date(byAdding: .hour, value: 8, to: Date())
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) // midnight tonight
         )
         Task {
             await activity.update(content)
@@ -177,7 +177,7 @@ class LiveActivityManager {
         )
         let content = ActivityContent(
             state: state,
-            staleDate: Calendar.current.date(byAdding: .hour, value: 8, to: Date())
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) // midnight tonight
         )
         Task { await activity.update(content) }
     }
