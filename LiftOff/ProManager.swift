@@ -199,41 +199,47 @@ class ProManager {
     // MARK: - Pro features list (EN/GR/DE)
 
     static let proFeatures: [(icon: String, titleEN: String, titleGR: String, titleDE: String, descEN: String, descGR: String, descDE: String)] = [
+        ("cloud.sun.fill",
+         "Weather insights", "Insights καιρού", "Wetter-Einblicke",
+         "See how weather patterns affect your phone pickups",
+         "Δες πώς ο καιρός επηρεάζει τα pickups σου",
+         "Sieh, wie das Wetter dein Smartphone-Verhalten beeinflusst"),
+
+        ("face.smiling",
+         "Mood patterns", "Μοτίβα διάθεσης", "Stimmungsmuster",
+         "Discover the link between your mood and phone use",
+         "Ανακάλυψε τη σύνδεση διάθεσης και χρήσης κινητού",
+         "Entdecke die Verbindung zwischen Stimmung und Nutzung"),
+
+        ("calendar.badge.clock",
+         "Weekly Summary", "Εβδομαδιαία σύνοψη", "Wochenrückblick",
+         "Rich Sunday recap with trends and personalized insights",
+         "Πλούσια Κυριακάτικη ανασκόπηση με τάσεις και insights",
+         "Detaillierte Sonntags-Zusammenfassung mit Trends"),
+
         ("square.grid.3x3.fill",
-         "Heatmap", "Χάρτης θερμότητας", "Heatmap",
-         "See your worst hours and track improvement",
-         "Δες τις χειρότερες ώρες σου και παρακολούθησε τη βελτίωσή σου",
-         "Sieh deine schlechtesten Stunden und verfolge deine Verbesserung"),
+         "Hourly Heatmap", "Χάρτης ωρών", "Stunden-Heatmap",
+         "See which hours you pick up your phone the most",
+         "Δες ποιες ώρες πιάνεις πιο πολύ το κινητό",
+         "Sieh, zu welchen Stunden du dein Handy am häufigsten greifst"),
 
-        ("gift",
-         "Rewards", "Επιβραβεύσεις", "Belohnungen",
-         "Unlock quote packs, badges, and gift codes",
-         "Ξεκλείδωσε πακέτα quotes, badges και κωδικούς δώρων",
-         "Schalte Zitatpakete, Abzeichen und Geschenkcodes frei"),
+        ("person.2.fill",
+         "Unlimited Friends", "Απεριόριστοι φίλοι", "Unbegrenzte Freunde",
+         "Add unlimited friends and message them freely",
+         "Πρόσθεσε απεριόριστους φίλους και στείλε μηνύματα ελεύθερα",
+         "Füge unbegrenzte Freunde hinzu und schreibe ihnen frei"),
 
-        ("text.quote",
-         "Quote packs", "Πακέτα quotes", "Zitatpakete",
-         "Stoic, humor, and philosophy collections",
-         "Συλλογές στωικισμού, χιούμορ και φιλοσοφίας",
-         "Stoische, humorvolle und philosophische Sammlungen"),
+        ("bell.badge.fill",
+         "Friend Accountability", "Φιλική υπευθυνότητα", "Freunde-Verantwortung",
+         "Get notified when your friends overuse their phones",
+         "Ειδοποιήσου όταν οι φίλοι σου υπερχρησιμοποιούν το κινητό",
+         "Werde benachrichtigt, wenn Freunde zu viel am Handy sind"),
 
-        ("chart.line.uptrend.xyaxis",
-         "Monthly reports", "Μηνιαίες αναφορές", "Monatsberichte",
-         "Track your progress over weeks and months",
-         "Παρακολούθησε την πρόοδό σου σε εβδομάδες και μήνες",
-         "Verfolge deinen Fortschritt über Wochen und Monate"),
-
-        ("person.2",
-         "Pay it forward", "Πρόσφερέ το", "Weitergeben",
-         "Share Picksy and gift a friend 7 days of Pro",
-         "Μοιράσου το Picksy και χάρισε σε φίλο 7 μέρες Pro",
-         "Teile Picksy und schenke einem Freund 7 Tage Pro"),
-
-        ("paintpalette",
-         "Themes", "Θέματα", "Designs",
-         "Custom colors and app icons",
-         "Προσαρμοσμένα χρώματα και εικονίδια",
-         "Benutzerdefinierte Farben und App-Symbole"),
+        ("hand.raised.fill",
+         "Custom Nudges", "Προσωπικές ωθήσεις", "Eigene Nudges",
+         "Create personalized reminders that fit your habits",
+         "Δημιούργησε εξατομικευμένες υπενθυμίσεις για τις συνήθειές σου",
+         "Erstelle personalisierte Erinnerungen für deine Gewohnheiten"),
     ]
 }
 

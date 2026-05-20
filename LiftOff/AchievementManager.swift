@@ -66,6 +66,10 @@ class AchievementManager {
         return min(1.0, Double(xpInCurrentRank) / Double(xpToNextRank))
     }
 
+    // MARK: - Pro-only badge IDs (last 2 of 12)
+    // Free tier can earn the first 10. month_tracker and personal_best require Pro.
+    static let proOnlyBadgeIds: Set<String> = ["month_tracker", "personal_best"]
+
     // MARK: - All 12 badges
 
     static let allBadges: [BadgeDefinition] = [
@@ -168,7 +172,7 @@ class AchievementManager {
         // Badge checks
         if totalDays >= 1  { unlock("first_day",     xp: 15) }
         if totalDays >= 7  { unlock("first_week",    xp: 20) }
-        if totalDays >= 30 { unlock("month_tracker", xp: 40) }
+        if totalDays >= 30 && ProManager.shared.isPro { unlock("month_tracker", xp: 40) }
         if pickups <= goal { unlock("under_goal",    xp: 20) }
         if streak >= 3     { unlock("hat_trick",     xp: 30) }
         if streak >= 7     { unlock("week_warrior",  xp: 50) }
@@ -177,12 +181,12 @@ class AchievementManager {
         if previousDayPickups > 0 && (previousDayPickups - pickups) >= 15 {
             unlock("big_drop", xp: 25)
         }
-        // Personal best (lower is better)
+        // Personal best (lower is better) — Pro only
         if pickups < bestDayPickups {
             let wasSet = bestDayPickups != Int.max
             bestDayPickups = pickups
             defaults.set(bestDayPickups, forKey: "ach_bestDay")
-            if wasSet { unlock("personal_best", xp: 30) }
+            if wasSet && ProManager.shared.isPro { unlock("personal_best", xp: 30) }
         }
     }
 

@@ -46,48 +46,30 @@ struct ContentView: View {
         @Bindable var tabBinding = tabSelection
 
         ZStack {
+            // ── Native TabView — γνήσιο liquid glass + safe areas ──
             TabView(selection: $tabBinding.selectedTab) {
                 NudgeView()
-                    .tabItem {
-                        Image(systemName: "hand.raised")
-                        Text(t("Nudge", "Ώθηση", "Nudge"))
-                    }
+                    .tabItem { Label(t("Nudge", "Ώθηση", "Nudge"), systemImage: "hand.raised") }
                     .tag(0)
 
-                DashboardView()
-                    .timeGradientBackground()
-                    .tabItem {
-                        Image(systemName: "chart.bar")
-                        Text(t("Stats", "Στατιστικά", "Statistik"))
-                    }
+                DashboardView().timeGradientBackground()
+                    .tabItem { Label(t("Stats", "Στατιστικά", "Statistik"), systemImage: "chart.bar") }
                     .tag(1)
 
-                AppsView()
-                    .timeGradientBackground()
-                    .tabItem {
-                        Image(systemName: "apps.iphone")
-                        Text(t("Apps", "Εφαρμογές", "Apps"))
-                    }
+                AppsView().timeGradientBackground()
+                    .tabItem { Label(t("Apps", "Εφαρμογές", "Apps"), systemImage: "apps.iphone") }
                     .tag(2)
 
-                AchievementsView()
-                    .timeGradientBackground()
-                    .tabItem {
-                        Image(systemName: "trophy")
-                        Text(t("Trophies", "Τρόπαια", "Trophäen"))
-                    }
+                AchievementsView(onUnlockTap: { showPaywall = true }).timeGradientBackground()
+                    .tabItem { Label(t("Trophies", "Τρόπαια", "Trophäen"), systemImage: "trophy") }
                     .tag(3)
 
-                SettingsView()
-                    .timeGradientBackground()
-                    .tabItem {
-                        Image(systemName: "gearshape")
-                        Text(t("Settings", "Ρυθμίσεις", "Einstellungen"))
-                    }
+                SettingsView().timeGradientBackground()
+                    .tabItem { Label(t("Settings", "Ρυθμίσεις", "Einstellungen"), systemImage: "gearshape") }
                     .tag(4)
             }
-            .tint(.primary)
 
+            // ── Reward popup ─────────────────────────────────────
             if proManager.isPro, let reward = rewardManager.pendingReward {
                 Color.black.opacity(0.3)
                     .ignoresSafeArea()
@@ -104,11 +86,8 @@ struct ContentView: View {
                 .transition(.scale.combined(with: .opacity))
             }
         }
-        .overlay(alignment: .topTrailing) {
-            ChallengeFABView()
-                .padding(.trailing, 16)
-                .padding(.top, 56)
-        }
+        .ignoresSafeArea(.keyboard)
+        .overlay { ChallengeFABView() }
         .animation(.easeInOut(duration: 0.3), value: rewardManager.pendingReward != nil)
         .fullScreenCover(isPresented: $showPaywall) {
             PaywallView().environment(proManager)
@@ -118,7 +97,10 @@ struct ContentView: View {
                 .environment(checkInManager)
         }
         .fullScreenCover(item: $weeklySummaryItem) { item in
-            WeeklySummaryView(summary: item.summary)
+            WeeklySummaryView(
+                summary: item.summary,
+                onUnlockTap: { showPaywall = true }
+            )
         }
         // v1.6: Zone insight sheet
         .sheet(item: $zoneInsightData) { data in
@@ -225,6 +207,42 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Blur background για Custom Tab Bar
+
+private struct VisualEffectView: UIViewRepresentable {
+    var effect: UIVisualEffect?
+    func makeUIView(context: Context) -> UIVisualEffectView { UIVisualEffectView(effect: effect) }
+    func updateUIView(_ uiView: UIVisualEffectView, context: Context) { uiView.effect = effect }
+}
+
+// MARK: - Tab Fade-In Wrapper
+// Κρατά το native TabView 100% αναλλοίωτο.
+// Προσθέτει μόνο fade-in animation στο περιεχόμενο κάθε tab όταν επιλέγεται.
+
+private struct TabFadeIn<Content: View>: View {
+    let index: Int
+    @Environment(TabSelection.self) private var tabSelection
+    @State private var opacity: Double = 1
+    let content: Content
+
+    init(index: Int, @ViewBuilder _ content: () -> Content) {
+        self.index = index
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .opacity(opacity)
+            .onChange(of: tabSelection.selectedTab) { _, newTab in
+                guard newTab == index else { return }
+                opacity = 0
+                withAnimation(.easeInOut(duration: 0.22)) {
+                    opacity = 1
+                }
+            }
+    }
+}
+
 // MARK: - Challenge FAB (draggable)
 //
 // Approach: simultaneousGesture(DragGesture) directly on the ShareLink.
@@ -249,17 +267,17 @@ private struct ChallengeFABView: View {
     @AppStorage("dailyGoal")            private var dailyGoal: Int = 50
     @AppStorage("appLanguage")          private var appLanguage: String = "English"
 
-    // Ξεχωριστή θέση ανά tab (5 tabs × 2 axes = 10 vars)
-    @AppStorage("challengeFABX_0") private var x0: Double = 0
-    @AppStorage("challengeFABY_0") private var y0: Double = 0
-    @AppStorage("challengeFABX_1") private var x1: Double = 0
-    @AppStorage("challengeFABY_1") private var y1: Double = 0
-    @AppStorage("challengeFABX_2") private var x2: Double = 0
-    @AppStorage("challengeFABY_2") private var y2: Double = 0
-    @AppStorage("challengeFABX_3") private var x3: Double = 0
-    @AppStorage("challengeFABY_3") private var y3: Double = 0
-    @AppStorage("challengeFABX_4") private var x4: Double = 0
-    @AppStorage("challengeFABY_4") private var y4: Double = 0
+    // Ξεχωριστή θέση ανά tab — v2 keys reset any off-screen positions from old builds
+    @AppStorage("challengeFABX_0_v2") private var x0: Double = 0
+    @AppStorage("challengeFABY_0_v2") private var y0: Double = 0
+    @AppStorage("challengeFABX_1_v2") private var x1: Double = 0
+    @AppStorage("challengeFABY_1_v2") private var y1: Double = 0
+    @AppStorage("challengeFABX_2_v2") private var x2: Double = 0
+    @AppStorage("challengeFABY_2_v2") private var y2: Double = 0
+    @AppStorage("challengeFABX_3_v2") private var x3: Double = 0
+    @AppStorage("challengeFABY_3_v2") private var y3: Double = 0
+    @AppStorage("challengeFABX_4_v2") private var x4: Double = 0
+    @AppStorage("challengeFABY_4_v2") private var y4: Double = 0
 
     @State private var dragStart: CGSize = .zero
     @State private var isDragging: Bool = false
@@ -318,15 +336,13 @@ private struct ChallengeFABView: View {
         )
         let msg = ChallengeManager.shareMessage(payload: payload, language: appLanguage)
 
-        ZStack {
-            // Bottom: visual capsule (the button look)
-            buttonLabel
+        // Αν το AppStorage είναι 0, ξεκινάει από μια default ορατή θέση
+        let defaultX = currentX == 0 ? 120.0 : currentX
+        let defaultY = currentY == 0 ? 250.0 : currentY
 
-            // Top: clear layer handles BOTH tap (share) and drag (move).
-            // Color.clear is not a Button, so onTapGesture and DragGesture
-            // coexist here without the conflicts we hit on ShareLink.
-            Color.clear
-                .contentShape(Rectangle())
+        GeometryReader { geometry in
+            buttonLabel
+                .contentShape(Capsule())
                 .onTapGesture {
                     guard !isDragging else { return }
                     shareItems = [url, msg]
@@ -336,13 +352,24 @@ private struct ChallengeFABView: View {
                     DragGesture(minimumDistance: 8, coordinateSpace: .global)
                         .onChanged { value in
                             if !isDragging {
-                                dragStart = CGSize(width: currentX, height: currentY)
+                                dragStart = CGSize(width: defaultX, height: defaultY)
                                 isDragging = true
                             }
-                            saveOffset(
-                                x: dragStart.width  + Double(value.translation.width),
-                                y: dragStart.height + Double(value.translation.height)
-                            )
+
+                            var liveX = dragStart.width  + Double(value.translation.width)
+                            var liveY = dragStart.height + Double(value.translation.height)
+
+                            // Clamp X: αριστερά/δεξιά όρια (κουμπί ~140pt πλάτος)
+                            let minX = -geometry.size.width / 2 + 70
+                            let maxX =  geometry.size.width / 2 - 70
+                            liveX = max(minX, min(maxX, liveX))
+
+                            // Clamp Y: πάνω/κάτω όρια (-60 για το TabBar)
+                            let minY = -geometry.size.height / 2 + 20
+                            let maxY =  geometry.size.height / 2 - 60
+                            liveY = max(minY, min(maxY, liveY))
+
+                            saveOffset(x: liveX, y: liveY)
                         }
                         .onEnded { _ in
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
@@ -350,8 +377,9 @@ private struct ChallengeFABView: View {
                             }
                         }
                 )
+                .offset(x: CGFloat(defaultX), y: CGFloat(defaultY))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
-        .offset(x: CGFloat(currentX), y: CGFloat(currentY))
         .sheet(isPresented: $showShareSheet) {
             FABShareSheet(items: shareItems)
         }

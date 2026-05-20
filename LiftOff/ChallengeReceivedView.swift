@@ -104,13 +104,22 @@ struct ChallengeReceivedView: View {
             }
         }
         .onAppear {
-            // Register anonymous pair if sender included their device ID
+            // Register anonymous pair if sender included their device ID.
+            // Free tier: max 1 friend. Pro: unlimited.
             if let senderID = payload.senderDeviceID, !senderID.isEmpty {
                 Task {
-                    await FriendSyncManager.shared.registerPair(
-                        theirDeviceID: senderID,
-                        theirName: payload.name
-                    )
+                    let friendSync = FriendSyncManager.shared
+                    let alreadyKnown = friendSync.registeredPairs.contains { $0.deviceID == senderID }
+                    let isPro = ProManager.shared.isPro
+                    let atLimit = friendSync.registeredPairs.count >= 1
+
+                    // Allow if: friend already paired, OR user is Pro, OR haven't hit the 1-friend limit
+                    if alreadyKnown || isPro || !atLimit {
+                        await friendSync.registerPair(
+                            theirDeviceID: senderID,
+                            theirName: payload.name
+                        )
+                    }
                     await MainActor.run { pairingRegistered = true }
                 }
             }

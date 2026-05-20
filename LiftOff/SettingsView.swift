@@ -287,6 +287,11 @@ struct SettingsView: View {
                 trackedAppsRow
                 Divider()
                 resetSection
+
+                #if DEBUG
+                debugSection
+                #endif
+
                 aboutSection
 
                 Spacer().frame(height: 40)
@@ -336,6 +341,20 @@ struct SettingsView: View {
                     .foregroundColor(.secondary)
                     .textCase(.uppercase)
                     .tracking(0.5)
+
+                // Free-tier friend count badge
+                if !proManager.isPro {
+                    HStack(spacing: 3) {
+                        Image(systemName: "lock.fill").font(.system(size: 9))
+                        Text("\(min(friendSync.registeredPairs.count, 1))/1")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.orange.opacity(0.12)))
+                }
+
                 Spacer()
                 if !friendSync.registeredPairs.isEmpty {
                     Button(action: { showRemoveAllConfirm = true }) {
@@ -409,21 +428,31 @@ struct SettingsView: View {
                                     }
                                     .buttonStyle(.plain)
 
-                                    // Message button
+                                    // Message button (Pro only)
                                     Button(action: {
-                                        messagingPair = pair
+                                        if proManager.isPro {
+                                            messagingPair = pair
+                                        } else {
+                                            showPaywall = true
+                                        }
                                     }) {
                                         ZStack(alignment: .topTrailing) {
-                                            Image(systemName: "bubble.left.fill")
-                                                .font(.system(size: 16))
-                                                .foregroundColor(.blue.opacity(0.7))
+                                            if proManager.isPro {
+                                                Image(systemName: "bubble.left.fill")
+                                                    .font(.system(size: 16))
+                                                    .foregroundColor(.blue.opacity(0.7))
 
-                                            let unread = MessagingManager.shared.unreadCountForFriend(pair.deviceID)
-                                            if unread > 0 {
-                                                Circle()
-                                                    .fill(Color.red)
-                                                    .frame(width: 8, height: 8)
-                                                    .offset(x: 2, y: -2)
+                                                let unread = MessagingManager.shared.unreadCountForFriend(pair.deviceID)
+                                                if unread > 0 {
+                                                    Circle()
+                                                        .fill(Color.red)
+                                                        .frame(width: 8, height: 8)
+                                                        .offset(x: 2, y: -2)
+                                                }
+                                            } else {
+                                                Image(systemName: "lock.fill")
+                                                    .font(.system(size: 14))
+                                                    .foregroundColor(.secondary.opacity(0.45))
                                             }
                                         }
                                     }
@@ -464,6 +493,23 @@ struct SettingsView: View {
                 }
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
                 .padding(.bottom, 4)
+
+                // Free tier hint
+                if !proManager.isPro {
+                    Button(action: { showPaywall = true }) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "lock.fill").font(.system(size: 10))
+                            Text(t(
+                                "Free plan: 1 friend & no messaging · Upgrade for unlimited",
+                                "Δωρεάν: 1 φίλος & χωρίς μηνύματα · Αναβάθμιση για απεριόριστα",
+                                "Kostenlos: 1 Freund, kein Messaging · Upgrade für unbegrenzt"
+                            ))
+                            .font(.system(size: 11, design: .rounded))
+                        }
+                        .foregroundColor(.blue.opacity(0.8))
+                    }
+                    .padding(.top, 4)
+                }
             }
         }
         .confirmationDialog(
@@ -722,6 +768,67 @@ struct SettingsView: View {
             }
         }
     }
+
+    // MARK: - Debug Section (DEBUG builds only)
+    //
+    // Lets you toggle Pro status during development to verify Free vs Pro UI.
+    // Wrapped in #if DEBUG so it is completely stripped from App Store builds.
+
+    #if DEBUG
+    private var debugSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "hammer.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
+                Text("DEV ONLY")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.orange)
+            }
+            .padding(.top, 28)
+
+            HStack(spacing: 8) {
+                Image(systemName: proManager.isPro ? "checkmark.seal.fill" : "lock.fill")
+                    .foregroundColor(proManager.isPro ? .green : .orange)
+                Text("Pro Status: \(proManager.isPro ? "Active" : "Locked")")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.primary)
+            }
+
+            HStack(spacing: 10) {
+                Button(action: { proManager.isPro = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.open.fill").font(.system(size: 12))
+                        Text("Force Pro").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(proManager.isPro ? Color.gray : Color.green))
+                }
+                .disabled(proManager.isPro)
+
+                Button(action: { proManager.isPro = false }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill").font(.system(size: 12))
+                        Text("Force Free").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(!proManager.isPro ? Color.gray : Color.orange))
+                }
+                .disabled(!proManager.isPro)
+            }
+
+            Text("These buttons exist only in DEBUG builds and will not appear in the App Store version.")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(.secondary)
+                .lineSpacing(2)
+                .padding(.top, 4)
+        }
+    }
+    #endif
 
     // MARK: - About Section
 

@@ -21,34 +21,44 @@ struct HeatmapView: View {
         }
     }
 
+    private var hasData: Bool { tracker.maxHourlyCount > 0 }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-
-                // Title
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(t("Pickup heatmap", "Χάρτης θερμότητας", "Griff-Heatmap"))
-                        .font(.system(size: 26, weight: .medium, design: .rounded))
-
-                    Text(t("Darker = more pickups", "Πιο σκούρο = περισσότερα pickups", "Dunkler = mehr Griffe"))
-                        .font(.system(size: 13, weight: .regular, design: .rounded))
-                        .foregroundColor(.secondary)
-                }
-                .padding(.top, 20)
-
-                // Enhanced Heatmap Grid με mood overlay
+        VStack(alignment: .leading, spacing: 20) {
+            if hasData {
+                // Grid
                 heatmapGrid
 
-                // Daily Comparison Chart
+                // Daily Comparison
                 dailyComparisonSection
 
-                // Worst hours section
+                // Worst hours
                 worstHoursSection
-
-                Spacer().frame(height: 20)
+            } else {
+                emptyState
             }
-            .padding(.horizontal, 20)
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "clock.badge.questionmark")
+                .font(.system(size: 32))
+                .foregroundColor(.secondary.opacity(0.4))
+
+            Text(t(
+                "No hourly data yet.\nKeep using Picksy and your heatmap will appear here.",
+                "Δεν υπάρχουν δεδομένα ακόμα.\nΣυνέχισε να χρησιμοποιείς το Picksy και το heatmap θα εμφανιστεί εδώ.",
+                "Noch keine Daten.\nNutze Picksy weiter und deine Heatmap erscheint hier."
+            ))
+            .font(.system(size: 13, weight: .regular, design: .rounded))
+            .foregroundColor(.secondary)
+            .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .padding(.horizontal, 16)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemGray6)))
     }
 
     // MARK: - Heatmap Grid

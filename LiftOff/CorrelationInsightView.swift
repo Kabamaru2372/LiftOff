@@ -11,7 +11,11 @@ import SwiftUI
 struct CorrelationInsightView: View {
 
     @Environment(CorrelationStore.self) var correlation
+    @Environment(ProManager.self) var proManager
     @AppStorage("appLanguage") private var appLanguage: String = "English"
+
+    /// Callback fired when the locked card is tapped — caller presents the paywall.
+    var onUnlockTap: (() -> Void)? = nil
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -24,22 +28,73 @@ struct CorrelationInsightView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
 
-            // Section header
-            HStack(spacing: 6) {
-                Image(systemName: "cloud.sun.fill")
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                Text(t("Weather & Habits", "Καιρός & Συνήθειες", "Wetter & Gewohnheiten"))
-                    .font(.system(size: 13, weight: .regular, design: .rounded))
-                    .foregroundColor(.secondary)
+            // Section header (with Pro badge for non-Pro users)
+            HStack {
+                HStack(spacing: 6) {
+                    Image(systemName: "cloud.sun.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    Text(t("Weather & Habits", "Καιρός & Συνήθειες", "Wetter & Gewohnheiten"))
+                        .font(.system(size: 13, weight: .regular, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                if !proManager.isPro {
+                    HStack(spacing: 4) {
+                        Image(systemName: "lock.fill").font(.system(size: 10))
+                        Text("Pro")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.blue)
+                }
             }
 
-            if !correlation.hasEnoughData {
+            if !proManager.isPro {
+                lockedCard
+            } else if !correlation.hasEnoughData {
                 notEnoughDataCard
             } else {
                 insightCard
             }
         }
+    }
+
+    // MARK: - Locked Pro Card
+
+    private var lockedCard: some View {
+        Button(action: { onUnlockTap?() }) {
+            VStack(spacing: 12) {
+                Image(systemName: "cloud.sun.fill")
+                    .font(.system(size: 32))
+                    .foregroundColor(.secondary.opacity(0.5))
+
+                Text(t(
+                    "Discover how weather affects your phone pickups",
+                    "Ανακάλυψε πώς ο καιρός επηρεάζει τα pickups σου",
+                    "Entdecke, wie das Wetter dein Smartphone-Verhalten beeinflusst"
+                ))
+                .font(.system(size: 13, weight: .regular, design: .rounded))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+
+                HStack(spacing: 6) {
+                    Image(systemName: "lock.open.fill").font(.system(size: 11))
+                    Text(t("Unlock with Pro", "Ξεκλείδωσε με Pro", "Mit Pro freischalten"))
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Color.blue))
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Not enough data
@@ -190,6 +245,7 @@ private struct ConditionBarRow: View {
         CorrelationInsightView()
             .padding(24)
             .environment(CorrelationStore.shared)
+            .environment(ProManager.shared)
     }
     .background(Color(.systemBackground))
 }

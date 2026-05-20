@@ -328,15 +328,18 @@ struct LiftOffApp: App {
                 pickupsLast2h: last2hPickups,
                 screenTimeLast2hSecs: store.screenTimeLastTwoHours
             )
-            let overusing = await FriendSyncManager.shared.checkOverusingPartners(
-                myPickups: store.todayPickups,
-                myGoal: dailyGoal,
-                myScreenTimeLast2hSecs: store.screenTimeLastTwoHours
-            )
-            if let partner = overusing.first {
-                await MainActor.run {
-                    scheduleFriendOverusingNotification(partner: partner, language: lang)
-                    FriendSyncManager.shared.markNotifiedToday(for: partner.deviceID)
+            // Friend accountability notifications — Pro only
+            if proManager.isPro {
+                let overusing = await FriendSyncManager.shared.checkOverusingPartners(
+                    myPickups: store.todayPickups,
+                    myGoal: dailyGoal,
+                    myScreenTimeLast2hSecs: store.screenTimeLastTwoHours
+                )
+                if let partner = overusing.first {
+                    await MainActor.run {
+                        scheduleFriendOverusingNotification(partner: partner, language: lang)
+                        FriendSyncManager.shared.markNotifiedToday(for: partner.deviceID)
+                    }
                 }
             }
         }
@@ -431,15 +434,19 @@ struct LiftOffApp: App {
                 )
 
                 let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-                let overusing = await FriendSyncManager.shared.checkOverusingPartners(
-                    myPickups: pickups,
-                    myGoal: goal2,
-                    myScreenTimeLast2hSecs: store.screenTimeLastTwoHours
-                )
-                if let partner = overusing.first {
-                    await MainActor.run {
-                        scheduleFriendOverusingNotification(partner: partner, language: lang)
-                        FriendSyncManager.shared.markNotifiedToday(for: partner.deviceID)
+
+                // Friend accountability notifications — Pro only
+                if proManager.isPro {
+                    let overusing = await FriendSyncManager.shared.checkOverusingPartners(
+                        myPickups: pickups,
+                        myGoal: goal2,
+                        myScreenTimeLast2hSecs: store.screenTimeLastTwoHours
+                    )
+                    if let partner = overusing.first {
+                        await MainActor.run {
+                            scheduleFriendOverusingNotification(partner: partner, language: lang)
+                            FriendSyncManager.shared.markNotifiedToday(for: partner.deviceID)
+                        }
                     }
                 }
             }

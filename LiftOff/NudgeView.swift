@@ -48,6 +48,7 @@ struct NudgeView: View {
     @State private var counterScale: CGFloat = 1.0
     @State private var badgePulse: Bool = false
     @State private var titleShimmer: Bool = false
+    @State private var moonGlow: Bool = false
 
 
 
@@ -104,6 +105,22 @@ struct NudgeView: View {
                 condition: weatherManager.activeCondition,
                 isDimmed: false
             )
+
+            // Celestial glow — ακολουθεί τον ήλιο ή το φεγγάρι ανάλογα με την ώρα
+            let isDay = timeOfDay == .morning || timeOfDay == .midday
+            let glowColor: Color = isDay ? .yellow : .cyan
+            let celestialPos: (x: Double, y: Double) = timeOfDay == .night
+                ? TimeOfDay.moonCelestialPosition()
+                : (x: timeOfDay.celestialX, y: timeOfDay.celestialY)
+            RadialGradient(
+                colors: [glowColor.opacity(moonGlow ? 0.35 : 0.06), .clear],
+                center: .init(x: celestialPos.x, y: celestialPos.y),
+                startRadius: 5,
+                endRadius: 180
+            )
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+            .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: moonGlow)
 
             idleContent
         }
@@ -165,14 +182,23 @@ struct NudgeView: View {
             checkChallengeBanner()
             checkTogetherBanner()
 
-            // Entrance animation
-            appeared = false
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                appeared = true
+            // Entrance animation — τρέχει ΜΟΝΟ την πρώτη φορά (όχι σε κάθε tab switch)
+            if !appeared {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    appeared = true
+                }
             }
             // Title shimmer (subtle breathing)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                titleShimmer = true
+            if !titleShimmer {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    titleShimmer = true
+                }
+            }
+            // Moon glow pulse — ξεκινά μία φορά, τρέχει για πάντα
+            if !moonGlow {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    moonGlow = true
+                }
             }
             // Zone badge pulse (only in danger zone)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
@@ -205,7 +231,8 @@ struct NudgeView: View {
         }
         .onDisappear {
             refreshTimer?.invalidate()
-            appeared = false
+            // Δεν κάνουμε reset το appeared — οι κάρτες μένουν ορατές στο tab switch
+            // Μόνο τα looping animations σταματούν για να μην τρέχουν off-screen
             titleShimmer = false
             badgePulse = false
             NotificationCenter.default.removeObserver(
@@ -735,6 +762,8 @@ struct NudgeView: View {
 
     private func checkTogetherBanner() {
         guard FriendSyncManager.shared.hasPairs else { return }
+        // Together banner is a Pro feature (Friend Accountability)
+        guard ProManager.shared.isPro else { return }
         let myScreenTimeSecs = store.screenTimeLastTwoHours
         Task {
             let banners = await FriendSyncManager.shared.checkForTogetherBanner(

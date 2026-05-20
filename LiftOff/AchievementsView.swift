@@ -5,7 +5,10 @@ import SwiftUI
 struct AchievementsView: View {
 
     @Environment(AchievementManager.self) private var achievementManager
+    @Environment(ProManager.self) private var proManager
     @AppStorage("appLanguage") private var appLanguage: String = "English"
+
+    var onUnlockTap: (() -> Void)? = nil
 
     @State private var selectedBadge: BadgeDefinition? = nil
     @State private var bannerVisible: Bool = false
@@ -148,23 +151,63 @@ struct AchievementsView: View {
 
     private var badgesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(t("Achievements", "Επιτεύγματα", "Errungenschaften"))
-                .font(.system(size: 18, weight: .semibold, design: .rounded))
-                .foregroundColor(.primary)
-                .padding(.horizontal, 4)
+            HStack {
+                Text(t("Achievements", "Επιτεύγματα", "Errungenschaften"))
+                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 4)
+
+                Spacer()
+
+                // Free-tier badge count
+                if !proManager.isPro {
+                    HStack(spacing: 3) {
+                        Image(systemName: "lock.fill").font(.system(size: 9))
+                        Text("10/12")
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.orange.opacity(0.12)))
+                    .padding(.horizontal, 4)
+                }
+            }
 
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(AchievementManager.allBadges, id: \.id) { badge in
-                    BadgeCell(
-                        badge: badge,
-                        isUnlocked: achievementManager.isUnlocked(badge.id),
-                        rank: achievementManager.currentRank,
-                        language: appLanguage
-                    )
-                    .onTapGesture {
-                        selectedBadge = badge
+                    let isProLocked = !proManager.isPro && AchievementManager.proOnlyBadgeIds.contains(badge.id)
+
+                    if isProLocked {
+                        ProLockedBadgeCell(badge: badge, language: appLanguage)
+                            .onTapGesture { onUnlockTap?() }
+                    } else {
+                        BadgeCell(
+                            badge: badge,
+                            isUnlocked: achievementManager.isUnlocked(badge.id),
+                            rank: achievementManager.currentRank,
+                            language: appLanguage
+                        )
+                        .onTapGesture { selectedBadge = badge }
                     }
                 }
+            }
+
+            // Free tier hint
+            if !proManager.isPro {
+                Button(action: { onUnlockTap?() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill").font(.system(size: 10))
+                        Text(t(
+                            "Upgrade to unlock Month Tracker & Personal Best",
+                            "Αναβάθμιση για Month Tracker & Personal Best",
+                            "Upgrade für Month Tracker & Personal Best"
+                        ))
+                        .font(.system(size: 11, design: .rounded))
+                    }
+                    .foregroundColor(.blue.opacity(0.8))
+                }
+                .padding(.top, 4)
             }
         }
     }
@@ -422,6 +465,64 @@ struct BadgeDetailSheet: View {
     }
 }
 
+// MARK: - Pro Locked Badge Cell
+
+private struct ProLockedBadgeCell: View {
+    let badge: BadgeDefinition
+    let language: String
+
+    private var localizedTitle: String {
+        switch language {
+        case "Ελληνικά": return badge.titleGR
+        case "Deutsch":  return badge.titleDE
+        default:         return badge.title
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(Color(.systemGray5).opacity(0.5))
+                    .frame(width: 64, height: 64)
+
+                Text(badge.emoji)
+                    .font(.system(size: 28))
+                    .opacity(0.25)
+
+                // Lock + Pro badge overlay
+                VStack(spacing: 2) {
+                    Image(systemName: "lock.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(.blue)
+                    Text("Pro")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundColor(.blue)
+                }
+            }
+
+            Text(localizedTitle)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundColor(.secondary.opacity(0.6))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(minHeight: 28)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 4)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.ultraThinMaterial)
+                .opacity(0.5)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .strokeBorder(Color.blue.opacity(0.2), lineWidth: 1)
+        )
+    }
+}
+
 // MARK: - BadgeDefinition: Identifiable
 
 extension BadgeDefinition: Identifiable {}
@@ -433,6 +534,7 @@ extension BadgeDefinition: Identifiable {}
         AchievementsView()
             .timeGradientBackground()
             .environment(AchievementManager.shared)
+            .environment(ProManager.shared)
             .environment(WeatherManager())
     }
 }

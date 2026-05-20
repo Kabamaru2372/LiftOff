@@ -120,8 +120,8 @@ struct DashboardView: View {
                 WeeklyChart(data: store.weeklyPickups, dayNames: dayNames)
                     .frame(height: 120)
 
-                // MARK: - Correlation Insights
-                CorrelationInsightView()
+                // MARK: - Correlation Insights (Pro)
+                CorrelationInsightView(onUnlockTap: { showPaywall = true })
                     .environment(correlationStore)
 
                 // MARK: - Heatmap section (NEW!)
@@ -169,7 +169,10 @@ struct DashboardView: View {
                 .environment(checkInManager)
         }
         .fullScreenCover(item: $weeklySummaryItem) { item in
-            WeeklySummaryView(summary: item.summary)
+            WeeklySummaryView(
+                summary: item.summary,
+                onUnlockTap: { showPaywall = true }
+            )
         }
         .fullScreenCover(isPresented: $showPaywall) {
             PaywallView().environment(proManager)
@@ -199,7 +202,6 @@ struct DashboardView: View {
 
             if proManager.isPro {
                 HeatmapView()
-                    .frame(maxHeight: 300)
             } else {
                 heatmapLockedCard
             }

@@ -169,26 +169,53 @@ enum TimeOfDay {
         return self == .night
     }
 
-    /// Horizontal position — κινείται κατά τη διάρκεια της μέρας
+    /// Horizontal position ήλιου — κινείται κατά τη διάρκεια της μέρας
     var celestialX: Double {
         switch self {
         case .sunrise: return 0.20
         case .morning: return 0.50
         case .midday:  return 0.75
         case .sunset:  return 0.85
-        case .night:   return 0.75
+        case .night:   return TimeOfDay.moonCelestialPosition().x
         }
     }
 
-    /// Vertical position — πάνω στον ουρανό
+    /// Vertical position ήλιου — πάνω στον ουρανό
     var celestialY: Double {
         switch self {
         case .sunrise: return 0.45
         case .morning: return 0.25
         case .midday:  return 0.20
         case .sunset:  return 0.45
-        case .night:   return 0.22
+        case .night:   return TimeOfDay.moonCelestialPosition().y
         }
+    }
+
+    /// Θέση φεγγαριού βάσει ώρας — τόξο από δεξιά (21:00) προς αριστερά (06:00)
+    static func moonCelestialPosition(for date: Date = Date()) -> (x: Double, y: Double) {
+        let cal = Calendar.current
+        let hour   = Double(cal.component(.hour,   from: date))
+        let minute = Double(cal.component(.minute, from: date))
+        let totalMinutes = hour * 60 + minute
+
+        // Νύχτα: 21:00 → 06:00 (9 ώρες = 540 λεπτά)
+        let nightStart = 21.0 * 60   // 1260
+        let nightDuration = 9.0 * 60 // 540
+
+        let progress: Double
+        if totalMinutes >= nightStart {
+            progress = (totalMinutes - nightStart) / nightDuration
+        } else {
+            progress = (totalMinutes + (24 * 60 - nightStart)) / nightDuration
+        }
+        let p = max(0, min(1, progress))
+
+        // x: ανατέλλει δεξιά (0.82) → δύει αριστερά (0.12)
+        let x = 0.82 - p * 0.70
+        // y: τόξο — χαμηλά στις άκρες, ψηλά στα μεσάνυχτα
+        let y = 0.42 - sin(p * .pi) * 0.28
+
+        return (x: x, y: y)
     }
 }
 
