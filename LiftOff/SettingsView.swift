@@ -391,7 +391,8 @@ struct SettingsView: View {
                 // Friend list — sort by registration date for stable numbering
                 let sortedPairs = friendSync.registeredPairs.sorted { $0.registeredAt < $1.registeredAt }
 
-                VStack(spacing: 0) {
+                ScrollView(.vertical, showsIndicators: false) {
+                  VStack(spacing: 0) {
                     ForEach(Array(sortedPairs.enumerated()), id: \.element.id) { index, pair in
                         let isUnknown = pair.name == "A friend" || pair.name.trimmingCharacters(in: .whitespaces).isEmpty
                         // Numbered fallback so user can tell unnamed friends apart
@@ -490,7 +491,9 @@ struct SettingsView: View {
                             Divider().padding(.leading, 60)
                         }
                     }
+                  }
                 }
+                .frame(maxHeight: CGFloat(min(sortedPairs.count, 3)) * 57)
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
                 .padding(.bottom, 4)
 
