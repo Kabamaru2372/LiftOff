@@ -242,9 +242,11 @@ struct WeatherBackground: View {
         !lowPowerMode
     }
 
-    /// Heavy weather conditions όπου ο ήλιος δεν φαίνεται
+    /// Weather conditions όπου ο ήλιος κρύβεται
     private var heavyWeather: Bool {
-        condition == .rainy || condition == .thunderstorm || condition == .snow
+        condition == .rainy || condition == .thunderstorm ||
+        condition == .snow  || condition == .cloudy       ||
+        condition == .foggy
     }
 
     var body: some View {

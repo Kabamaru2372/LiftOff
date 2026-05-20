@@ -106,21 +106,28 @@ struct NudgeView: View {
                 isDimmed: false
             )
 
-            // Celestial glow — ακολουθεί τον ήλιο ή το φεγγάρι ανάλογα με την ώρα
-            let isDay = timeOfDay == .morning || timeOfDay == .midday
-            let glowColor: Color = isDay ? .yellow : .cyan
-            let celestialPos: (x: Double, y: Double) = timeOfDay == .night
-                ? TimeOfDay.moonCelestialPosition()
-                : (x: timeOfDay.celestialX, y: timeOfDay.celestialY)
-            RadialGradient(
-                colors: [glowColor.opacity(moonGlow ? 0.35 : 0.06), .clear],
-                center: .init(x: celestialPos.x, y: celestialPos.y),
-                startRadius: 5,
-                endRadius: 180
-            )
-            .ignoresSafeArea()
-            .allowsHitTesting(false)
-            .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: moonGlow)
+            // Celestial glow — κρύβεται όταν έχει συννεφιά/βροχή/ομίχλη
+            let glowHidden = weatherManager.activeCondition == .cloudy ||
+                             weatherManager.activeCondition == .rainy  ||
+                             weatherManager.activeCondition == .thunderstorm ||
+                             weatherManager.activeCondition == .foggy  ||
+                             weatherManager.activeCondition == .snow
+            if !glowHidden {
+                let isDay = timeOfDay == .morning || timeOfDay == .midday
+                let glowColor: Color = isDay ? .yellow : .cyan
+                let celestialPos: (x: Double, y: Double) = timeOfDay == .night
+                    ? TimeOfDay.moonCelestialPosition()
+                    : (x: timeOfDay.celestialX, y: timeOfDay.celestialY)
+                RadialGradient(
+                    colors: [glowColor.opacity(moonGlow ? 0.35 : 0.06), .clear],
+                    center: .init(x: celestialPos.x, y: celestialPos.y),
+                    startRadius: 5,
+                    endRadius: 180
+                )
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+                .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: moonGlow)
+            }
 
             idleContent
         }
