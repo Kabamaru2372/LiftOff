@@ -630,6 +630,7 @@ struct NudgeView: View {
         case .thunderstorm: return t("Storm", "Καταιγίδα", "Gewitter")
         case .snow:         return t("Snow", "Χιόνι", "Schnee")
         case .foggy:        return t("Foggy", "Ομίχλη", "Neblig")
+        case .windy:        return t("Windy", "Αέρας", "Windig")
         case .hot:          return t("Hot", "Ζέστη", "Heiß")
         case .cold:         return t("Cold", "Κρύο", "Kalt")
         case .unknown:      return ""

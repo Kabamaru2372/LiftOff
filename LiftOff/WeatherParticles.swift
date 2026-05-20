@@ -403,6 +403,70 @@ struct VolumetricCloudShape: View {
     }
 }
 
+// MARK: - Wind Layer
+
+struct WindLayer: View {
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                ForEach(0..<35, id: \.self) { i in
+                    WindStreak(
+                        y: Double.random(in: 0...geo.size.height * 0.75),
+                        screenWidth: geo.size.width,
+                        length: Double.random(in: 50...160),
+                        thickness: Double.random(in: 1.0...2.5),
+                        opacity: Double.random(in: 0.12...0.40),
+                        duration: Double.random(in: 0.3...0.7),
+                        delay: Double.random(in: 0...1.5)
+                    )
+                }
+            }
+        }
+        .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
+struct WindStreak: View {
+    let y: Double
+    let screenWidth: Double
+    let length: Double
+    let thickness: Double
+    let opacity: Double
+    let duration: Double
+    let delay: Double
+
+    @State private var moving = false
+
+    var body: some View {
+        Capsule()
+            .fill(
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0),
+                        Color.white.opacity(opacity),
+                        Color.white.opacity(opacity * 0.6),
+                        Color.white.opacity(0)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+            .frame(width: length, height: thickness)
+            .offset(
+                x: moving ? screenWidth + length : -length,
+                y: y
+            )
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    withAnimation(.linear(duration: duration).repeatForever(autoreverses: false)) {
+                        moving = true
+                    }
+                }
+            }
+    }
+}
+
 // MARK: - Lightning Layer με branching
 
 struct LightningLayer: View {

@@ -22,6 +22,7 @@ enum WeatherCondition: String, Codable {
     case thunderstorm
     case snow
     case foggy
+    case windy
     case hot
     case cold
     case unknown
@@ -35,6 +36,7 @@ enum WeatherCondition: String, Codable {
         case .thunderstorm: return "⛈️"
         case .snow:         return "🌨️"
         case .foggy:        return "🌫️"
+        case .windy:        return "💨"
         case .hot:          return "🥵"
         case .cold:         return "🥶"
         case .unknown:      return "🌡️"
@@ -210,6 +212,7 @@ class WeatherManager: NSObject {
 
         let conditionString = current.condition.description.lowercased()
 
+        // Severe conditions πρώτα
         if conditionString.contains("thunder") || conditionString.contains("storm") {
             return .thunderstorm
         }
@@ -227,6 +230,11 @@ class WeatherManager: NSObject {
            conditionString.contains("dust") {
             return .foggy
         }
+
+        // Windy: ≥40 km/h χωρίς βροχή/χιόνι/καταιγίδα
+        let windKmh = current.wind.speed.converted(to: .kilometersPerHour).value
+        if windKmh >= 40 { return .windy }
+
         if conditionString.contains("partly") || conditionString.contains("mostly cloudy") ||
            conditionString.contains("scattered") || conditionString.contains("isolated") {
             return .partlyCloudy
@@ -267,14 +275,15 @@ class WeatherManager: NSObject {
         }
 
         do {
-            let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code&daily=sunrise,sunset&timezone=auto"
+            let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code,wind_speed_10m&daily=sunrise,sunset&timezone=auto"
             guard let url = URL(string: urlString) else { throw WeatherError.invalidURL }
 
             let (data, _) = try await URLSession.shared.data(from: url)
             let response = try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
 
             let temp = response.current.temperature_2m
-            let condition = conditionFromWMO(code: response.current.weather_code, temp: temp)
+            let windKmh = response.current.wind_speed_10m ?? 0
+            let condition = conditionFromWMO(code: response.current.weather_code, temp: temp, windKmh: windKmh)
             let cityName = await getCityName(from: CLLocation(latitude: lat, longitude: lon))
 
             // Parse today's sunrise/sunset (first entry in daily arrays)
@@ -318,6 +327,7 @@ class WeatherManager: NSObject {
     private struct OpenMeteoCurrent: Codable {
         let temperature_2m: Double
         let weather_code: Int
+        let wind_speed_10m: Double?
     }
 
     private struct OpenMeteoDaily: Codable {
@@ -333,14 +343,14 @@ class WeatherManager: NSObject {
         return formatter.date(from: string)
     }
 
-    private func conditionFromWMO(code: Int, temp: Double) -> WeatherCondition {
+    private func conditionFromWMO(code: Int, temp: Double, windKmh: Double = 0) -> WeatherCondition {
         if temp >= 35 { return .hot }
         if temp <= 0 { return .cold }
 
         switch code {
-        case 0:         return .sunny
-        case 1, 2:      return .partlyCloudy
-        case 3:         return .cloudy
+        case 0:         return windKmh >= 40 ? .windy : .sunny
+        case 1, 2:      return windKmh >= 40 ? .windy : .partlyCloudy
+        case 3:         return windKmh >= 40 ? .windy : .cloudy
         case 45, 48:    return .foggy
         case 51...67:   return .rainy
         case 71...77:   return .snow

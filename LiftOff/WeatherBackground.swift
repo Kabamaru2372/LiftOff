@@ -231,7 +231,8 @@ struct WeatherBackground: View {
     }
 
     private var animationSpeed: Double {
-        isDimmed ? 0.5 : 1.0
+        if condition == .windy { return isDimmed ? 1.5 : 3.0 }
+        return isDimmed ? 0.5 : 1.0
     }
 
     /// Aurora εμφανίζεται όταν είναι νύχτα και όχι rainy/cloudy/snow
@@ -409,7 +410,7 @@ struct WeatherBackground: View {
 
     private var shouldShowClouds: Bool {
         switch condition {
-        case .partlyCloudy, .cloudy, .rainy, .snow: return true
+        case .partlyCloudy, .cloudy, .rainy, .snow, .windy: return true
         default: return false
         }
     }
@@ -420,6 +421,7 @@ struct WeatherBackground: View {
         case .cloudy:       return 6
         case .rainy:        return 7
         case .snow:         return 5
+        case .windy:        return 4
         default:            return 0
         }
     }
@@ -473,6 +475,9 @@ struct WeatherBackground: View {
             SnowLayer(speed: animationSpeed)
                 .opacity(isDimmed ? 0.7 : 1.0)
             #endif
+        case .windy:
+            WindLayer()
+                .opacity(isDimmed ? 0.6 : 1.0)
         default:
             EmptyView()
         }
