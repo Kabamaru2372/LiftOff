@@ -96,6 +96,10 @@ struct DashboardView: View {
                     StatCard(title: t("Avg time", "Μέσος χρόνος", "Ø Zeit"), value: store.averageSessionLabel)
                 }
 
+                // Active Duel Banner
+                DuelBannerView()
+                    .environment(store)
+
                 // Mood Timeline
                 moodSection
 
@@ -246,6 +250,7 @@ struct DashboardView: View {
     private func showWeeklyRecap() {
         let summary = weeklyManager.computeSummary(
             weeklyPickups: store.weeklyPickups,
+            hourlyScreenTimeSecs: store.hourlyScreenTimeSecs,
             checkInManager: checkInManager,
             streak: store.currentStreak,
             dayNames: dayNames

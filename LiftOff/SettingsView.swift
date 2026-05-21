@@ -40,6 +40,7 @@ struct SettingsView: View {
     @State private var renamingPair: RegisteredPair? = nil
     @State private var renameText: String = ""
     @State private var messagingPair: RegisteredPair? = nil
+    @State private var duelPair: RegisteredPair? = nil
 
     private var friendSync: FriendSyncManager { FriendSyncManager.shared }
 
@@ -310,6 +311,10 @@ struct SettingsView: View {
         .sheet(item: $messagingPair) { pair in
             MessageView(pair: pair)
         }
+        .sheet(item: $duelPair) { pair in
+            DuelView(pair: pair)
+                .environment(store)
+        }
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
         .onAppear {
             isAuthorized = FamilyControlsManager.shared.isAuthorized
@@ -456,6 +461,19 @@ struct SettingsView: View {
                                                     .foregroundColor(.secondary.opacity(0.45))
                                             }
                                         }
+                                    }
+                                    .buttonStyle(.plain)
+
+                                    // Duel button (Pro only)
+                                    Button(action: {
+                                        if proManager.isPro {
+                                            duelPair = pair
+                                        } else {
+                                            showPaywall = true
+                                        }
+                                    }) {
+                                        Text(proManager.isPro ? "⚔️" : "🔒")
+                                            .font(.system(size: proManager.isPro ? 16 : 13))
                                     }
                                     .buttonStyle(.plain)
                                 }

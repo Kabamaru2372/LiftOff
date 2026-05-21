@@ -195,6 +195,7 @@ struct ContentView: View {
 
         let summary = weeklyManager.computeSummary(
             weeklyPickups: store.weeklyPickups,
+            hourlyScreenTimeSecs: store.hourlyScreenTimeSecs,
             checkInManager: checkInManager,
             streak: store.currentStreak,
             dayNames: dayNames

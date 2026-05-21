@@ -260,6 +260,9 @@ struct LiftOffApp: App {
 
         Task { await weatherManager.fetchWeather() }
 
+        // Poll duel state on launch
+        Task { await DuelManager.shared.poll() }
+
         // Upload our public key so friends can send us encrypted messages
         Task { await MessagingManager.shared.uploadPublicKey() }
 
@@ -287,6 +290,8 @@ struct LiftOffApp: App {
                     pickupsLast2h: pickupsLast2h(),
                     screenTimeLast2hSecs: store.screenTimeLastTwoHours
                 )
+                // Update duel pickup count on every pickup
+                await DuelManager.shared.updateMyPickups(store.todayPickups)
             }
             let g2 = UserDefaults.standard.integer(forKey: "dailyGoal")
             let goal2 = g2 > 0 ? g2 : 50
@@ -418,6 +423,8 @@ struct LiftOffApp: App {
                 // Ensure our public key is always up-to-date in Supabase
                 // so friends can send us encrypted messages
                 await MessagingManager.shared.uploadPublicKey()
+                // Poll duel state on foreground
+                await DuelManager.shared.poll()
             }
 
             // Friend sync — upload own status & check if any pair is also overusing

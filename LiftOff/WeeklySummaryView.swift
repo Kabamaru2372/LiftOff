@@ -120,6 +120,10 @@ struct WeeklySummaryView: View {
                                 .transition(.slide.combined(with: .opacity))
                             }
 
+                            // PRO — Phone Personality Type
+                            personalityCard
+                                .transition(.slide.combined(with: .opacity))
+
                             // PRO — Personalized motivational message
                             Text(motivationalMessage)
                                 .font(.system(size: 15, weight: .regular, design: .rounded))
@@ -202,6 +206,33 @@ struct WeeklySummaryView: View {
         }
     }
 
+    // MARK: - Phone Personality Type Card
+
+    private var personalityCard: some View {
+        let type = summary.personalityType
+        return VStack(spacing: 14) {
+            HStack(spacing: 10) {
+                Text(type.emoji)
+                    .font(.system(size: 32))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Your phone personality", "Η προσωπικότητά σου", "Deine Handy-Persönlichkeit"))
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Text(type.name(language: appLanguage))
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                }
+                Spacer()
+            }
+            Text(type.description(language: appLanguage))
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(20)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
+    }
+
     // MARK: - Locked Pro Card (Free users)
 
     private var lockedProCard: some View {
@@ -251,6 +282,11 @@ struct WeeklySummaryView: View {
                         "Personalized weekly insights",
                         "Εξατομικευμένα εβδομαδιαία insights",
                         "Personalisierte Wocheneinblicke"
+                    ))
+                    proFeatureRow(icon: "person.fill.questionmark", text: t(
+                        "Your phone personality type",
+                        "Ο τύπος κινητοφίλου σου",
+                        "Dein Handy-Persönlichkeitstyp"
                     ))
                 }
                 .padding(.horizontal, 4)
@@ -351,7 +387,7 @@ struct WeeklySummaryView: View {
     @MainActor
     private func generateAndShare() {
         let card = WeeklyShareCardView(summary: summary, language: appLanguage)
-            .frame(width: 400, height: 700)
+            .frame(width: 400, height: 750)
 
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3.0
@@ -440,6 +476,18 @@ struct WeeklyShareCardView: View {
             }
 
             Spacer()
+
+            // Personality type badge
+            HStack(spacing: 8) {
+                Text(summary.personalityType.emoji)
+                    .font(.system(size: 20))
+                Text(summary.personalityType.name(language: language))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Color.blue.opacity(0.12)))
 
             // Footer
             VStack(spacing: 4) {

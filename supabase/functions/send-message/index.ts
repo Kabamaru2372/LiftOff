@@ -88,30 +88,47 @@ async function sendPush(
 }
 
 // ─── Main ──────────────────────────────────────────────────────────────────
+//
+// Supports two call formats:
+//
+// 1. Message notification (original):
+//    { receiver_device_id, sender_name }
+//
+// 2. Generic notification (used by duels, etc.):
+//    { device_id, title, body }
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  let body: { receiver_device_id?: string; sender_name?: string };
+  let payload: {
+    receiver_device_id?: string;
+    sender_name?: string;
+    device_id?: string;
+    title?: string;
+    body?: string;
+  };
   try {
-    body = await req.json();
+    payload = await req.json();
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
 
-  const { receiver_device_id, sender_name } = body;
-
-  if (!receiver_device_id) {
-    return new Response("Missing receiver_device_id", { status: 400 });
+  // Determine target device ID and notification content
+  const targetDeviceID = payload.device_id ?? payload.receiver_device_id;
+  if (!targetDeviceID) {
+    return new Response("Missing device_id or receiver_device_id", { status: 400 });
   }
+
+  const notifTitle = payload.title ?? (payload.sender_name ?? "A friend");
+  const notifBody  = payload.body  ?? "sent you a message";
 
   // Look up receiver's push token
   const { data: tokenRows, error } = await supabase
     .from("device_tokens")
     .select("token")
-    .eq("device_id", receiver_device_id)
+    .eq("device_id", targetDeviceID)
     .eq("is_active", true)
     .eq("token_type", "device")
     .limit(1);
@@ -123,15 +140,11 @@ Deno.serve(async (req: Request) => {
 
   const pushToken = tokenRows?.[0]?.token;
   if (!pushToken) {
-    console.log(`[send-message] ⚠️ No token for device ${receiver_device_id.slice(0, 8)}…`);
+    console.log(`[send-message] ⚠️ No token for device ${targetDeviceID.slice(0, 8)}…`);
     return new Response("No push token for receiver", { status: 200 });
   }
 
-  const name  = sender_name ?? "A friend";
-  const title = name;
-  const alert = "sent you a message";
-
-  await sendPush(pushToken, title, alert);
+  await sendPush(pushToken, notifTitle, notifBody);
 
   return new Response("OK", { status: 200 });
 });
