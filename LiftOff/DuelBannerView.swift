@@ -17,8 +17,10 @@ struct DuelBannerView: View {
 
     @State private var tick: Date = Date()
     @State private var showDuelSheet: Bool = false
+    @State private var pollCount: Int = 0
 
-    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    let timer     = Timer.publish(every: 1,  on: .main, in: .common).autoconnect()
+    let pollTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -40,6 +42,12 @@ struct DuelBannerView: View {
             // sentPendingDuel: no banner — opponent hasn't accepted yet, no score to show
         }
         .onReceive(timer) { _ in tick = Date() }
+        .onReceive(pollTimer) { _ in
+            // Refresh opponent score every 30s when a duel is active
+            if duelManager.activeDuel?.status == .active {
+                Task { await DuelManager.shared.poll() }
+            }
+        }
         .sheet(isPresented: $showDuelSheet) {
             if let pair = activePair {
                 DuelView(pair: pair)

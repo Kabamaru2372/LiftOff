@@ -252,17 +252,29 @@ class DuelManager {
     func poll() async {
         let myID = myDeviceID
 
-        // Fetch all non-declined duels involving me, created in the last 2 days
-        let urlStr = "\(Self.supabaseURL)/rest/v1/duels"
-            + "?or=(challenger_id.eq.\(myID),opponent_id.eq.\(myID))"
-            + "&status=neq.declined"
-            + "&order=created_at.desc"
-            + "&limit=10"
+        // Fetch non-declined duels involving me, created in the last 2 days
+        // Use URLComponents for safe encoding of the or() filter
+        guard var comps = URLComponents(string: "\(Self.supabaseURL)/rest/v1/duels") else { return }
 
-        var req = makeRequest(url: URL(string: urlStr)!, method: "GET")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        // 48h ago in ISO8601
+        let cutoff = ISO8601DateFormatter()
+        cutoff.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let since = cutoff.string(from: Date().addingTimeInterval(-48 * 3600))
 
-        guard let (data, _) = try? await URLSession.shared.data(for: req),
+        comps.queryItems = [
+            URLQueryItem(name: "or",         value: "(challenger_id.eq.\(myID),opponent_id.eq.\(myID))"),
+            URLQueryItem(name: "status",     value: "neq.declined"),
+            URLQueryItem(name: "created_at", value: "gte.\(since)"),
+            URLQueryItem(name: "order",      value: "created_at.desc"),
+            URLQueryItem(name: "limit",      value: "10")
+        ]
+
+        guard let pollURL = comps.url else { return }
+
+        var pollReq = makeRequest(url: pollURL, method: "GET")
+        pollReq.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        guard let (data, _) = try? await URLSession.shared.data(for: pollReq),
               let duels = try? decoder.decode([DuelRecord].self, from: data)
         else {
             print("[Duel] ⚠️ Poll failed")
@@ -277,15 +289,21 @@ class DuelManager {
         }
 
         // Re-fetch after potential finalization
-        guard let (data2, _) = try? await URLSession.shared.data(for: req),
+        let pollReq2 = makeRequest(url: pollURL, method: "GET")
+        guard let (data2, _) = try? await URLSession.shared.data(for: pollReq2),
               let freshDuels = try? decoder.decode([DuelRecord].self, from: data2)
         else { return }
 
+        let todayStart = Calendar.current.startOfDay(for: Date())
+
+        let myActiveDuel = freshDuels.first { d -> Bool in
+            if d.status == .active { return true }
+            if d.status == .completed { return d.createdAt >= todayStart }
+            return false
+        }
+
         await MainActor.run {
-            // Active or completed duel
-            activeDuel = freshDuels.first {
-                $0.status == .active || $0.status == .completed
-            }
+            activeDuel = myActiveDuel
 
             // Incoming pending invite (I am the opponent)
             pendingInvite = freshDuels.first {
@@ -321,10 +339,6 @@ class DuelManager {
         print("[Duel] 🏁 Finalized: winner=\(winner.prefix(8))…")
 
         // Notify both players
-        let iWon = winner == duel.challengerId
-        let myName    = duel.amChallenger ? duel.challengerName : duel.opponentName
-        let theirName = duel.amChallenger ? duel.opponentName   : duel.challengerName
-
         if winner == "tie" {
             await sendPush(toDeviceID: duel.challengerId, title: "🤝 It's a tie!", body: "You and \(duel.opponentName) are equally disciplined today.")
             await sendPush(toDeviceID: duel.opponentId,   title: "🤝 It's a tie!", body: "You and \(duel.challengerName) are equally disciplined today.")
