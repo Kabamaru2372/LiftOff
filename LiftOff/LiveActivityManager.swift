@@ -62,6 +62,9 @@ class LiveActivityManager {
             for await pushTokenData in activity.pushTokenUpdates {
                 let token = pushTokenData.map { String(format: "%02x", $0) }.joined()
                 await MainActor.run { self.pushToken = token }
+                // Upload immediately so the edge function can find the token
+                // as soon as the next pickup is recorded.
+                await PushNotificationManager.shared.registerLiveActivityToken(token)
             }
         }
 
@@ -115,12 +118,18 @@ class LiveActivityManager {
         }
 
         let attributes = LiftOffActivityAttributes(dailyGoal: dailyGoal)
+
+        // Start in duel mode if a duel is already active
+        let duel = DuelManager.shared.activeDuel.flatMap { $0.status == .active ? $0 : nil }
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
-            currentQuote: QuoteBank.random(),
+            currentQuote: duel != nil ? "⚔️ Duel vs \(duel!.theirName)" : QuoteBank.random(),
             lastPickupTime: Date(),
             focusEndTime: nil,
-            focusPickupCount: 0
+            focusPickupCount: 0,
+            duelOpponentName: duel?.theirName,
+            duelMyPickups: duel != nil ? pickupCount : 0,
+            duelTheirPickups: duel?.theirPickups ?? 0
         )
 
         let content = ActivityContent(
@@ -132,7 +141,7 @@ class LiveActivityManager {
             let activity = try Activity.request(
                 attributes: attributes,
                 content: content,
-                pushType: nil
+                pushType: .token   // enables server-side APNs updates for the Dynamic Island
             )
             currentActivity = activity
             print("✅ Live Activity started!")
@@ -143,25 +152,50 @@ class LiveActivityManager {
     }
 
     // MARK: - Update
+    //
+    // Smart update: if a duel is active, automatically shows the duel score
+    // so that ANY caller (silent push, NudgeView, focus end, etc.) never
+    // accidentally overwrites the duel Dynamic Island with the plain pickup count.
 
     func update(pickupCount: Int) {
         guard let activity = currentActivity else { return }
 
+        // Duel takes priority over normal mode (Focus callers use updateForFocus directly)
+        if let duel = DuelManager.shared.activeDuel, duel.status == .active {
+            let state = LiftOffActivityAttributes.ContentState(
+                pickupCount: pickupCount,
+                currentQuote: "⚔️ Duel vs \(duel.theirName)",
+                lastPickupTime: Date(),
+                focusEndTime: nil,
+                focusPickupCount: 0,
+                duelOpponentName: duel.theirName,
+                duelMyPickups: pickupCount,       // caller always passes the current local count
+                duelTheirPickups: duel.theirPickups
+            )
+            let content = ActivityContent(
+                state: state,
+                staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))
+            )
+            Task { await activity.update(content) }
+            return
+        }
+
+        // Normal mode
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: QuoteBank.random(),
             lastPickupTime: Date(),
             focusEndTime: nil,
-            focusPickupCount: 0
+            focusPickupCount: 0,
+            duelOpponentName: nil,
+            duelMyPickups: 0,
+            duelTheirPickups: 0
         )
-
         let content = ActivityContent(
             state: state,
-            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) // midnight tonight
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))
         )
-        Task {
-            await activity.update(content)
-        }
+        Task { await activity.update(content) }
     }
 
     // MARK: - Focus Update
@@ -173,11 +207,35 @@ class LiveActivityManager {
             currentQuote: focusEndTime != nil ? "Stay present 🍃" : QuoteBank.random(),
             lastPickupTime: Date(),
             focusEndTime: focusEndTime,
-            focusPickupCount: focusPickupCount
+            focusPickupCount: focusPickupCount,
+            duelOpponentName: nil,
+            duelMyPickups: 0,
+            duelTheirPickups: 0
         )
         let content = ActivityContent(
             state: state,
             staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) // midnight tonight
+        )
+        Task { await activity.update(content) }
+    }
+
+    // MARK: - Duel Update
+
+    func updateForDuel(pickupCount: Int, opponentName: String, myPickups: Int, theirPickups: Int) {
+        guard let activity = currentActivity else { return }
+        let state = LiftOffActivityAttributes.ContentState(
+            pickupCount: pickupCount,
+            currentQuote: "⚔️ Duel vs \(opponentName)",
+            lastPickupTime: Date(),
+            focusEndTime: nil,
+            focusPickupCount: 0,
+            duelOpponentName: opponentName,
+            duelMyPickups: myPickups,
+            duelTheirPickups: theirPickups
+        )
+        let content = ActivityContent(
+            state: state,
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))
         )
         Task { await activity.update(content) }
     }
@@ -192,7 +250,10 @@ class LiveActivityManager {
             currentQuote: "See you tomorrow!",
             lastPickupTime: Date(),
             focusEndTime: nil,
-            focusPickupCount: 0
+            focusPickupCount: 0,
+            duelOpponentName: nil,
+            duelMyPickups: 0,
+            duelTheirPickups: 0
         )
 
         let content = ActivityContent(state: state, staleDate: nil)

@@ -15,10 +15,10 @@ struct LiftOffLiveLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LiftOffActivityAttributes.self) { context in
             // LOCK SCREEN view
-            // Αυτό φαίνεται στο Lock Screen σαν banner
+            // Priority: Focus > Duel > Normal
 
             if let focusEnd = context.state.focusEndTime {
-                // Focus mode lock screen
+                // — Focus mode lock screen —
                 HStack(spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
@@ -33,9 +33,7 @@ struct LiftOffLiveLiveActivity: Widget {
                             .font(.system(size: 28, weight: .medium, design: .rounded).monospacedDigit())
                             .foregroundColor(.orange)
                     }
-
                     Spacer()
-
                     VStack(alignment: .trailing, spacing: 4) {
                         Text("\(context.state.focusPickupCount)")
                             .font(.system(size: 28, weight: .medium, design: .rounded))
@@ -47,23 +45,57 @@ struct LiftOffLiveLiveActivity: Widget {
                 }
                 .padding(16)
                 .activityBackgroundTint(Color(red: 0.12, green: 0.12, blue: 0.14))
+
+            } else if let opponent = context.state.duelOpponentName {
+                // — Duel mode lock screen —
+                HStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("You")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.white.opacity(0.7))
+                        Text("\(context.state.duelMyPickups)")
+                            .font(.system(size: 32, weight: .semibold, design: .rounded))
+                            .foregroundColor(
+                                context.state.duelMyPickups < context.state.duelTheirPickups
+                                    ? Color(red: 0.4, green: 1.0, blue: 0.6)
+                                    : context.state.duelMyPickups > context.state.duelTheirPickups
+                                        ? Color(red: 1.0, green: 0.35, blue: 0.35) : .white
+                            )
+                    }
+                    Spacer()
+                    Text("⚔️")
+                        .font(.system(size: 22))
+                    Spacer()
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(opponent)
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.white.opacity(0.7))
+                            .lineLimit(1)
+                        Text("\(context.state.duelTheirPickups)")
+                            .font(.system(size: 32, weight: .semibold, design: .rounded))
+                            .foregroundColor(
+                                context.state.duelTheirPickups < context.state.duelMyPickups
+                                    ? Color(red: 0.4, green: 1.0, blue: 0.6)
+                                    : context.state.duelTheirPickups > context.state.duelMyPickups
+                                        ? Color(red: 1.0, green: 0.35, blue: 0.35) : .white
+                            )
+                    }
+                }
+                .padding(16)
+                .activityBackgroundTint(Color(red: 0.18, green: 0.14, blue: 0.30))
+
             } else {
-                // Normal lock screen
+                // — Normal lock screen —
                 HStack(spacing: 16) {
-                    // Left: pickup count
                     VStack(alignment: .leading, spacing: 4) {
                         Text("\(context.state.pickupCount)")
                             .font(.system(size: 32, weight: .medium, design: .rounded))
                             .foregroundColor(.white)
-
                         Text("pickups today")
                             .font(.system(size: 12, weight: .regular, design: .rounded))
                             .foregroundColor(.white.opacity(0.7))
                     }
-
                     Spacer()
-
-                    // Right: quote
                     Text(context.state.currentQuote)
                         .font(.system(size: 13, weight: .regular, design: .rounded))
                         .foregroundColor(.white.opacity(0.8))
@@ -77,9 +109,10 @@ struct LiftOffLiveLiveActivity: Widget {
 
         } dynamicIsland: { context in
             // DYNAMIC ISLAND views
+            // Priority: Focus > Duel > Normal
 
             DynamicIsland {
-                // Expanded — if/else πρέπει να είναι ΜΕΣΑ σε κάθε Region
+                // — Expanded leading —
                 DynamicIslandExpandedRegion(.leading) {
                     if let focusEnd = context.state.focusEndTime {
                         VStack(alignment: .leading, spacing: 2) {
@@ -89,6 +122,21 @@ struct LiftOffLiveLiveActivity: Widget {
                             Text(timerInterval: Date()...focusEnd, countsDown: true)
                                 .font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
                                 .foregroundStyle(.orange)
+                        }
+                        .padding(.leading, 4)
+                    } else if context.state.duelOpponentName != nil {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("You")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundStyle(.secondary)
+                            Text("\(context.state.duelMyPickups)")
+                                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                                .foregroundStyle(
+                                    context.state.duelMyPickups < context.state.duelTheirPickups
+                                        ? Color.green
+                                        : context.state.duelMyPickups > context.state.duelTheirPickups
+                                            ? Color.red : Color.primary
+                                )
                         }
                         .padding(.leading, 4)
                     } else {
@@ -103,6 +151,7 @@ struct LiftOffLiveLiveActivity: Widget {
                     }
                 }
 
+                // — Expanded trailing —
                 DynamicIslandExpandedRegion(.trailing) {
                     if context.state.focusEndTime != nil {
                         VStack(alignment: .trailing, spacing: 2) {
@@ -112,6 +161,22 @@ struct LiftOffLiveLiveActivity: Widget {
                             Text("during focus")
                                 .font(.system(size: 11, design: .rounded))
                                 .foregroundStyle(.secondary)
+                        }
+                        .padding(.trailing, 4)
+                    } else if let opponent = context.state.duelOpponentName {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(opponent)
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Text("\(context.state.duelTheirPickups)")
+                                .font(.system(size: 28, weight: .semibold, design: .rounded))
+                                .foregroundStyle(
+                                    context.state.duelTheirPickups < context.state.duelMyPickups
+                                        ? Color.green
+                                        : context.state.duelTheirPickups > context.state.duelMyPickups
+                                            ? Color.red : Color.primary
+                                )
                         }
                         .padding(.trailing, 4)
                     } else {
@@ -127,10 +192,17 @@ struct LiftOffLiveLiveActivity: Widget {
                     }
                 }
 
+                // — Expanded bottom —
                 DynamicIslandExpandedRegion(.bottom) {
                     if context.state.focusEndTime != nil {
                         Text("Stay present 🍃")
                             .font(.system(size: 13, weight: .regular, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .padding(.top, 4)
+                    } else if context.state.duelOpponentName != nil {
+                        Text("⚔️ Pickup Duel · fewer pickups wins")
+                            .font(.system(size: 12, weight: .regular, design: .rounded))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .padding(.top, 4)
@@ -148,6 +220,9 @@ struct LiftOffLiveLiveActivity: Widget {
                     Image(systemName: "timer")
                         .font(.system(size: 12))
                         .foregroundStyle(.orange)
+                } else if context.state.duelOpponentName != nil {
+                    Text("⚔️")
+                        .font(.system(size: 12))
                 } else {
                     Image(systemName: "hand.raised.fill")
                         .font(.system(size: 12))
@@ -160,6 +235,26 @@ struct LiftOffLiveLiveActivity: Widget {
                         .font(.system(size: 14, weight: .medium, design: .rounded).monospacedDigit())
                         .foregroundStyle(.orange)
                         .frame(maxWidth: 60)
+                } else if context.state.duelOpponentName != nil {
+                    HStack(spacing: 1) {
+                        Text("\(context.state.duelMyPickups)")
+                            .foregroundStyle(
+                                context.state.duelMyPickups < context.state.duelTheirPickups
+                                    ? Color.green
+                                    : context.state.duelMyPickups > context.state.duelTheirPickups
+                                        ? Color.red : Color.primary
+                            )
+                        Text(":")
+                            .foregroundStyle(Color.primary.opacity(0.5))
+                        Text("\(context.state.duelTheirPickups)")
+                            .foregroundStyle(
+                                context.state.duelTheirPickups < context.state.duelMyPickups
+                                    ? Color.green
+                                    : context.state.duelTheirPickups > context.state.duelMyPickups
+                                        ? Color.red : Color.primary
+                            )
+                    }
+                    .font(.system(size: 13, weight: .semibold, design: .rounded).monospacedDigit())
                 } else {
                     Text("\(context.state.pickupCount)")
                         .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -171,6 +266,9 @@ struct LiftOffLiveLiveActivity: Widget {
                     Image(systemName: "timer")
                         .font(.system(size: 12))
                         .foregroundStyle(.orange)
+                } else if context.state.duelOpponentName != nil {
+                    Text("⚔️")
+                        .font(.system(size: 12))
                 } else {
                     Text("\(context.state.pickupCount)")
                         .font(.system(size: 12, weight: .medium, design: .rounded))

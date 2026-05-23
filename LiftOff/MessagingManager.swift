@@ -41,6 +41,7 @@ struct PicksyMessage: Identifiable, Codable {
         case sentAt           = "sent_at"
         case expiresAt        = "expires_at"
         case isRead           = "is_read"
+        case payload
     }
 
     // decryptedText is transient — not stored in Supabase
@@ -51,7 +52,14 @@ struct PicksyMessage: Identifiable, Codable {
         receiverDeviceID = try c.decode(String.self, forKey: .receiverDeviceID)
         encryptedText    = try c.decode(String.self, forKey: .encryptedText)
         isRead           = try c.decode(Bool.self,   forKey: .isRead)
-        decryptedText    = nil
+
+        // Recover plaintext for outgoing messages from the payload field
+        if let payload = try? c.decode([String: String].self, forKey: .payload),
+           let plain = payload["plain"] {
+            decryptedText = plain
+        } else {
+            decryptedText = nil
+        }
 
         let fmt = ISO8601DateFormatter()
         fmt.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -180,7 +188,8 @@ final class MessagingManager {
             "encrypted_text":     encrypted,
             "sent_at":            fmt.string(from: now),
             "expires_at":         fmt.string(from: expiresAt),
-            "is_read":            false
+            "is_read":            false,
+            "payload":            ["plain": text]   // sender's plaintext for own view
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else {
@@ -218,15 +227,20 @@ final class MessagingManager {
 
     // MARK: - Fetch Messages
 
-    /// Fetches incoming messages for this device, decrypts them, and updates `conversations`.
+    /// Fetches all messages (sent + received) for this device, decrypts incoming ones,
+    /// and updates `conversations` keyed by the other party's device ID.
     func fetchMessages() async {
         let myDeviceID = FriendSyncManager.shared.deviceID
-        let escaped    = myDeviceID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? myDeviceID
 
-        // Only fetch non-expired messages (server-side filter)
-        guard let url = URL(string:
-            "\(Self.supabaseURL)/rest/v1/messages?receiver_device_id=eq.\(escaped)&expires_at=gt.NOW()&order=sent_at.desc&limit=50"
-        ) else { return }
+        // Use URLComponents to safely encode the or() filter
+        guard var comps = URLComponents(string: "\(Self.supabaseURL)/rest/v1/messages") else { return }
+        comps.queryItems = [
+            URLQueryItem(name: "or",        value: "(sender_device_id.eq.\(myDeviceID),receiver_device_id.eq.\(myDeviceID))"),
+            URLQueryItem(name: "expires_at", value: "gt.NOW()"),
+            URLQueryItem(name: "order",      value: "sent_at.desc"),
+            URLQueryItem(name: "limit",      value: "100")
+        ]
+        guard let url = comps.url else { return }
 
         var request = makeRequest(url: url, method: "GET")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -239,39 +253,33 @@ final class MessagingManager {
             return
         }
 
-        // Decrypt each message
+        // Decrypt INCOMING messages (sent by someone else to me)
+        // Outgoing messages recover their plaintext from the `payload` field (set at send time)
         let crypto = MessageCryptoManager.shared
-        for i in messages.indices {
-            messages[i].decryptedText = try? crypto.decrypt(encryptedBase64: messages[i].encryptedText)
+        for i in messages.indices where messages[i].senderDeviceID != myDeviceID {
+            if messages[i].decryptedText == nil {
+                messages[i].decryptedText = try? crypto.decrypt(encryptedBase64: messages[i].encryptedText)
+            }
         }
 
-        // Merge with outgoing messages already in conversations, grouped by sender
+        // Group by the OTHER party's device ID
         await MainActor.run {
             var newConversations: [String: [PicksyMessage]] = [:]
 
-            // Group incoming by sender
             for msg in messages {
-                let key = msg.senderDeviceID
-                var list = newConversations[key] ?? []
+                // The conversation key is whoever is NOT me
+                let friendID = msg.senderDeviceID == myDeviceID
+                    ? msg.receiverDeviceID
+                    : msg.senderDeviceID
+                var list = newConversations[friendID] ?? []
                 list.append(msg)
-                newConversations[key] = list
-            }
-
-            // Preserve outgoing messages from existing conversations
-            for (friendID, existing) in conversations {
-                let outgoing = existing.filter { $0.senderDeviceID == myDeviceID }
-                if !outgoing.isEmpty {
-                    var merged = newConversations[friendID] ?? []
-                    merged.append(contentsOf: outgoing)
-                    merged.sort { $0.sentAt > $1.sentAt }
-                    newConversations[friendID] = merged
-                }
+                newConversations[friendID] = list
             }
 
             conversations = newConversations
         }
 
-        print("[Messaging] 📥 Fetched \(messages.count) messages")
+        print("[Messaging] 📥 Fetched \(messages.count) messages (sent + received)")
     }
 
     // MARK: - Mark Read

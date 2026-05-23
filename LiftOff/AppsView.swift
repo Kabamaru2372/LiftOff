@@ -29,6 +29,7 @@ struct AppsView: View {
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
     @State private var midnightTimer: Timer? = nil
     @State private var currentDate: Date = Date()
+    @State private var hasAppeared: Bool = false
 
     /// v1.6 FIX: Filter για σήμερα ΚΑΙ μόνο για selected apps/categories.
     /// Παλιά έδειχνε όλες τις apps που είχαν activity, τώρα μόνο τις tracked.
@@ -106,10 +107,28 @@ struct AppsView: View {
         }
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
         .onAppear {
+            currentDate = Date()   // always reset to today — fixes stale date after midnight
             refreshState()
             startMidnightTimer()
+            // DeviceActivityReport runs in a separate process and can take 2–5 s to warm up.
+            // Strategy:
+            //   • First visit  → immediate UUID change (cold start) + retry at 4 s + 9 s.
+            //   • Later visits → single retry at 1.5 s (extension is already warm, no need
+            //                    to blast it; avoid interrupting a load that's in progress).
+            // The 0.6 s retry we used before was CANCELLING the extension's first load — removed.
+            if !hasAppeared {
+                hasAppeared = true
+                refreshTrigger.refresh()
+                refreshTrigger.refreshAfter(seconds: 4.0)
+                refreshTrigger.refreshAfter(seconds: 9.0)
+            } else {
+                refreshTrigger.refreshAfter(seconds: 1.5)
+            }
         }
         .onDisappear {
+            // Cancel pending retries so a stale timer doesn't fire after the user
+            // has already switched tabs and the extension is mid-load on the new context.
+            refreshTrigger.cancelPendingRefreshes()
             midnightTimer?.invalidate()
             midnightTimer = nil
         }

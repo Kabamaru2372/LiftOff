@@ -70,11 +70,17 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     static let zoneInsightRequestedNotification = Notification.Name("picksy.zoneInsightRequested")
     static let usageInsightRequestedNotification = Notification.Name("picksy.usageInsightRequested")
 
+    /// Set to true when a notification tap is about to trigger tab navigation.
+    /// The foreground observer checks this so it doesn't override the notification's destination.
+    var didNavigateViaNotification = false
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
+        // Mark that we're navigating via notification — foreground observer will skip its tab reset
+        didNavigateViaNotification = true
         let identifier = response.notification.request.identifier
         let userInfo = response.notification.request.content.userInfo
         let categoryId = response.notification.request.content.categoryIdentifier
@@ -260,8 +266,22 @@ struct LiftOffApp: App {
 
         Task { await weatherManager.fetchWeather() }
 
-        // Poll duel state on launch
-        Task { await DuelManager.shared.poll() }
+        // Poll duel state on launch, sync pickup count, then refresh DI immediately
+        Task {
+            await DuelManager.shared.poll()
+            await DuelManager.shared.updateMyPickups(store.todayPickups)
+            // If we discovered an active duel, update the Live Activity now
+            // (it was started above before poll completed, so it may be in normal mode)
+            if let duel = DuelManager.shared.activeDuel, duel.status == .active,
+               !focusSessionManager.isActive {
+                liveActivity.updateForDuel(
+                    pickupCount: store.todayPickups,
+                    opponentName: duel.theirName,
+                    myPickups: store.todayPickups,
+                    theirPickups: duel.theirPickups
+                )
+            }
+        }
 
         // Upload our public key so friends can send us encrypted messages
         Task { await MessagingManager.shared.uploadPublicKey() }
@@ -277,6 +297,14 @@ struct LiftOffApp: App {
         }
 
         ScreenUnlockDetector.shared.onPickupDetected = {
+            // Request background execution time so that Activity.update() (which is async)
+            // has time to reach the Dynamic Island before iOS suspends the app.
+            // Without this, the DI only updates when the user next opens the app.
+            var bgTaskID = UIBackgroundTaskIdentifier.invalid
+            bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "picksy.pickup") {
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+            }
+
             store.recordPickup()
             focusSessionManager.onPickup(currentPickups: store.todayPickups)
 
@@ -292,6 +320,18 @@ struct LiftOffApp: App {
                 )
                 // Update duel pickup count on every pickup
                 await DuelManager.shared.updateMyPickups(store.todayPickups)
+
+                // Push Live Activity update via APNs — updates the Dynamic Island
+                // directly from the server, so it works even if the app is suspended.
+                // This is how live-score apps keep their DI current without the app open.
+                let activeDuel = DuelManager.shared.activeDuel
+                let isDuelActive = activeDuel?.status == .active
+                await PushNotificationManager.shared.pushLiveActivityUpdate(
+                    pickupCount: store.todayPickups,
+                    duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
+                    duelMyPickups:    isDuelActive ? (activeDuel?.myPickups ?? 0) : 0,
+                    duelTheirPickups: isDuelActive ? (activeDuel?.theirPickups ?? 0) : 0
+                )
             }
             let g2 = UserDefaults.standard.integer(forKey: "dailyGoal")
             let goal2 = g2 > 0 ? g2 : 50
@@ -300,13 +340,29 @@ struct LiftOffApp: App {
             if !liveActivity.isRunning {
                 liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal2)
             } else if focusSessionManager.isActive {
+                // Focus takes priority over duel in the Dynamic Island
                 liveActivity.updateForFocus(
                     pickupCount: store.todayPickups,
                     focusEndTime: focusSessionManager.endTime,
                     focusPickupCount: focusSessionManager.pickupsDuringSession
                 )
+            } else if let duel = DuelManager.shared.activeDuel, duel.status == .active {
+                // Active duel — show score in Dynamic Island
+                liveActivity.updateForDuel(
+                    pickupCount: store.todayPickups,
+                    opponentName: duel.theirName,
+                    myPickups: duel.myPickups,
+                    theirPickups: duel.theirPickups
+                )
             } else {
                 liveActivity.update(pickupCount: store.todayPickups)
+            }
+
+            // Release background time after 3 s — enough for Activity.update() to propagate
+            // to the Dynamic Island. The expiry handler above covers the edge case where
+            // iOS needs to reclaim resources earlier.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                UIApplication.shared.endBackgroundTask(bgTaskID)
             }
         }
         ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in
@@ -383,13 +439,26 @@ struct LiftOffApp: App {
         ) { _ in
             print("[LiftOffApp] 🔆 App came to foreground")
 
+            // Navigate on foreground — notification taps win, then duel if active, else home
+            DispatchQueue.main.async {
+                if NotificationDelegate.shared.didNavigateViaNotification {
+                    NotificationDelegate.shared.didNavigateViaNotification = false
+                } else if let duel = DuelManager.shared.activeDuel,
+                          duel.status == .active || duel.status == .completed {
+                    // Active duel → user may have tapped DI score
+                    // Completed duel → user tapped "duel ended" notification → show result
+                    tabSelection.selectedTab = 3
+                } else {
+                    tabSelection.selectedTab = 0
+                }
+            }
+
             store.syncWithDeviceActivity()
             let g = UserDefaults.standard.integer(forKey: "dailyGoal")
             let goal = g > 0 ? g : 50
 
             if liveActivity.isRunning {
-                // Αν το focus session ήταν ενεργό αλλά έληξε ενώ η app ήταν σε background,
-                // το endTime είναι στο παρελθόν — αντιμετωπίζουμε ως normal mode
+                // Focus > Duel > Normal priority for Dynamic Island
                 if focusSessionManager.isActive,
                    let endTime = focusSessionManager.endTime,
                    endTime > Date() {
@@ -397,6 +466,13 @@ struct LiftOffApp: App {
                         pickupCount: store.todayPickups,
                         focusEndTime: endTime,
                         focusPickupCount: focusSessionManager.pickupsDuringSession
+                    )
+                } else if let duel = DuelManager.shared.activeDuel, duel.status == .active {
+                    liveActivity.updateForDuel(
+                        pickupCount: store.todayPickups,
+                        opponentName: duel.theirName,
+                        myPickups: duel.myPickups,
+                        theirPickups: duel.theirPickups
                     )
                 } else {
                     liveActivity.update(pickupCount: store.todayPickups)
@@ -423,8 +499,17 @@ struct LiftOffApp: App {
                 // Ensure our public key is always up-to-date in Supabase
                 // so friends can send us encrypted messages
                 await MessagingManager.shared.uploadPublicKey()
-                // Poll duel state on foreground
+                // Poll duel state on foreground, then refresh Dynamic Island with latest scores
                 await DuelManager.shared.poll()
+                if let duel = DuelManager.shared.activeDuel, duel.status == .active,
+                   !focusSessionManager.isActive {
+                    liveActivity.updateForDuel(
+                        pickupCount: store.todayPickups,
+                        opponentName: duel.theirName,
+                        myPickups: duel.myPickups,
+                        theirPickups: duel.theirPickups
+                    )
+                }
             }
 
             // Friend sync — upload own status & check if any pair is also overusing

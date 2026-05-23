@@ -91,6 +91,15 @@ class DuelManager {
     var pendingInvite: DuelRecord?    = nil
     /// A duel I sent that is still waiting for acceptance.
     var sentPendingDuel: DuelRecord?  = nil
+    /// Completed duels from the last 7 days, newest first.
+    var duelHistory: [DuelRecord]     = []
+
+    // MARK: Rate limiting
+    /// Minimum seconds between actual network polls (prevents timer pile-ups)
+    private let pollInterval: TimeInterval = 12
+    private var lastPollDate: Date = .distantPast
+    /// Last pickup count successfully pushed to Supabase (avoids redundant PATCHes)
+    private var lastSyncedPickups: Int = -1
 
     // MARK: Private
     private static let supabaseURL     = "https://igbtosqmtdrxzmoblvpp.supabase.co"
@@ -233,6 +242,9 @@ class DuelManager {
     /// Updates my pickup count in the active duel. Called on every pickup event.
     func updateMyPickups(_ pickups: Int) async {
         guard let duel = activeDuel, duel.status == .active else { return }
+        // Skip if nothing changed — avoids hammering Supabase on every timer tick
+        guard pickups != lastSyncedPickups else { return }
+        lastSyncedPickups = pickups
 
         let field = duel.amChallenger ? "challenger_pickups" : "opponent_pickups"
         let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
@@ -249,24 +261,35 @@ class DuelManager {
     }
 
     /// Polls Supabase for duel state. Call on app foreground and periodically.
+    /// Rate-limited: at most one real network request per `pollInterval` seconds,
+    /// enforced atomically on MainActor so concurrent Tasks can't race through.
     func poll() async {
+        // Atomic check+set on MainActor prevents concurrent Tasks from all passing
+        let proceed = await MainActor.run { () -> Bool in
+            let now = Date()
+            guard now.timeIntervalSince(self.lastPollDate) >= self.pollInterval else { return false }
+            self.lastPollDate = now   // claim the slot before any other Task can
+            return true
+        }
+        guard proceed else { return }
+
         let myID = myDeviceID
 
         // Fetch non-declined duels involving me, created in the last 2 days
         // Use URLComponents for safe encoding of the or() filter
         guard var comps = URLComponents(string: "\(Self.supabaseURL)/rest/v1/duels") else { return }
 
-        // 48h ago in ISO8601
+        // 7 days ago in ISO8601 (covers history shown in Stats)
         let cutoff = ISO8601DateFormatter()
         cutoff.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let since = cutoff.string(from: Date().addingTimeInterval(-48 * 3600))
+        let since = cutoff.string(from: Date().addingTimeInterval(-7 * 24 * 3600))
 
         comps.queryItems = [
             URLQueryItem(name: "or",         value: "(challenger_id.eq.\(myID),opponent_id.eq.\(myID))"),
             URLQueryItem(name: "status",     value: "neq.declined"),
             URLQueryItem(name: "created_at", value: "gte.\(since)"),
             URLQueryItem(name: "order",      value: "created_at.desc"),
-            URLQueryItem(name: "limit",      value: "10")
+            URLQueryItem(name: "limit",      value: "20")
         ]
 
         guard let pollURL = comps.url else { return }
@@ -302,6 +325,8 @@ class DuelManager {
             return false
         }
 
+        let previouslyHadActiveDuel = await MainActor.run { activeDuel?.status == .active }
+
         await MainActor.run {
             activeDuel = myActiveDuel
 
@@ -314,7 +339,27 @@ class DuelManager {
             sentPendingDuel = freshDuels.first {
                 $0.status == .pending && $0.challengerId == myID
             }
+
+            // History: all completed duels, newest first
+            duelHistory = freshDuels
+                .filter { $0.status == .completed }
+                .sorted { $0.createdAt > $1.createdAt }
         }
+
+        // If we just discovered an active duel for the first time, sync our pickup count.
+        // The lastSyncedPickups guard in updateMyPickups prevents redundant PATCHes.
+        if myActiveDuel?.status == .active, !previouslyHadActiveDuel {
+            let pickups = UserDefaults.standard.integer(forKey: "todayPickups")
+            await updateMyPickups(pickups)
+        }
+    }
+
+    /// Bypasses rate limiting and forces an immediate poll.
+    /// Use only from background wake-up handlers (e.g. silent push) where
+    /// we need fresh duel state before updating the Live Activity.
+    func forcePoll() async {
+        await MainActor.run { self.lastPollDate = .distantPast }
+        await poll()
     }
 
     // MARK: - Private

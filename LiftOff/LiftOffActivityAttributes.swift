@@ -26,6 +26,10 @@ struct LiftOffActivityAttributes: ActivityAttributes {
         var lastPickupTime: Date
         var focusEndTime: Date?       // nil = not in focus mode
         var focusPickupCount: Int     // pickups during this focus session
+        // Duel mode — nil opponentName means no active duel
+        var duelOpponentName: String? // e.g. "Alex"
+        var duelMyPickups:    Int     // my pickups in the duel
+        var duelTheirPickups: Int     // opponent's pickups in the duel
     }
     
     // Στατικά δεδομένα (δεν αλλάζουν κατά τη διάρκεια)

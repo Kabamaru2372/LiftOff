@@ -60,8 +60,8 @@ struct ContentView: View {
                     .tabItem { Label(t("Apps", "Εφαρμογές", "Apps"), systemImage: "apps.iphone") }
                     .tag(2)
 
-                AchievementsView(onUnlockTap: { showPaywall = true }).timeGradientBackground()
-                    .tabItem { Label(t("Trophies", "Τρόπαια", "Trophäen"), systemImage: "trophy") }
+                FriendsView()
+                    .tabItem { Label(t("Friends", "Φίλοι", "Freunde"), systemImage: "person.2.fill") }
                     .tag(3)
 
                 SettingsView().timeGradientBackground()

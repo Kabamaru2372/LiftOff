@@ -47,10 +47,24 @@ class AppsViewRefreshTrigger {
         print("[AppsViewRefresh] 🔄 Refresh triggered (#\(refreshCount))")
     }
 
-    /// Delayed refresh για cases που χρειάζονται warmup time
+    /// Pending work items — kept so callers can cancel before they fire.
+    private var pendingWork: [DispatchWorkItem] = []
+
+    /// Delayed refresh για cases που χρειάζονται warmup time.
     func refreshAfter(seconds: Double) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-            self.refresh()
+        let work = DispatchWorkItem { [weak self] in
+            self?.refresh()
         }
+        pendingWork.append(work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    /// Cancel all pending delayed refreshes.
+    /// Call from onDisappear so stale timers don't fire after the view is gone
+    /// and accidentally restart a load the extension is already completing.
+    func cancelPendingRefreshes() {
+        pendingWork.forEach { $0.cancel() }
+        pendingWork.removeAll()
+        print("[AppsViewRefresh] 🚫 Cancelled pending refreshes")
     }
 }

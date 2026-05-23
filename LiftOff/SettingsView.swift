@@ -36,13 +36,7 @@ struct SettingsView: View {
     @State private var showAppPicker: Bool = false
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
     @State private var isAuthorized: Bool = false
-    @State private var showRemoveAllConfirm: Bool = false
-    @State private var renamingPair: RegisteredPair? = nil
-    @State private var renameText: String = ""
-    @State private var messagingPair: RegisteredPair? = nil
-    @State private var duelPair: RegisteredPair? = nil
-
-    private var friendSync: FriendSyncManager { FriendSyncManager.shared }
+    @State private var showAchievements: Bool = false
 
     // v1.7: Threshold preset
     @State private var selectedPreset: ThresholdPreset = ThresholdPreset.current
@@ -154,8 +148,8 @@ struct SettingsView: View {
 
                 Divider()
 
-                // MARK: - Friends
-                friendsSection
+                // MARK: - Trophies (formerly its own tab)
+                achievementsRow
 
                 Divider()
 
@@ -308,22 +302,15 @@ struct SettingsView: View {
         .sheet(isPresented: $showAboutScience) {
             AboutScienceView()
         }
-        .sheet(item: $messagingPair) { pair in
-            MessageView(pair: pair)
-        }
-        .sheet(item: $duelPair) { pair in
-            DuelView(pair: pair)
-                .environment(store)
+        .sheet(isPresented: $showAchievements) {
+            AchievementsView(onUnlockTap: { showPaywall = true })
+                .environment(proManager)
         }
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
         .onAppear {
             isAuthorized = FamilyControlsManager.shared.isAuthorized
             pickerSelection = AppSelectionStore.shared.selection
             selectedPreset = ThresholdPreset.current
-            Task {
-                await MessagingManager.shared.uploadPublicKey()
-                await MessagingManager.shared.fetchMessages()
-            }
         }
         .onChange(of: pickerSelection) { _, newValue in
             AppSelectionStore.shared.selection = newValue
@@ -331,279 +318,31 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - Friends Section
+    // MARK: - Achievements Row
 
-    private var friendsSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-
-            // Header
-            HStack {
-                Image(systemName: "person.2.fill")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                Text(t("Connected Friends", "Συνδεδεμένοι Φίλοι", "Verbundene Freunde"))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .textCase(.uppercase)
-                    .tracking(0.5)
-
-                // Free-tier friend count badge
-                if !proManager.isPro {
-                    HStack(spacing: 3) {
-                        Image(systemName: "lock.fill").font(.system(size: 9))
-                        Text("\(min(friendSync.registeredPairs.count, 1))/1")
-                            .font(.system(size: 11, weight: .medium, design: .rounded))
-                    }
-                    .foregroundColor(.orange)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.orange.opacity(0.12)))
+    private var achievementsRow: some View {
+        Button(action: { showAchievements = true }) {
+            HStack(spacing: 12) {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 17))
+                    .foregroundColor(.yellow)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Trophies & Achievements", "Τρόπαια & Επιτεύγματα", "Trophäen & Erfolge"))
+                        .font(.system(size: 15, design: .rounded))
+                    Text(t("See your milestones", "Δες τα ορόσημά σου", "Sieh deine Meilensteine"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
                 }
-
                 Spacer()
-                if !friendSync.registeredPairs.isEmpty {
-                    Button(action: { showRemoveAllConfirm = true }) {
-                        Text(t("Remove all", "Αφαίρεση όλων", "Alle entfernen"))
-                            .font(.system(size: 12, design: .rounded))
-                            .foregroundColor(.red.opacity(0.8))
-                    }
-                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.5))
             }
             .padding(.vertical, 12)
-
-            if friendSync.registeredPairs.isEmpty {
-                // Empty state
-                HStack(spacing: 10) {
-                    Image(systemName: "person.badge.plus")
-                        .font(.system(size: 22))
-                        .foregroundColor(.secondary.opacity(0.5))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(t("No connected friends yet", "Κανένας φίλος συνδεδεμένος ακόμα", "Noch keine Freunde verbunden"))
-                            .font(.system(size: 14, weight: .medium, design: .rounded))
-                            .foregroundColor(.secondary)
-                        Text(t(
-                            "Send a challenge from the Nudge tab to connect.",
-                            "Στείλε πρόκληση από την καρτέλα Ώθηση για να συνδεθείς.",
-                            "Sende eine Herausforderung vom Nudge-Tab, um dich zu verbinden."
-                        ))
-                        .font(.system(size: 12, design: .rounded))
-                        .foregroundColor(.secondary.opacity(0.7))
-                    }
-                }
-                .padding(.vertical, 14)
-                .padding(.horizontal, 4)
-            } else {
-                // Friend list — sort by registration date for stable numbering
-                let sortedPairs = friendSync.registeredPairs.sorted { $0.registeredAt < $1.registeredAt }
-
-                ScrollView(.vertical, showsIndicators: false) {
-                  VStack(spacing: 0) {
-                    ForEach(Array(sortedPairs.enumerated()), id: \.element.id) { index, pair in
-                        let isUnknown = pair.name == "A friend" || pair.name.trimmingCharacters(in: .whitespaces).isEmpty
-                        // Numbered fallback so user can tell unnamed friends apart
-                        let friendNumber = index + 1
-                        let fallbackName = t("Friend #\(friendNumber)", "Φίλος #\(friendNumber)", "Freund #\(friendNumber)")
-                        let displayName  = isUnknown ? fallbackName : pair.name
-
-                        HStack(spacing: 12) {
-                            // Avatar
-                            ZStack {
-                                Circle()
-                                    .fill(Color.blue.opacity(isUnknown ? 0.07 : 0.12))
-                                    .frame(width: 36, height: 36)
-                                Text(isUnknown ? "#\(friendNumber)" : String(pair.name.prefix(1)).uppercased())
-                                    .font(.system(size: isUnknown ? 12 : 15, weight: .semibold, design: .rounded))
-                                    .foregroundColor(isUnknown ? .secondary : .blue)
-                            }
-
-                            // Name + date
-                            VStack(alignment: .leading, spacing: 3) {
-                                HStack(spacing: 6) {
-                                    Text(displayName)
-                                        .font(.system(size: 15, weight: .medium, design: .rounded))
-                                        .foregroundColor(isUnknown ? .secondary : .primary)
-
-                                    // Pencil — blue & prominent if name is missing
-                                    Button(action: {
-                                        renameText = isUnknown ? "" : pair.name
-                                        renamingPair = pair
-                                    }) {
-                                        Image(systemName: "pencil.circle.fill")
-                                            .font(.system(size: 16))
-                                            .foregroundColor(isUnknown ? .blue : .secondary.opacity(0.35))
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    // Message button (Pro only)
-                                    Button(action: {
-                                        if proManager.isPro {
-                                            messagingPair = pair
-                                        } else {
-                                            showPaywall = true
-                                        }
-                                    }) {
-                                        ZStack(alignment: .topTrailing) {
-                                            if proManager.isPro {
-                                                Image(systemName: "bubble.left.fill")
-                                                    .font(.system(size: 16))
-                                                    .foregroundColor(.blue.opacity(0.7))
-
-                                                let unread = MessagingManager.shared.unreadCountForFriend(pair.deviceID)
-                                                if unread > 0 {
-                                                    Circle()
-                                                        .fill(Color.red)
-                                                        .frame(width: 8, height: 8)
-                                                        .offset(x: 2, y: -2)
-                                                }
-                                            } else {
-                                                Image(systemName: "lock.fill")
-                                                    .font(.system(size: 14))
-                                                    .foregroundColor(.secondary.opacity(0.45))
-                                            }
-                                        }
-                                    }
-                                    .buttonStyle(.plain)
-
-                                    // Duel button (Pro only)
-                                    Button(action: {
-                                        if proManager.isPro {
-                                            duelPair = pair
-                                        } else {
-                                            showPaywall = true
-                                        }
-                                    }) {
-                                        Text(proManager.isPro ? "⚔️" : "🔒")
-                                            .font(.system(size: proManager.isPro ? 16 : 13))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                                // When name is unknown, show full timestamp so the user
-                                // can identify who challenged them and when.
-                                if isUnknown {
-                                    Text(exactDateTime(pair.registeredAt))
-                                        .font(.system(size: 11, design: .rounded))
-                                        .foregroundColor(.secondary)
-                                } else {
-                                    Text(t("Connected", "Συνδέθηκε", "Verbunden") + " · " + relativeDate(pair.registeredAt))
-                                        .font(.system(size: 12, design: .rounded))
-                                        .foregroundColor(.secondary)
-                                }
-                            }
-
-                            Spacer()
-
-                            // Remove button
-                            Button(action: {
-                                withAnimation { friendSync.removePair(deviceID: pair.deviceID) }
-                            }) {
-                                Image(systemName: "xmark.circle.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundColor(.secondary.opacity(0.4))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 12)
-
-                        if pair.id != sortedPairs.last?.id {
-                            Divider().padding(.leading, 60)
-                        }
-                    }
-                  }
-                }
-                .frame(maxHeight: CGFloat(min(sortedPairs.count, 3)) * 57)
-                .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
-                .padding(.bottom, 4)
-
-                // Free tier hint
-                if !proManager.isPro {
-                    Button(action: { showPaywall = true }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "lock.fill").font(.system(size: 10))
-                            Text(t(
-                                "Free plan: 1 friend & no messaging · Upgrade for unlimited",
-                                "Δωρεάν: 1 φίλος & χωρίς μηνύματα · Αναβάθμιση για απεριόριστα",
-                                "Kostenlos: 1 Freund, kein Messaging · Upgrade für unbegrenzt"
-                            ))
-                            .font(.system(size: 11, design: .rounded))
-                        }
-                        .foregroundColor(.blue.opacity(0.8))
-                    }
-                    .padding(.top, 4)
-                }
-            }
         }
-        .confirmationDialog(
-            t("Remove all friends?", "Αφαίρεση όλων των φίλων;", "Alle Freunde entfernen?"),
-            isPresented: $showRemoveAllConfirm,
-            titleVisibility: .visible
-        ) {
-            Button(t("Remove all", "Αφαίρεση όλων", "Alle entfernen"), role: .destructive) {
-                withAnimation { friendSync.removeAllPairs() }
-            }
-            Button(t("Cancel", "Ακύρωση", "Abbrechen"), role: .cancel) {}
-        } message: {
-            Text(t(
-                "You'll stop receiving nudges when friends are overusing their phones.",
-                "Θα σταματήσεις να λαμβάνεις ειδοποιήσεις όταν οι φίλοι σου κάνουν υπερβολική χρήση.",
-                "Du erhältst keine Nudges mehr, wenn Freunde ihr Handy zu viel nutzen."
-            ))
-        }
-        // Rename alert
-        .alert(
-            t("Rename friend", "Μετονομασία φίλου", "Freund umbenennen"),
-            isPresented: Binding(
-                get: { renamingPair != nil },
-                set: { if !$0 { renamingPair = nil } }
-            )
-        ) {
-            TextField(t("Name", "Όνομα", "Name"), text: $renameText)
-                .autocorrectionDisabled()
-            Button(t("Save", "Αποθήκευση", "Speichern")) {
-                guard let pair = renamingPair else { return }
-                let newName = renameText.trimmingCharacters(in: .whitespaces)
-                guard !newName.isEmpty else { renamingPair = nil; return }
-                // Update locally
-                var pairs = friendSync.registeredPairs
-                if let idx = pairs.firstIndex(where: { $0.deviceID == pair.deviceID }) {
-                    pairs[idx] = RegisteredPair(
-                        deviceID: pair.deviceID,
-                        name: newName,
-                        registeredAt: pair.registeredAt
-                    )
-                    friendSync.registeredPairs = pairs
-                }
-                renamingPair = nil
-            }
-            Button(t("Cancel", "Ακύρωση", "Abbrechen"), role: .cancel) {
-                renamingPair = nil
-            }
-        } message: {
-            Text(t(
-                "This name is only visible to you.",
-                "Αυτό το όνομα είναι ορατό μόνο σε εσένα.",
-                "Dieser Name ist nur für dich sichtbar."
-            ))
-        }
+        .buttonStyle(.plain)
     }
-
-    private func relativeDate(_ date: Date) -> String {
-        let days = Calendar.current.dateComponents([.day], from: date, to: Date()).day ?? 0
-        if days == 0 { return t("today", "σήμερα", "heute") }
-        if days == 1 { return t("yesterday", "χτες", "gestern") }
-        if days < 7  { return t("\(days) days ago", "πριν \(days) μέρες", "vor \(days) Tagen") }
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none
-        return f.string(from: date)
-    }
-
-    /// Full date + time — shown for unnamed friends so the user can identify who's who.
-    private func exactDateTime(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return t("Connected", "Συνδέθηκε", "Verbunden") + " · " + f.string(from: date)
-    }
-
     // MARK: - Threshold Section (v1.7)
 
     private var thresholdSection: some View {

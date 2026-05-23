@@ -80,21 +80,70 @@ class PushNotificationManager {
         print("[PushManager] 🔔 Silent push received")
 
         store?.syncWithDeviceActivity()
+        ScreenUnlockDetector.shared.startMonitoring()
 
-        if let store = store, let liveActivity = liveActivity {
-            let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
-            let dailyGoal = goal > 0 ? goal : 50
-            if liveActivity.isRunning {
-                liveActivity.update(pickupCount: store.todayPickups)
-                print("[PushManager] ✅ Live Activity updated. Pickups: \(store.todayPickups)")
-            } else {
-                liveActivity.start(pickupCount: store.todayPickups, dailyGoal: dailyGoal)
-                print("[PushManager] 🔄 Live Activity restarted via silent push. Pickups: \(store.todayPickups)")
+        // Poll duel state FIRST so activeDuel is populated before updating the Live Activity.
+        // Without this, a background wake (e.g. during a phone call) would find activeDuel=nil
+        // and overwrite the duel Dynamic Island with the plain pickup count.
+        Task {
+            await DuelManager.shared.forcePoll()
+
+            if let store = store, let liveActivity = liveActivity {
+                let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
+                let dailyGoal = goal > 0 ? goal : 50
+                if liveActivity.isRunning {
+                    liveActivity.update(pickupCount: store.todayPickups)
+                    print("[PushManager] ✅ Live Activity updated. Pickups: \(store.todayPickups)")
+                } else {
+                    liveActivity.start(pickupCount: store.todayPickups, dailyGoal: dailyGoal)
+                    print("[PushManager] 🔄 Live Activity restarted via silent push. Pickups: \(store.todayPickups)")
+                }
             }
+            completionHandler(.newData)
+        }
+    }
+
+    // MARK: - Live Activity Remote Update
+
+    /// Calls the Supabase `update-live-activity` edge function, which sends an APNs
+    /// Live Activity push directly to the Dynamic Island — works even when the app
+    /// is fully suspended (same mechanism as live-score apps).
+    func pushLiveActivityUpdate(
+        pickupCount: Int,
+        duelOpponentName: String? = nil,
+        duelMyPickups: Int = 0,
+        duelTheirPickups: Int = 0
+    ) async {
+        guard let url = URL(string: "\(Self.supabaseURL)/functions/v1/update-live-activity") else { return }
+
+        var body: [String: Any] = [
+            "device_id":    FriendSyncManager.shared.deviceID,
+            "pickup_count": pickupCount
+        ]
+        if let name = duelOpponentName {
+            body["duel_opponent_name"]  = name
+            body["duel_my_pickups"]     = duelMyPickups
+            body["duel_their_pickups"]  = duelTheirPickups
         }
 
-        ScreenUnlockDetector.shared.startMonitoring()
-        completionHandler(.newData)
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(Self.supabaseAnonKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = jsonData
+        request.timeoutInterval = 8
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                print("[PushManager] 🎯 LiveActivity push → \(http.statusCode)")
+            }
+        } catch {
+            print("[PushManager] ⚠️ LiveActivity push failed: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Supabase Registration

@@ -29,8 +29,12 @@ enum TimeOfDay {
     /// Αν δεν υπάρχουν (nil), χρησιμοποιεί fallback με ώρα ρολογιού.
     static func from(date: Date = Date(), sunrise: Date? = nil, sunset: Date? = nil) -> TimeOfDay {
 
-        // Solar path — χρησιμοποιεί πραγματικές ώρες ηλιανατολής/δύσης
-        if let sr = sunrise, let ss = sunset, sr < ss {
+        // Solar path — χρησιμοποιεί πραγματικές ώρες ηλιανατολής/δύσης.
+        // Guard: sunrise must be from the same calendar day as `date` — stale weather data
+        // from a previous day would have yesterday's sunset already passed, causing false .night.
+        let cal = Calendar.current
+        if let sr = sunrise, let ss = sunset, sr < ss,
+           cal.isDate(sr, inSameDayAs: date) || cal.isDate(ss, inSameDayAs: date) {
             let now = date.timeIntervalSinceReferenceDate
             let srT  = sr.timeIntervalSinceReferenceDate
             let ssT  = ss.timeIntervalSinceReferenceDate

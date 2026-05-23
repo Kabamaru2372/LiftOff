@@ -124,6 +124,9 @@ class WeatherManager: NSObject {
         }
 
         await MainActor.run {
+            // Cache is stale — clear old location so we request fresh coordinates.
+            // Without this, a user who moved cities would still get weather for the old location.
+            currentLocation = nil
             isLoading = true
             isFetching = true
             errorMessage = nil

@@ -20,9 +20,11 @@ struct DuelView: View {
 
     private var duelManager: DuelManager { DuelManager.shared }
 
-    // Countdown timer refresh
+    // Countdown timer — fires every second for live countdown
     @State private var tick: Date = Date()
-    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    let timer     = Timer.publish(every: 1,  on: .main, in: .common).autoconnect()
+    // Score poll — fires every 15s to refresh opponent's pickup count
+    let pollTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -81,6 +83,9 @@ struct DuelView: View {
                 }
             }
             .onReceive(timer) { _ in tick = Date() }
+            .onReceive(pollTimer) { _ in
+                Task { await duelManager.poll() }
+            }
             .task { await duelManager.poll() }
         }
     }
@@ -230,12 +235,21 @@ struct DuelView: View {
     // MARK: - Active Duel
 
     private func activeDuelCard(_ duel: DuelRecord) -> some View {
-        VStack(spacing: 24) {
+        // Use local store.todayPickups for "You" — always accurate, no sync delay.
+        let myCount = store.todayPickups
+
+        // Compute remaining seconds using `tick` so the view re-renders every second
+        let secsRemaining: TimeInterval = {
+            guard let end = duel.endsAt else { return 0 }
+            return max(0, end.timeIntervalSince(tick))
+        }()
+
+        return VStack(spacing: 24) {
 
             // Countdown
-            if duel.secondsRemaining > 0 {
+            if secsRemaining > 0 {
                 VStack(spacing: 4) {
-                    Text(formattedCountdown(duel.secondsRemaining))
+                    Text(formattedCountdown(secsRemaining))
                         .font(.system(size: 36, weight: .medium, design: .monospaced))
                         .foregroundColor(.blue)
                     Text(t("remaining today", "απομένουν σήμερα", "noch heute"))
@@ -246,11 +260,16 @@ struct DuelView: View {
 
             // Scoreboard
             HStack(spacing: 0) {
-                // Me
+                // Me — local count is always correct
                 scoreColumn(
                     label: t("You", "Εσύ", "Du"),
-                    pickups: duel.myPickups,
-                    isLeading: duel.myPickups <= duel.theirPickups,
+                    pickups: myCount,
+                    numberColor: myCount < duel.theirPickups
+                        ? Color(red: 0.2, green: 0.8, blue: 0.4)
+                        : myCount > duel.theirPickups
+                            ? Color(red: 1.0, green: 0.3, blue: 0.3)
+                            : .primary,
+                    isLeading: myCount < duel.theirPickups,
                     highlight: true
                 )
 
@@ -266,7 +285,12 @@ struct DuelView: View {
                 scoreColumn(
                     label: firstName,
                     pickups: duel.theirPickups,
-                    isLeading: duel.theirPickups < duel.myPickups,
+                    numberColor: duel.theirPickups < myCount
+                        ? Color(red: 0.2, green: 0.8, blue: 0.4)
+                        : duel.theirPickups > myCount
+                            ? Color(red: 1.0, green: 0.3, blue: 0.3)
+                            : .primary,
+                    isLeading: duel.theirPickups < myCount,
                     highlight: false
                 )
             }
@@ -319,9 +343,29 @@ struct DuelView: View {
 
             // Final score
             HStack(spacing: 0) {
-                scoreColumn(label: t("You", "Εσύ", "Du"), pickups: duel.myPickups, isLeading: duel.iWon, highlight: true)
+                scoreColumn(
+                    label: t("You", "Εσύ", "Du"),
+                    pickups: duel.myPickups,
+                    numberColor: duel.iWon
+                        ? Color(red: 0.2, green: 0.8, blue: 0.4)
+                        : duel.iLost
+                            ? Color(red: 1.0, green: 0.3, blue: 0.3)
+                            : .primary,
+                    isLeading: duel.iWon,
+                    highlight: true
+                )
                 Text("VS").font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundColor(.secondary).frame(width: 40)
-                scoreColumn(label: firstName, pickups: duel.theirPickups, isLeading: duel.iLost, highlight: false)
+                scoreColumn(
+                    label: firstName,
+                    pickups: duel.theirPickups,
+                    numberColor: duel.iLost
+                        ? Color(red: 0.2, green: 0.8, blue: 0.4)
+                        : duel.iWon
+                            ? Color(red: 1.0, green: 0.3, blue: 0.3)
+                            : .primary,
+                    isLeading: duel.iLost,
+                    highlight: false
+                )
             }
 
             // Rematch
@@ -340,7 +384,7 @@ struct DuelView: View {
 
     // MARK: - Helpers
 
-    private func scoreColumn(label: String, pickups: Int, isLeading: Bool, highlight: Bool) -> some View {
+    private func scoreColumn(label: String, pickups: Int, numberColor: Color, isLeading: Bool, highlight: Bool) -> some View {
         VStack(spacing: 6) {
             Text(label)
                 .font(.system(size: 13, design: .rounded))
@@ -350,7 +394,7 @@ struct DuelView: View {
 
             Text("\(pickups)")
                 .font(.system(size: 44, weight: .medium, design: .rounded))
-                .foregroundColor(isLeading ? .blue : .primary)
+                .foregroundColor(numberColor)
 
             Text(t("pickups", "σηκώματα", "Griffe"))
                 .font(.system(size: 11, design: .rounded))

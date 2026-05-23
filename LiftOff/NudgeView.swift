@@ -44,6 +44,7 @@ struct NudgeView: View {
     @State private var messagingPair: RegisteredPair? = nil
 
     // Animations
+    @State private var refreshTrigger = AppsViewRefreshTrigger.shared
     @State private var appeared: Bool = false
     @State private var counterScale: CGFloat = 1.0
     @State private var badgePulse: Bool = false
@@ -188,6 +189,16 @@ struct NudgeView: View {
             startRefreshTimer()
             checkChallengeBanner()
             checkTogetherBanner()
+            // DeviceActivityReport runs in a separate process — same timing strategy as AppsView.
+            // First visit: immediate + 4 s + 9 s.  Subsequent: single 1.5 s retry.
+            // Avoid fast retries (< 3 s) — they cancel the extension's in-progress load.
+            if !appeared {
+                AppsViewRefreshTrigger.shared.refresh()
+                AppsViewRefreshTrigger.shared.refreshAfter(seconds: 4.0)
+                AppsViewRefreshTrigger.shared.refreshAfter(seconds: 9.0)
+            } else {
+                AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
+            }
 
             // Entrance animation — τρέχει ΜΟΝΟ την πρώτη φορά (όχι σε κάθε tab switch)
             if !appeared {
@@ -237,6 +248,9 @@ struct NudgeView: View {
             }
         }
         .onDisappear {
+            // Cancel pending DeviceActivityReport retries — prevents a stale timer
+            // from firing mid-load after the user has already switched tabs.
+            AppsViewRefreshTrigger.shared.cancelPendingRefreshes()
             refreshTimer?.invalidate()
             // Δεν κάνουμε reset το appeared — οι κάρτες μένουν ορατές στο tab switch
             // Μόνο τα looping animations σταματούν για να μην τρέχουν off-screen
@@ -543,6 +557,7 @@ struct NudgeView: View {
                 }
 
                 DeviceActivityReport(.top3Activity, filter: todayFilter)
+                    .id(refreshTrigger.refreshID)
                     .frame(height: 110)
                     .allowsHitTesting(false)
             }

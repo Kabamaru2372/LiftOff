@@ -13,8 +13,9 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { importPKCS8, SignJWT } from "https://deno.land/x/jose@v4.15.5/index.ts";
 
-const BUNDLE_ID = "fotiospongas.dev.UnPluq";
-const APNS_HOST = "https://api.push.apple.com"; // production
+const BUNDLE_ID    = "fotiospongas.dev.UnPluq";
+const APNS_PROD    = "https://api.push.apple.com";
+const APNS_SANDBOX = "https://api.sandbox.push.apple.com";
 
 // ─── Supabase client ───────────────────────────────────────────────────────
 
@@ -54,10 +55,12 @@ async function getApnsJwt(): Promise<string> {
 async function sendPush(
   deviceToken: string,
   title: string,
-  body: string
+  body: string,
+  isProduction: boolean
 ): Promise<void> {
-  const jwt = await getApnsJwt();
-  const url = `${APNS_HOST}/3/device/${deviceToken}`;
+  const jwt  = await getApnsJwt();
+  const host = isProduction ? APNS_PROD : APNS_SANDBOX;
+  const url  = `${host}/3/device/${deviceToken}`;
 
   const payload = {
     aps: {
@@ -124,13 +127,14 @@ Deno.serve(async (req: Request) => {
   const notifTitle = payload.title ?? (payload.sender_name ?? "A friend");
   const notifBody  = payload.body  ?? "sent you a message";
 
-  // Look up receiver's push token
+  // Look up receiver's push token — order by updated_at desc so we get the freshest token
   const { data: tokenRows, error } = await supabase
     .from("device_tokens")
-    .select("token")
+    .select("token, is_production")
     .eq("device_id", targetDeviceID)
     .eq("is_active", true)
     .eq("token_type", "device")
+    .order("updated_at", { ascending: false })
     .limit(1);
 
   if (error) {
@@ -138,13 +142,18 @@ Deno.serve(async (req: Request) => {
     return new Response("Database error", { status: 500 });
   }
 
-  const pushToken = tokenRows?.[0]?.token;
+  const tokenRow   = tokenRows?.[0];
+  const pushToken  = tokenRow?.token;
   if (!pushToken) {
     console.log(`[send-message] ⚠️ No token for device ${targetDeviceID.slice(0, 8)}…`);
     return new Response("No push token for receiver", { status: 200 });
   }
 
-  await sendPush(pushToken, notifTitle, notifBody);
+  // Use sandbox APNs for debug builds, production for release / TestFlight
+  const isProduction: boolean = tokenRow?.is_production ?? true;
+  console.log(`[send-message] 🌐 APNs env: ${isProduction ? "production" : "sandbox"}`);
+
+  await sendPush(pushToken, notifTitle, notifBody, isProduction);
 
   return new Response("OK", { status: 200 });
 });
