@@ -304,7 +304,8 @@ class DuelManager {
             return
         }
 
-        print("[Duel] 🔄 Poll: found \(duels.count) duel(s)")
+        let activeCount = duels.filter { $0.status == .active }.count
+        print("[Duel] 🔄 Poll: \(duels.count) record(s) total (\(activeCount) active)")
 
         // Finalize any expired active duels
         for duel in duels where duel.status == .active && duel.isExpired {
@@ -382,6 +383,13 @@ class DuelManager {
         ])
         _ = try? await URLSession.shared.data(for: req)
         print("[Duel] 🏁 Finalized: winner=\(winner.prefix(8))…")
+
+        // Notify LiftOffApp to clear the duel state from the Dynamic Island.
+        // DuelManager can't access LiveActivityManager directly (no singleton),
+        // so we use NotificationCenter as the bridge.
+        await MainActor.run {
+            NotificationCenter.default.post(name: .picksyDuelFinalized, object: nil)
+        }
 
         // Notify both players
         if winner == "tie" {

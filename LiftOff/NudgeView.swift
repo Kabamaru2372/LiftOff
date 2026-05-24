@@ -301,8 +301,9 @@ struct NudgeView: View {
                 .animation(.easeOut(duration: 0.5).delay(0.05), value: appeared)
                 .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: titleShimmer)
 
-            // Large flexible gap — the animation shows through here
-            Spacer()
+            // Flexible gap — capped so content doesn't overflow on larger screens
+            // (iPhone 16 Pro is ~100pt taller; uncapped Spacer pushes stats card off-screen)
+            Spacer().frame(maxHeight: 50)
 
             // Inspirational quote card — crossfade on quote change
             VStack(spacing: 12) {

@@ -26,6 +26,11 @@ extension Notification.Name {
     /// (μετά το cooldown check). Listeners μπορούν να αντιδράσουν
     /// για UI updates, animations, κλπ.
     static let picksyPickupDetected = Notification.Name("picksy.pickupDetected")
+
+    /// Posted από το DuelManager όταν μια μονομαχία ολοκληρωθεί/expire.
+    /// Χρησιμοποιείται από το LiftOffApp για να καθαρίσει το Dynamic Island
+    /// από το stale duel state (⚔️ + παλιά scores).
+    static let picksyDuelFinalized  = Notification.Name("picksy.duelFinalized")
 }
 
 @Observable

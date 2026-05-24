@@ -270,16 +270,20 @@ struct LiftOffApp: App {
         Task {
             await DuelManager.shared.poll()
             await DuelManager.shared.updateMyPickups(store.todayPickups)
-            // If we discovered an active duel, update the Live Activity now
-            // (it was started above before poll completed, so it may be in normal mode)
-            if let duel = DuelManager.shared.activeDuel, duel.status == .active,
-               !focusSessionManager.isActive {
+            guard !focusSessionManager.isActive else { return }
+            if let duel = DuelManager.shared.activeDuel, duel.status == .active {
+                // Active duel found after poll — update DI with correct scores
+                // (it was started before poll completed, so it may show 0:0)
                 liveActivity.updateForDuel(
                     pickupCount: store.todayPickups,
                     opponentName: duel.theirName,
                     myPickups: store.todayPickups,
                     theirPickups: duel.theirPickups
                 )
+            } else {
+                // No active duel — clear any stale duel state the DI may be showing
+                // from a previous session (e.g. yesterday's completed duel still showing ⚔️)
+                liveActivity.update(pickupCount: store.todayPickups)
             }
         }
 
@@ -430,6 +434,17 @@ struct LiftOffApp: App {
     private func setupForegroundObserver() {
         if let observer = foregroundObserver {
             NotificationCenter.default.removeObserver(observer)
+        }
+
+        // When a duel is finalized (expired or finished), clear the stale ⚔️ from the DI.
+        // DuelManager posts this notification because it can't access LiveActivityManager directly.
+        NotificationCenter.default.addObserver(
+            forName: .picksyDuelFinalized,
+            object: nil,
+            queue: .main
+        ) { [liveActivity, store] _ in
+            liveActivity.update(pickupCount: store.todayPickups)
+            print("[LiftOffApp] 🏁 Duel finalized — cleared DI duel state")
         }
 
         foregroundObserver = NotificationCenter.default.addObserver(
