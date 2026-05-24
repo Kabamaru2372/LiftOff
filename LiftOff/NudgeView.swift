@@ -34,11 +34,6 @@ struct NudgeView: View {
     // Focus Session sheet
     @State private var showFocusSession: Bool = false
 
-    // Challenge share
-    @State private var showChallengeBanner: Bool = false
-    @State private var showShareSheet: Bool = false
-    @State private var challengeShareItems: [Any] = []
-
     // Together banner (friends also overusing right now)
     @State private var togetherBanners: [TogetherBannerData] = []
     @State private var messagingPair: RegisteredPair? = nil
@@ -152,10 +147,6 @@ struct NudgeView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
         }
-        // Challenge share sheet
-        .sheet(isPresented: $showShareSheet) {
-            ActivityShareSheet(items: challengeShareItems)
-        }
         // Together banner → messaging sheet
         .sheet(item: $messagingPair) { pair in
             MessageView(pair: pair)
@@ -187,7 +178,6 @@ struct NudgeView: View {
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
             updateMinutesSinceLastPickup()
             startRefreshTimer()
-            checkChallengeBanner()
             checkTogetherBanner()
             // DeviceActivityReport runs in a separate process — same timing strategy as AppsView.
             // First visit: immediate + 4 s + 9 s.  Subsequent: single 1.5 s retry.
@@ -275,14 +265,13 @@ struct NudgeView: View {
     private var idleContent: some View {
         VStack(spacing: 20) {
 
-            // Weather pill — first item so SwiftUI places it naturally just below
-            // the safe area boundary (status bar / Dynamic Island). No manual padding needed.
             if let weather = weatherManager.currentWeather {
                 HStack {
                     temperaturePill(weather: weather)
                         .padding(.leading, 20)
                     Spacer()
                 }
+                .padding(.top, 8)   // extra clearance for iPhone 16 Pro Dynamic Island
                 .opacity(appeared ? 1 : 0)
                 .offset(y: appeared ? 0 : -8)
                 .animation(.easeOut(duration: 0.4), value: appeared)
@@ -388,13 +377,6 @@ struct NudgeView: View {
             // Together banner — εμφανίζεται όταν εσύ και φίλος είστε ταυτόχρονα στο κινητό
             ForEach(togetherBanners) { data in
                 togetherBannerView(data: data)
-                    .padding(.horizontal, 32)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-            }
-
-            // Challenge share banner — εμφανίζεται μόνο σε καλή μέρα μετά τις 16:00
-            if showChallengeBanner {
-                challengeBanner
                     .padding(.horizontal, 32)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
@@ -696,93 +678,6 @@ struct NudgeView: View {
                 "Letzter Griff: vor \(hours)h \(mins)m"
             )
         }
-    }
-
-    // MARK: - Challenge Banner
-
-    private var challengeBanner: some View {
-        HStack(spacing: 12) {
-            Text("🏆")
-                .font(.system(size: 20))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(t("Great day!", "Εξαιρετική μέρα!", "Toller Tag!"))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-                Text(t(
-                    "Challenge a friend to beat your score?",
-                    "Προκάλεσε έναν φίλο να τα πάει καλύτερα;",
-                    "Fordere einen Freund heraus?"
-                ))
-                .font(.system(size: 12, weight: .regular, design: .rounded))
-                .foregroundColor(.white.opacity(0.8))
-            }
-
-            Spacer()
-
-            Button(action: shareChallenge) {
-                Text(t("Share", "Μοιράσου", "Teilen"))
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundColor(.black)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(Capsule().fill(Color.yellow))
-            }
-            .buttonStyle(.plain)
-
-            Button(action: {
-                withAnimation(.easeOut(duration: 0.25)) {
-                    showChallengeBanner = false
-                }
-                ChallengeManager.markSuggestedToday()
-            }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(.white.opacity(0.6))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(LinearGradient(
-                    colors: [Color(red: 0.2, green: 0.55, blue: 0.9), Color(red: 0.4, green: 0.3, blue: 0.9)],
-                    startPoint: .leading, endPoint: .trailing
-                ))
-        )
-    }
-
-    private func checkChallengeBanner() {
-        let show = ChallengeManager.shouldSuggestShare(
-            pickups: store.todayPickups,
-            dailyGoal: dailyGoal > 0 ? dailyGoal : 15
-        )
-        withAnimation(.easeIn(duration: 0.3).delay(0.5)) {
-            showChallengeBanner = show
-        }
-    }
-
-    private func shareChallenge() {
-        guard let url = ChallengeManager.buildURL(
-            displayName: displayName,
-            weeklyPickups: store.weeklyPickups,
-            streak: store.currentStreak,
-            dailyGoal: dailyGoal > 0 ? dailyGoal : 15
-        ) else { return }
-
-        let payload = ChallengePayload(
-            name: displayName.isEmpty ? "A friend" : displayName,
-            weekly: store.weeklyPickups,
-            streak: store.currentStreak,
-            goal: dailyGoal > 0 ? dailyGoal : 15,
-            sentAt: Date().timeIntervalSince1970
-        )
-        let msg = ChallengeManager.shareMessage(payload: payload, language: appLanguage)
-        challengeShareItems = [msg, url.absoluteString]
-        showShareSheet = true
-        ChallengeManager.markSuggestedToday()
-        withAnimation { showChallengeBanner = false }
     }
 
     // MARK: - Together Banner

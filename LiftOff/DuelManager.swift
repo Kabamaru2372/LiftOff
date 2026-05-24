@@ -239,6 +239,23 @@ class DuelManager {
         print("[Duel] ❌ Sent duel cancelled: \(duel.id.prefix(8))…")
     }
 
+    /// Cancels an active duel. Used when the user wants to abandon an in-progress duel.
+    /// Sets status → "declined" so it disappears from both players' polls.
+    func cancelActiveDuel() async {
+        guard let duel = activeDuel, duel.status == .active else { return }
+        let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
+        var req = makeRequest(url: URL(string: urlStr)!, method: "PATCH")
+        req.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "declined"])
+
+        _ = try? await URLSession.shared.data(for: req)
+
+        await MainActor.run {
+            activeDuel = nil
+            NotificationCenter.default.post(name: .picksyDuelFinalized, object: nil)
+        }
+        print("[Duel] 🚫 Active duel cancelled: \(duel.id.prefix(8))…")
+    }
+
     /// Updates my pickup count in the active duel. Called on every pickup event.
     func updateMyPickups(_ pickups: Int) async {
         guard let duel = activeDuel, duel.status == .active else { return }

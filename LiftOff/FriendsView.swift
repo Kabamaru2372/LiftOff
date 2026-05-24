@@ -218,6 +218,17 @@ struct FriendsView: View {
             Text(t("Fewer pickups by midnight wins 🏆", "Λιγότερα σηκώματα μέχρι τα μεσάνυχτα νικά 🏆", "Weniger Griffe bis Mitternacht gewinnt 🏆"))
                 .font(.system(size: 12, design: .rounded))
                 .foregroundColor(.white.opacity(0.5))
+
+            // Cancel duel button
+            Button(action: {
+                Task { await DuelManager.shared.cancelActiveDuel() }
+            }) {
+                Text(t("Cancel duel", "Ακύρωση μονομαχίας", "Duell abbrechen"))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.45))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
         }
         .padding(20)
         .frame(maxWidth: .infinity)
