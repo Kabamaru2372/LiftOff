@@ -122,7 +122,10 @@ struct AppsView: View {
                 refreshTrigger.refreshAfter(seconds: 4.0)
                 refreshTrigger.refreshAfter(seconds: 9.0)
             } else {
+                // Two retries: 1.5 s catches a warm extension, 5 s is the safety net
+                // for when the extension process needs more time (2–5 s is normal).
                 refreshTrigger.refreshAfter(seconds: 1.5)
+                refreshTrigger.refreshAfter(seconds: 5.0)
             }
         }
         .onDisappear {

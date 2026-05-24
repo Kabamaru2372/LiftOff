@@ -197,7 +197,10 @@ struct NudgeView: View {
                 AppsViewRefreshTrigger.shared.refreshAfter(seconds: 4.0)
                 AppsViewRefreshTrigger.shared.refreshAfter(seconds: 9.0)
             } else {
+                // Two retries: 1.5 s catches a warm extension, 5 s is the safety net
+                // for when the extension process needs more time (2–5 s is normal).
                 AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
+                AppsViewRefreshTrigger.shared.refreshAfter(seconds: 5.0)
             }
 
             // Entrance animation — τρέχει ΜΟΝΟ την πρώτη φορά (όχι σε κάθε tab switch)
