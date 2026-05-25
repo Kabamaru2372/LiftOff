@@ -1,0 +1,426 @@
+// ScreenTimeMilestoneNotifier.swift
+// Picksy
+//
+// Fires a "what you could have done instead" notification the moment
+// the user's cumulative screen time crosses a milestone (1h, 2h, 3h).
+//
+// Messages are specific, vivid, and context-aware:
+//   • Weather-gated   — no outdoor suggestions when raining/snowing/foggy
+//   • Time-gated      — no "cook Sunday feast" at midnight
+//   • One per milestone per calendar day (resets automatically at midnight)
+//
+// Hook: call checkAndFire() from LiftOffApp.onScreenSessionEnded
+// after store.addUsageTime() so the total is already updated.
+
+import Foundation
+import UserNotifications
+
+// MARK: - Notifier
+
+final class ScreenTimeMilestoneNotifier {
+
+    static let shared = ScreenTimeMilestoneNotifier()
+    private init() {}
+
+    // Milestones in minutes
+    private let milestones = [60, 120, 180]
+
+    // UserDefaults keys
+    private let firedKey     = "picksy.screenTimeMilestones.fired"
+    private let scheduledKey = "picksy.screenTimeMilestones.scheduled"
+
+    // MARK: - Debug
+
+    /// TEMP: resets today's milestone state and schedules a test notification in 20s.
+    /// Switch to TikTok immediately after calling. Remove after confirming delivery.
+    func scheduleDebugNotification(language: String) {
+        UserDefaults.standard.removeObject(forKey: firedKey)
+        UserDefaults.standard.removeObject(forKey: scheduledKey)
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: milestones.map { "picksy.milestone.\($0)" })
+
+        let activity = MilestoneActivityBank.activities.first(where: { $0.durationMinutes == 60 })!
+        deliver(milestone: 60, activity: activity, language: language, delay: 20)
+        print("[Milestone] 🧪 Debug notification scheduled — switch to another app NOW, fires in 20s")
+    }
+
+    // MARK: - Public
+
+    /// Call on app launch and every time the app returns to foreground.
+    /// Pre-schedules milestone notifications using UNTimeIntervalNotificationTrigger
+    /// so they fire even when the user is on TikTok / Instagram (app in background).
+    func scheduleUpcoming(
+        totalSeconds: Int,
+        weather: WeatherCondition,
+        language: String
+    ) {
+        let todayStr = todayKey()
+        var firedMap     = UserDefaults.standard.dictionary(forKey: firedKey)     as? [String: [Int]] ?? [:]
+        var scheduledMap = UserDefaults.standard.dictionary(forKey: scheduledKey) as? [String: [Int]] ?? [:]
+        var firedToday     = firedMap[todayStr]     ?? []
+        var scheduledToday = scheduledMap[todayStr] ?? []
+
+        for milestone in milestones {
+            guard !firedToday.contains(milestone) else { continue }
+            guard !scheduledToday.contains(milestone) else { continue }
+
+            let remaining = milestone * 60 - totalSeconds
+
+            if remaining <= 0 {
+                // Already crossed (e.g. app reopened after long session) — fire in 3s
+                firedToday.append(milestone)
+                firedMap[todayStr] = firedToday
+                UserDefaults.standard.set(firedMap, forKey: firedKey)
+                let activity = pickActivity(minutes: milestone, weather: weather)
+                deliver(milestone: milestone, activity: activity, language: language, delay: 3)
+            } else {
+                // Upcoming — schedule now so iOS fires it at the right wall-clock time
+                // even while the user is using a different app (TikTok, Instagram, etc.)
+                scheduledToday.append(milestone)
+                scheduledMap[todayStr] = scheduledToday
+                UserDefaults.standard.set(scheduledMap, forKey: scheduledKey)
+                let activity = pickActivity(minutes: milestone, weather: weather)
+                deliver(milestone: milestone, activity: activity, language: language, delay: TimeInterval(remaining))
+                print("[Milestone] 📅 Scheduled \(milestone)min alert in \(remaining)s (~\(remaining/60)min from now)")
+            }
+        }
+    }
+
+    /// Fallback: call after store.addUsageTime(). Catches milestones that were never
+    /// pre-scheduled (first install, reboot cleared pending notifications, etc.).
+    func checkAndFire(
+        totalSeconds: Int,
+        weather: WeatherCondition,
+        language: String
+    ) {
+        let totalMin = totalSeconds / 60
+        let todayStr = todayKey()
+        var firedMap     = UserDefaults.standard.dictionary(forKey: firedKey)     as? [String: [Int]] ?? [:]
+        var scheduledMap = UserDefaults.standard.dictionary(forKey: scheduledKey) as? [String: [Int]] ?? [:]
+        var firedToday     = firedMap[todayStr]     ?? []
+        var scheduledToday = scheduledMap[todayStr] ?? []
+
+        for milestone in milestones {
+            guard totalMin >= milestone, !firedToday.contains(milestone) else { continue }
+
+            if scheduledToday.contains(milestone) {
+                // Pre-scheduled notification was (or will be) delivered — just confirm it
+                scheduledToday.removeAll { $0 == milestone }
+                firedToday.append(milestone)
+                scheduledMap[todayStr] = scheduledToday
+                firedMap[todayStr]     = firedToday
+                UserDefaults.standard.set(scheduledMap, forKey: scheduledKey)
+                UserDefaults.standard.set(firedMap,     forKey: firedKey)
+                // Cancel the pending request to avoid a duplicate right at session-end
+                UNUserNotificationCenter.current()
+                    .removePendingNotificationRequests(withIdentifiers: ["picksy.milestone.\(milestone)"])
+                print("[Milestone] ✅ \(milestone)min confirmed at session end (was pre-scheduled)")
+            } else {
+                // Fallback: was never pre-scheduled — fire immediately
+                firedToday.append(milestone)
+                firedMap[todayStr] = firedToday
+                UserDefaults.standard.set(firedMap, forKey: firedKey)
+                let activity = pickActivity(minutes: milestone, weather: weather)
+                deliver(milestone: milestone, activity: activity, language: language, delay: 5)
+            }
+        }
+    }
+
+    // MARK: - Private
+
+    private func todayKey() -> String {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
+    }
+
+    private func deliver(milestone: Int, activity: MilestoneActivity, language: String, delay: TimeInterval) {
+        let content = UNMutableNotificationContent()
+        content.sound = .default
+        content.categoryIdentifier = "PICKSY_SCREEN_TIME_MILESTONE"
+
+        let hours = milestone / 60
+        let mins  = milestone % 60
+
+        switch language {
+        case "Ελληνικά":
+            content.title = hours > 0 && mins == 0
+                ? "\(hours) \(hours == 1 ? "ώρα" : "ώρες") στο κινητό 📱"
+                : "\(milestone) λεπτά στο κινητό 📱"
+            content.body = "Σε αυτόν τον χρόνο μπορούσες να \(activity.bodyGR)."
+
+        case "Deutsch":
+            content.title = hours > 0 && mins == 0
+                ? "\(hours) \(hours == 1 ? "Stunde" : "Stunden") am Handy 📱"
+                : "\(milestone) Minuten am Handy 📱"
+            content.body = "In dieser Zeit hättest du \(activity.bodyDE) können."
+
+        default:
+            let label = hours == 1 ? "1 hour" : hours > 1 ? "\(hours) hours" : "\(milestone) min"
+            content.title = "\(label) on your phone today 📱"
+            content.body  = "In that time you could have \(activity.bodyEN)."
+        }
+
+        // Pass all activity data through userInfo so MilestoneDetailView can reconstruct it
+        var info: [AnyHashable: Any] = [
+            "milestoneMinutes": milestone,
+            "milestoneBodyEN":  activity.bodyEN,
+            "milestoneBodyGR":  activity.bodyGR,
+            "milestoneBodyDE":  activity.bodyDE
+        ]
+        if let link = activity.link { info["milestoneLink"] = link.absoluteString }
+        content.userInfo = info
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, delay), repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "picksy.milestone.\(milestone)",
+            content: content,
+            trigger: trigger
+        )
+        UNUserNotificationCenter.current().add(request) { err in
+            if let err { print("[Milestone] ❌ \(err.localizedDescription)") }
+            else       { print("[Milestone] 🔔 Queued \(milestone)min notification (fires in \(Int(delay))s)") }
+        }
+    }
+
+    private func pickActivity(minutes: Int, weather: WeatherCondition) -> MilestoneActivity {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let isGoodWeather = weather == .sunny || weather == .partlyCloudy || weather == .windy
+
+        let pool = MilestoneActivityBank.activities.filter { a in
+            guard a.durationMinutes == minutes else { return false }
+            if a.requiresGoodWeather && !isGoodWeather { return false }
+            if let range = a.allowedHourRange, !range.contains(hour) { return false }
+            return true
+        }
+
+        // Fallback: ignore time gate but still respect weather gate
+        if let pick = pool.randomElement() { return pick }
+
+        let weatherPool = MilestoneActivityBank.activities.filter {
+            $0.durationMinutes == minutes && (!$0.requiresGoodWeather || isGoodWeather)
+        }
+        return weatherPool.randomElement()
+            ?? MilestoneActivityBank.activities.first(where: { $0.durationMinutes == minutes })
+            ?? MilestoneActivityBank.activities[0]
+    }
+}
+
+// MARK: - Model
+
+struct MilestoneActivity {
+    let durationMinutes: Int
+    let bodyEN: String
+    let bodyGR: String
+    let bodyDE: String
+    let requiresGoodWeather: Bool
+    let allowedHourRange: ClosedRange<Int>?
+    let link: URL?
+
+    init(
+        _ minutes: Int,
+        en: String, gr: String, de: String,
+        outdoorOnly: Bool = false,
+        hours: ClosedRange<Int>? = nil,
+        link: String? = nil
+    ) {
+        durationMinutes     = minutes
+        bodyEN              = en
+        bodyGR              = gr
+        bodyDE              = de
+        requiresGoodWeather = outdoorOnly
+        allowedHourRange    = hours
+        self.link           = link.flatMap { URL(string: $0) }
+    }
+}
+
+// MARK: - Bank
+
+enum MilestoneActivityBank {
+
+    static let activities: [MilestoneActivity] = [
+
+        // ─────────────────────────────────────
+        // 1 HOUR  (60 min)
+        // ─────────────────────────────────────
+
+        .init(60,
+            en: "baked a batch of banana bread from scratch 🍌",
+            gr: "φτιάξει μπανανόψωμο από την αρχή 🍌",
+            de: "einen Bananenkuchen von Grund auf gebacken 🍌",
+            link: "https://www.allrecipes.com/recipe/20144/banana-banana-bread/"),
+
+        .init(60,
+            en: "called 3 friends you've been meaning to catch up with ☎️",
+            gr: "πάρει 3 φίλους που δεν μιλάτε καιρό ☎️",
+            de: "3 Freunde angerufen, bei denen du dich längst melden wolltest ☎️"),
+
+        .init(60,
+            en: "read 50 pages of a book you've been ignoring 📖",
+            gr: "διαβάσει 50 σελίδες από το βιβλίο που περιμένει 📖",
+            de: "50 Seiten in einem Buch gelesen, das du ignoriert hast 📖",
+            link: "https://www.goodreads.com/list/show/1.Best_Books_Ever"),
+
+        .init(60,
+            en: "done a full yoga or stretch session at home 🧘",
+            gr: "κάνει μια ολοκληρωμένη yoga ή stretching session 🧘",
+            de: "eine vollständige Yoga- oder Dehnsession zu Hause gemacht 🧘",
+            link: "https://www.youtube.com/results?search_query=1+hour+yoga+for+beginners"),
+
+        .init(60,
+            en: "cooked a proper meal completely from scratch 🍳",
+            gr: "μαγειρέψει ένα σωστό γεύμα από την αρχή 🍳",
+            de: "eine richtige Mahlzeit von Grund auf gekocht 🍳",
+            link: "https://www.allrecipes.com/recipes/"),
+
+        .init(60,
+            en: "written 500 words of that thing you keep putting off ✍️",
+            gr: "γράψει 500 λέξεις για αυτό που αναβάλλεις ✍️",
+            de: "500 Wörter von dem geschrieben, das du immer aufziehst ✍️",
+            link: "https://750words.com"),
+
+        .init(60,
+            en: "cleared and reorganised your entire bedroom ✨",
+            gr: "καθαρίσει και οργανώσει ολόκληρη την κρεβατοκάμαρά σου ✨",
+            de: "dein gesamtes Schlafzimmer aufgeräumt und neu organisiert ✨"),
+
+        .init(60,
+            en: "learned a new recipe and actually cooked it 👨‍🍳",
+            gr: "μάθει μια νέα συνταγή και να την φτιάξεις αμέσως 👨‍🍳",
+            de: "ein neues Rezept gelernt und es sofort gekocht 👨‍🍳",
+            link: "https://www.allrecipes.com/"),
+
+        .init(60,
+            en: "meditated and journalled for a full hour 🌿",
+            gr: "διαλογιστεί και γράψει στο ημερολόγιό σου 🌿",
+            de: "meditiert und ein Stunde in dein Tagebuch geschrieben 🌿",
+            link: "https://www.youtube.com/results?search_query=guided+meditation+1+hour"),
+
+        // Outdoor — good weather
+        .init(60,
+            en: "gone for a solid 6 km run in the fresh air 🏃",
+            gr: "τρέξει 6 χιλιόμετρα στον φρέσκο αέρα 🏃",
+            de: "6 km an der frischen Luft gelaufen 🏃",
+            outdoorOnly: true, hours: 6...21,
+            link: "https://www.alltrails.com/"),
+
+        .init(60,
+            en: "explored a new street in your city on foot 🗺️",
+            gr: "εξερευνήσει έναν νέο δρόμο της πόλης σου με τα πόδια 🗺️",
+            de: "eine neue Straße deiner Stadt zu Fuß erkundet 🗺️",
+            outdoorOnly: true, hours: 8...20),
+
+        .init(60,
+            en: "sat in the park with a coffee and watched the world go by ☕",
+            gr: "πιει τον καφέ σου στο πάρκο χωρίς βιασύνη ☕",
+            de: "in Ruhe einen Kaffee im Park getrunken ☕",
+            outdoorOnly: true, hours: 8...19),
+
+        // Evening
+        .init(60,
+            en: "cooked a proper dinner and set the table with candles 🕯️",
+            gr: "φτιάξει ένα σωστό βραδινό και στρώσει το τραπέζι με κεριά 🕯️",
+            de: "ein richtiges Abendessen gekocht und den Tisch mit Kerzen gedeckt 🕯️",
+            hours: 17...23,
+            link: "https://www.allrecipes.com/recipes/17562/dinner/"),
+
+        // ─────────────────────────────────────
+        // 2 HOURS  (120 min)
+        // ─────────────────────────────────────
+
+        .init(120,
+            en: "watched a full movie with zero distractions 🎬",
+            gr: "δει μια ολόκληρη ταινία χωρίς καμία διακοπή 🎬",
+            de: "einen kompletten Film ohne jegliche Ablenkung gesehen 🎬",
+            link: "https://www.justwatch.com/"),
+
+        .init(120,
+            en: "deep-cleaned your whole kitchen until it sparkled ✨",
+            gr: "καθαρίσει σχολαστικά ολόκληρη την κουζίνα σου ✨",
+            de: "deine gesamte Küche gründlich gereinigt, bis sie glänzt ✨"),
+
+        .init(120,
+            en: "almost finished an entire novel 📚",
+            gr: "σχεδόν τελειώσει ένα ολόκληρο μυθιστόρημα 📚",
+            de: "fast ein ganzes Buch ausgelesen 📚",
+            link: "https://www.goodreads.com/"),
+
+        .init(120,
+            en: "visited a parent or close friend for a real, unhurried conversation ❤️",
+            gr: "επισκεφτεί έναν γονιό ή φίλο για μια αληθινή, αβίαστη κουβέντα ❤️",
+            de: "einen Elternteil oder engen Freund für ein echtes, ungehetztes Gespräch besucht ❤️"),
+
+        .init(120,
+            en: "made homemade pizza from scratch — dough included 🍕",
+            gr: "φτιάξει σπιτική πίτσα από την αρχή — ζύμη και όλα 🍕",
+            de: "selbstgemachte Pizza von Grund auf gemacht — inklusive Teig 🍕",
+            link: "https://www.allrecipes.com/recipe/256012/"),
+
+        .init(120,
+            en: "worked on a creative project you keep delaying 🎨",
+            gr: "ασχοληθεί με ένα δημιουργικό project που αναβάλλεις 🎨",
+            de: "an einem kreativen Projekt gearbeitet, das du immer hinausschiebst 🎨"),
+
+        .init(120,
+            en: "given your bike a proper service and gone for a ride 🚲",
+            gr: "φτιάξει το ποδήλατό σου και κάνει μια βόλτα 🚲",
+            de: "dein Fahrrad gewartet und eine Runde gedreht 🚲",
+            link: "https://www.alltrails.com/"),
+
+        // Outdoor — good weather
+        .init(120,
+            en: "gone on a proper hike and breathed some real mountain air 🏔️",
+            gr: "κάνει μια σωστή πεζοπορία και αναπνεύσει ορεινό αέρα 🏔️",
+            de: "eine richtige Wanderung gemacht und frische Bergluft geatmet 🏔️",
+            outdoorOnly: true, hours: 7...18,
+            link: "https://www.alltrails.com/"),
+
+        .init(120,
+            en: "cycled to a nearby town, grabbed a coffee, and cycled back 🚲",
+            gr: "πάει με ποδήλατο σε μια κοντινή πόλη, πιει καφέ και γυρίσει 🚲",
+            de: "mit dem Fahrrad in eine nahe Stadt gefahren, Kaffee getrunken und zurückgeradelt 🚲",
+            outdoorOnly: true, hours: 8...18,
+            link: "https://www.alltrails.com/"),
+
+        // ─────────────────────────────────────
+        // 3 HOURS  (180 min)
+        // ─────────────────────────────────────
+
+        .init(180,
+            en: "visited a museum and a gallery 🏛️",
+            gr: "επισκεφτεί ένα μουσείο ΚΑΙ μια γκαλερί 🏛️",
+            de: "ein Museum UND eine Galerie besucht 🏛️",
+            hours: 9...18,
+            link: "https://artsandculture.google.com/"),
+
+        .init(180,
+            en: "cooked a full Sunday feast for people you love 🍲",
+            gr: "μαγειρέψει ένα ολόκληρο Κυριακάτικο τραπέζι για αγαπημένους 🍲",
+            de: "ein vollständiges Sonntagsessen für geliebte Menschen gekocht 🍲",
+            hours: 10...16,
+            link: "https://www.allrecipes.com/recipes/80/main-dish/"),
+
+        .init(180,
+            en: "read almost an entire book, cover to cover 📖",
+            gr: "διαβάσει σχεδόν ολόκληρο ένα βιβλίο 📖",
+            de: "fast ein ganzes Buch von Anfang bis Ende gelesen 📖",
+            link: "https://www.goodreads.com/"),
+
+        .init(180,
+            en: "finished something you've been procrastinating on for weeks 🎯",
+            gr: "ολοκληρώσει κάτι που αναβάλλεις εδώ και εβδομάδες 🎯",
+            de: "etwas fertiggestellt, das du seit Wochen aufgeschoben hast 🎯"),
+
+        .init(180,
+            en: "taught yourself something new from a YouTube tutorial 💡",
+            gr: "μάθει κάτι καινούργιο από ένα YouTube tutorial 💡",
+            de: "sich durch ein YouTube-Tutorial etwas Neues beigebracht 💡",
+            link: "https://www.youtube.com/"),
+
+        .init(180,
+            en: "taken a day trip to a nearby town and back 🚂",
+            gr: "κάνει μια ημερήσια εκδρομή σε κοντινή πόλη 🚂",
+            de: "einen Tagesausflug in eine nahe Stadt und zurück gemacht 🚂",
+            outdoorOnly: true, hours: 8...15,
+            link: "https://www.alltrails.com/"),
+    ]
+}

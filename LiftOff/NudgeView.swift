@@ -45,8 +45,8 @@ struct NudgeView: View {
     @State private var badgePulse: Bool = false
     @State private var titleShimmer: Bool = false
     @State private var moonGlow: Bool = false
-
-
+    // Separate display state so we can drive .contentTransition via withAnimation
+    @State private var displayPickups: Int = 0
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -95,7 +95,7 @@ struct NudgeView: View {
     }
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             WeatherBackground(
                 timeOfDay: timeOfDay,
                 condition: weatherManager.activeCondition,
@@ -126,6 +126,8 @@ struct NudgeView: View {
             }
 
             idleContent
+
+            WeatherPillFABView()
         }
         .alert(
             t("About pickup count", "Σχετικά με τα σηκώματα", "Über die Griff-Zählung"),
@@ -179,20 +181,7 @@ struct NudgeView: View {
             updateMinutesSinceLastPickup()
             startRefreshTimer()
             checkTogetherBanner()
-            // DeviceActivityReport runs in a separate process — same timing strategy as AppsView.
-            // First visit: immediate + 4 s + 9 s.  Subsequent: single 1.5 s retry.
-            // Avoid fast retries (< 3 s) — they cancel the extension's in-progress load.
-            if !appeared {
-                AppsViewRefreshTrigger.shared.refresh()
-                AppsViewRefreshTrigger.shared.refreshAfter(seconds: 4.0)
-                AppsViewRefreshTrigger.shared.refreshAfter(seconds: 9.0)
-            } else {
-                // Two retries: 1.5 s catches a warm extension, 5 s is the safety net
-                // for when the extension process needs more time (2–5 s is normal).
-                AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
-                AppsViewRefreshTrigger.shared.refreshAfter(seconds: 5.0)
-            }
-
+            displayPickups = store.todayPickups   // seed ring counter on every appear
             // Entrance animation — τρέχει ΜΟΝΟ την πρώτη φορά (όχι σε κάθε tab switch)
             if !appeared {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -227,7 +216,11 @@ struct NudgeView: View {
                     weather: weatherManager.activeCondition,
                     categories: activityPrefs.effectiveCategories
                 )
-                // Counter spring bounce on new pickup
+                // Ring counter rolls up via numericText transition
+                withAnimation(.bouncy(duration: 0.45)) {
+                    displayPickups = store.todayPickups
+                }
+                // Ring number spring bounce
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.4)) {
                     counterScale = 1.35
                 }
@@ -241,9 +234,6 @@ struct NudgeView: View {
             }
         }
         .onDisappear {
-            // Cancel pending DeviceActivityReport retries — prevents a stale timer
-            // from firing mid-load after the user has already switched tabs.
-            AppsViewRefreshTrigger.shared.cancelPendingRefreshes()
             refreshTimer?.invalidate()
             // Δεν κάνουμε reset το appeared — οι κάρτες μένουν ορατές στο tab switch
             // Μόνο τα looping animations σταματούν για να μην τρέχουν off-screen
@@ -258,6 +248,8 @@ struct NudgeView: View {
         .onChange(of: appLanguage) { _, _ in
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
         }
+        // Smooth appearance of topAppsCard when FamilyControls auth resolves
+        .animation(.easeOut(duration: 0.35), value: shouldShowTopApps)
     }
 
     // MARK: - Idle screen
@@ -265,19 +257,7 @@ struct NudgeView: View {
     private var idleContent: some View {
         VStack(spacing: 20) {
 
-            if let weather = weatherManager.currentWeather {
-                HStack {
-                    temperaturePill(weather: weather)
-                        .padding(.leading, 20)
-                    Spacer()
-                }
-                .padding(.top, 8)   // extra clearance for iPhone 16 Pro Dynamic Island
-                .opacity(appeared ? 1 : 0)
-                .offset(y: appeared ? 0 : -8)
-                .animation(.easeOut(duration: 0.4), value: appeared)
-            }
-
-            // Small fixed gap so Picksy stays near the top
+            // Small gap from safe area top to title
             Spacer().frame(maxHeight: 20)
 
             // Picksy title — subtle shimmer
@@ -349,6 +329,7 @@ struct NudgeView: View {
                     .opacity(appeared ? 1 : 0)
                     .offset(y: appeared ? 0 : 20)
                     .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.18), value: appeared)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
             }
 
             // Last pickup info
@@ -383,31 +364,83 @@ struct NudgeView: View {
 
             Spacer().frame(maxHeight: 16)
 
-            // Stats card
-            VStack(spacing: 10) {
-                HStack(spacing: 6) {
-                    Text(t("Today", "Σήμερα", "Heute"))
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundColor(.white.opacity(0.85))
+            // Animated pickup ring — replaces the progress bar
+            pickupRingCard
+        }
+    }
 
-                    Button(action: { showAccuracyInfo = true }) {
-                        Image(systemName: "info.circle")
-                            .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.6))
-                    }
+    // MARK: - Pickup Ring Card
 
-                    Spacer()
+    /// Replaces the old thin progress bar. Shows:
+    ///  • Circular arc filling toward daily goal (zone-colored, rounded linecap)
+    ///  • Glowing tip dot orbiting the arc end
+    ///  • Large center number with rolling-digit transition + spring bounce on pickup
+    ///  • Ambient glow that breathes in danger zones
+    ///  • Zone badge + info button below
+    private var pickupRingCard: some View {
+        let ringSize:  CGFloat = 140
+        let lineWidth: CGFloat = 10
+        let tipRadius: CGFloat = ringSize / 2
 
-                    // Zone badge — pulses in danger zone
+        // The glow lives in .background so it does NOT contribute to the ZStack's
+        // measured height (which caused the 200pt glow to compress all Spacers,
+        // pushing the "Picksy" title behind the Dynamic Island).
+        return ZStack {
+            // ── Track ring ────────────────────────────────────────────────
+            Circle()
+                .stroke(Color.white.opacity(0.13), lineWidth: lineWidth)
+
+            // ── Progress arc ──────────────────────────────────────────────
+            Circle()
+                .trim(from: 0, to: min(goalProgress, 1.0))
+                .stroke(zoneColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .shadow(color: zoneColor.opacity(0.55), radius: 8)
+                .animation(.spring(response: 0.7, dampingFraction: 0.78), value: goalProgress)
+
+            // ── Glowing tip dot ───────────────────────────────────────────
+            if goalProgress > 0.02 && goalProgress < 1.0 {
+                Circle()
+                    .fill(zoneColor)
+                    .frame(width: 14, height: 14)
+                    .shadow(color: zoneColor, radius: 7)
+                    .offset(y: -tipRadius)
+                    .rotationEffect(.degrees(360 * goalProgress))
+                    .animation(.spring(response: 0.7, dampingFraction: 0.78), value: goalProgress)
+            }
+
+            // ── Goal-reached outer pulse ring ─────────────────────────────
+            if goalProgress >= 1.0 {
+                Circle()
+                    .stroke(zoneColor.opacity(0.35), lineWidth: 2)
+                    .frame(width: ringSize + 18, height: ringSize + 18)
+                    .scaleEffect(badgePulse ? 1.07 : 0.97)
+                    .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: badgePulse)
+            }
+
+            // ── Center: rolling number + goal + zone badge ────────────────
+            VStack(spacing: 3) {
+                Text("\(displayPickups)")
+                    .font(.system(size: 48, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .shadow(color: zoneColor.opacity(0.55), radius: 10)
+                    .scaleEffect(counterScale)
+                    .contentTransition(.numericText(countsDown: false))
+
+                Text("/ \(dailyGoal)")
+                    .font(.system(size: 13, weight: .light, design: .rounded))
+                    .foregroundColor(.white.opacity(0.50))
+
+                Spacer().frame(height: 4)
+
+                // Zone badge + info — inside the ring so nothing overflows below
+                HStack(spacing: 5) {
                     Text(store.currentZone.displayName(language: appLanguage))
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
-                        .padding(.horizontal, 8)
+                        .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(
-                            Capsule()
-                                .fill(zoneColor.opacity(0.85))
-                        )
+                        .background(Capsule().fill(zoneColor.opacity(0.80)))
                         .scaleEffect(badgePulse ? 1.08 : 1.0)
                         .animation(
                             store.currentZone == .problematic || store.currentZone == .heavy
@@ -416,38 +449,33 @@ struct NudgeView: View {
                             value: badgePulse
                         )
 
-                    // Counter — spring bounce on pickup
-                    Text("\(store.todayPickups) / \(dailyGoal)")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
-                        .scaleEffect(counterScale)
-                }
-
-                GeometryReader { geo in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color.white.opacity(0.25))
-                            .frame(height: 6)
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(zoneColor)
-                            .frame(width: geo.size.width * goalProgress, height: 6)
-                            .animation(.spring(response: 0.6, dampingFraction: 0.7), value: goalProgress)
+                    Button(action: { showAccuracyInfo = true }) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.40))
                     }
                 }
-                .frame(height: 6)
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(.ultraThinMaterial)
-                    .opacity(0.6)
-            )
-            .padding(.horizontal, 32)
-            .padding(.bottom, 25)
-            .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 20)
-            .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.38), value: appeared)
         }
+        // Explicit frame keeps ZStack at exactly ringSize — the glow circle is in
+        // .background so it extends visually beyond the frame without affecting layout.
+        .frame(width: ringSize, height: ringSize)
+        .background(
+            Circle()
+                .fill(zoneColor.opacity(badgePulse ? 0.30 : 0.14))
+                .frame(width: 200, height: 200)
+                .blur(radius: 30)
+                .animation(
+                    store.currentZone == .problematic || store.currentZone == .heavy
+                        ? .easeInOut(duration: 1.4).repeatForever(autoreverses: true)
+                        : .easeOut(duration: 0.7),
+                    value: badgePulse
+                )
+        )
+        .padding(.bottom, 25)
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 20)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.38), value: appeared)
     }
 
     // MARK: - Focus Session Button
@@ -499,9 +527,9 @@ struct NudgeView: View {
                     .font(.system(size: 16))
 
                 Text(t(
-                    "What should I do?",
-                    "Τι να κάνω τώρα;",
-                    "Was soll ich tun?"
+                    "What can I do instead?",
+                    "Τι άλλο μπορώ να κάνω;",
+                    "Was kann ich stattdessen tun?"
                 ))
                 .font(.system(size: 15, weight: .medium, design: .rounded))
                 .foregroundColor(.white)
@@ -526,6 +554,8 @@ struct NudgeView: View {
 
     private var topAppsCard: some View {
         Button(action: {
+            // Explicit navigation — force refresh bypasses the cooldown
+            AppsViewRefreshTrigger.shared.forceRefresh()
             withAnimation { tabSelection.selectedTab = 2 }
         }) {
             VStack(alignment: .leading, spacing: 10) {
@@ -555,87 +585,6 @@ struct NudgeView: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    // MARK: - Temperature Pill
-
-    private func temperaturePill(weather: WeatherData) -> some View {
-        Button(action: {
-            Task { await weatherManager.manualRefresh() }
-        }) {
-            let condition = conditionName(for: weather.condition)
-            let city = weather.cityName.isEmpty || weather.cityName == "Current Location"
-                       ? "" : weather.cityName
-            let subtitle = [condition, city].filter { !$0.isEmpty }.joined(separator: " · ")
-
-            VStack(alignment: .leading, spacing: 2) {
-                // Row 1: emoji + temperature
-                HStack(spacing: 5) {
-                    if weatherManager.isLoading {
-                        ProgressView()
-                            .scaleEffect(0.65)
-                            .tint(.white)
-                            .frame(width: 16)
-                    } else {
-                        Text(displayEmoji(for: weather.condition))
-                            .font(.system(size: 13))
-                    }
-                    Text("\(Int(weather.temperature))°")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
-                }
-
-                // Row 2: condition · city (only if present)
-                if !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundColor(.white.opacity(0.75))
-                        .fixedSize(horizontal: false, vertical: true)
-                        .multilineTextAlignment(.leading)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                ZStack {
-                    if isLightBackground {
-                        RoundedRectangle(cornerRadius: 12).fill(Color.black.opacity(0.3))
-                    }
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(.ultraThinMaterial)
-                        .opacity(isLightBackground ? 0.4 : 0.65)
-                }
-            )
-            .shadow(color: .black.opacity(0.25), radius: 4)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func displayEmoji(for condition: WeatherCondition) -> String {
-        if condition == .sunny && timeOfDay == .night {
-            return "🌙"
-        }
-        return condition.emoji
-    }
-
-    private func conditionName(for condition: WeatherCondition) -> String {
-        switch condition {
-        case .sunny:
-            if timeOfDay == .night {
-                return t("Clear", "Αίθριος", "Klar")
-            }
-            return t("Sunny", "Ηλιοφάνεια", "Sonnig")
-        case .partlyCloudy: return t("Partly cloudy", "Μερικώς συννεφιά", "Teilweise bewölkt")
-        case .cloudy:       return t("Cloudy", "Συννεφιά", "Bewölkt")
-        case .rainy:        return t("Rainy", "Βροχή", "Regnerisch")
-        case .thunderstorm: return t("Storm", "Καταιγίδα", "Gewitter")
-        case .snow:         return t("Snow", "Χιόνι", "Schnee")
-        case .foggy:        return t("Foggy", "Ομίχλη", "Neblig")
-        case .windy:        return t("Windy", "Αέρας", "Windig")
-        case .hot:          return t("Hot", "Ζέστη", "Heiß")
-        case .cold:         return t("Cold", "Κρύο", "Kalt")
-        case .unknown:      return ""
-        }
     }
 
     // MARK: - Last Pickup Card
@@ -777,6 +726,145 @@ struct NudgeView: View {
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             updateMinutesSinceLastPickup()
+        }
+    }
+}
+
+// MARK: - Draggable Weather Pill
+//
+// Separate struct gives SwiftUI a stable identity — no re-renders on every
+// NudgeView state change.  Pattern mirrors ChallengeFABView exactly:
+//   • pillContent is a plain View (NOT Button) — DragGesture on a Button conflicts
+//   • .contentShape() makes the whole pill hittable
+//   • .onTapGesture handles refresh; .gesture(DragGesture) handles dragging
+//   • dragStart captured at gesture begin → 1:1 finger tracking, no drift
+//   • AppStorage persists position across sessions
+
+private struct WeatherPillFABView: View {
+
+    @Environment(WeatherManager.self) private var weatherManager
+    @AppStorage("appLanguage")      private var appLanguage: String = "English"
+    @AppStorage("weatherPillX_v1")  private var pillX: Double = 0
+    @AppStorage("weatherPillY_v1")  private var pillY: Double = 0
+
+    @State private var dragStart: CGSize = .zero
+    @State private var isDragging: Bool = false
+    @State private var appeared: Bool = false
+
+    private var timeOfDay: TimeOfDay {
+        TimeOfDay.from(
+            sunrise: weatherManager.currentWeather?.sunrise,
+            sunset:  weatherManager.currentWeather?.sunset
+        )
+    }
+
+    var body: some View {
+        if let weather = weatherManager.currentWeather {
+            let defaultX = pillX == 0 ? -100.0 : pillX
+            let defaultY = pillY == 0 ? -320.0 : pillY
+
+            GeometryReader { geometry in
+                pillContent(weather: weather)
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+                    .opacity(appeared ? 1 : 0)
+                    .animation(.easeOut(duration: 0.4), value: appeared)
+                    .onTapGesture {
+                        guard !isDragging else { return }
+                        Task { await weatherManager.manualRefresh() }
+                    }
+                    .gesture(
+                        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+                            .onChanged { value in
+                                if !isDragging {
+                                    dragStart = CGSize(width: defaultX, height: defaultY)
+                                    isDragging = true
+                                }
+                                var liveX = dragStart.width  + Double(value.translation.width)
+                                var liveY = dragStart.height + Double(value.translation.height)
+                                liveX = max(-geometry.size.width  / 2 + 90, min(geometry.size.width  / 2 - 90, liveX))
+                                liveY = max(-geometry.size.height / 2 + 5,  min(geometry.size.height / 2 - 80, liveY))
+                                pillX = liveX
+                                pillY = liveY
+                            }
+                            .onEnded { _ in
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                    isDragging = false
+                                }
+                            }
+                    )
+                    .offset(x: CGFloat(defaultX), y: CGFloat(defaultY))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            }
+            .onAppear {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    appeared = true
+                }
+            }
+        }
+    }
+
+    private func pillContent(weather: WeatherData) -> some View {
+        let condition = conditionName(for: weather.condition)
+        let city = weather.cityName.isEmpty || weather.cityName == "Current Location"
+                   ? "" : weather.cityName
+        let subtitle = [condition, city].filter { !$0.isEmpty }.joined(separator: " · ")
+
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 5) {
+                if weatherManager.isLoading {
+                    ProgressView()
+                        .scaleEffect(0.65)
+                        .tint(.white)
+                        .frame(width: 16)
+                } else {
+                    Text(displayEmoji(for: weather.condition))
+                        .font(.system(size: 13))
+                }
+                Text("\(Int(weather.temperature))°")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+            }
+            if !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundColor(.white.opacity(0.75))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private func displayEmoji(for condition: WeatherCondition) -> String {
+        if condition == .sunny && timeOfDay == .night { return "🌙" }
+        return condition.emoji
+    }
+
+    private func conditionName(for condition: WeatherCondition) -> String {
+        switch condition {
+        case .sunny:
+            return timeOfDay == .night
+                ? t("Clear", "Αίθριος", "Klar")
+                : t("Sunny", "Ηλιοφάνεια", "Sonnig")
+        case .partlyCloudy: return t("Partly cloudy", "Μερικώς συννεφιά", "Teilweise bewölkt")
+        case .cloudy:       return t("Cloudy", "Συννεφιά", "Bewölkt")
+        case .rainy:        return t("Rainy", "Βροχή", "Regnerisch")
+        case .thunderstorm: return t("Storm", "Καταιγίδα", "Gewitter")
+        case .snow:         return t("Snow", "Χιόνι", "Schnee")
+        case .foggy:        return t("Foggy", "Ομίχλη", "Neblig")
+        case .windy:        return t("Windy", "Αέρας", "Windig")
+        case .hot:          return t("Hot", "Ζέστη", "Heiß")
+        case .cold:         return t("Cold", "Κρύο", "Kalt")
+        case .unknown:      return ""
+        }
+    }
+
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage {
+        case "Ελληνικά": return gr
+        case "Deutsch":  return de
+        default:         return en
         }
     }
 }

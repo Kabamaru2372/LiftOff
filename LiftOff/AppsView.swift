@@ -72,7 +72,7 @@ struct AppsView: View {
 
                 if isAuthorized && hasSelectedApps {
                     HStack(spacing: 8) {
-                        Button(action: { refreshTrigger.refresh() }) {
+                        Button(action: { refreshTrigger.forceRefresh() }) {
                             Image(systemName: "arrow.clockwise")
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
@@ -119,8 +119,7 @@ struct AppsView: View {
             if !hasAppeared {
                 hasAppeared = true
                 refreshTrigger.refresh()
-                refreshTrigger.refreshAfter(seconds: 4.0)
-                refreshTrigger.refreshAfter(seconds: 9.0)
+                refreshTrigger.refreshAfter(seconds: 20.0)
             } else {
                 // Two retries: 1.5 s catches a warm extension, 5 s is the safety net
                 // for when the extension process needs more time (2–5 s is normal).
@@ -139,7 +138,10 @@ struct AppsView: View {
             AppSelectionStore.shared.selection = newValue
             refreshState()
             UsageThresholdManager.shared.restartMonitoring()
-            refreshTrigger.refreshAfter(seconds: 0.3)
+            // Filter changed — force immediate re-render ignoring the cooldown
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.refreshTrigger.forceRefresh()
+            }
         }
     }
 
@@ -281,7 +283,7 @@ struct AppsView: View {
         midnightTimer = Timer.scheduledTimer(withTimeInterval: secondsUntilMidnight, repeats: false) { _ in
             DispatchQueue.main.async {
                 self.currentDate = Date()
-                self.refreshTrigger.refresh()
+                self.refreshTrigger.forceRefresh()
                 self.startMidnightTimer()
             }
         }

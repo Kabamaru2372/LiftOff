@@ -15,6 +15,7 @@ struct FriendsView: View {
 
     @AppStorage("appLanguage")          private var appLanguage: String = "English"
     @AppStorage("challengeDisplayName") private var challengeDisplayName: String = ""
+    @AppStorage("dailyGoal")            private var dailyGoal: Int = 15
 
     private var friendSync: FriendSyncManager { FriendSyncManager.shared }
     private var duelManager: DuelManager      { DuelManager.shared }
@@ -32,9 +33,10 @@ struct FriendsView: View {
 
     // 1-second tick for live countdown display
     @State private var tick: Date = Date()
-    let countdownTimer = Timer.publish(every: 1,  on: .main, in: .common).autoconnect()
-    // 10-second poll to refresh opponent score + badges
-    let pollTimer      = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
+    let countdownTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    // 5-second poll — combined with DuelManager's 5 s effectivePollInterval this
+    // gives near-realtime score updates during active duels (score lag ≤ ~5 s).
+    let pollTimer      = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -54,10 +56,13 @@ struct FriendsView: View {
                 ScrollView {
                     VStack(spacing: 20) {
 
-                        // Active duel card — shown prominently at the top
-                        if let duel = duelManager.activeDuel, duel.status == .active {
+                        // Active duel cards — one per friend pair, shown at the top
+                        ForEach(duelManager.activeDuels) { duel in
                             activeDuelBanner(duel)
-                        } else if let invite = duelManager.pendingInvite {
+                        }
+
+                        // Pending invite (only shown when no active duels occupy the top)
+                        if duelManager.activeDuels.isEmpty, let invite = duelManager.pendingInvite {
                             pendingInviteBanner(invite)
                         }
 
@@ -77,14 +82,26 @@ struct FriendsView: View {
             }
             .navigationTitle(t("Friends", "Φίλοι", "Freunde"))
             .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    challengeShareLink
+                }
+            }
         }
         .onReceive(countdownTimer) { date in tick = date }
         .onReceive(pollTimer) { _ in
             Task { await duelManager.poll() }
         }
         .task {
-            await duelManager.poll()
+            // Force (bypass rate-limit) on first appearance so scores are always fresh.
+            await duelManager.forcePoll()
             checkForNewDuelResult()
+        }
+        .onChange(of: duelManager.activeDuels.count) { _, newCount in
+            // A new duel just became active — force-poll immediately so both sides
+            // see each other's real pickup counts without waiting for the next timer tick.
+            guard newCount > 0 else { return }
+            Task { await duelManager.forcePoll() }
         }
         .sheet(item: $duelResultToShow) { duel in
             DuelResultView(duel: duel, hourlyData: hourlyTracker.hourlyData[0])
@@ -221,7 +238,7 @@ struct FriendsView: View {
 
             // Cancel duel button
             Button(action: {
-                Task { await DuelManager.shared.cancelActiveDuel() }
+                Task { await DuelManager.shared.cancelActiveDuel(duel) }
             }) {
                 Text(t("Cancel duel", "Ακύρωση μονομαχίας", "Duell abbrechen"))
                     .font(.system(size: 12, weight: .medium, design: .rounded))
@@ -351,9 +368,9 @@ struct FriendsView: View {
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundColor(.secondary)
                 Text(t(
-                    "Share a Challenge from the Nudge tab to connect.",
-                    "Μοιράσου μια Πρόκληση από την καρτέλα Ώθηση.",
-                    "Teile eine Herausforderung vom Nudge-Tab."
+                    "Tap the Challenge button above to invite friends.",
+                    "Πάτησε το κουμπί Πρόκληση παραπάνω για να καλέσεις φίλους.",
+                    "Tippe auf den Challenge-Button oben, um Freunde einzuladen."
                 ))
                 .font(.system(size: 12, design: .rounded))
                 .foregroundColor(.secondary.opacity(0.7))
@@ -380,10 +397,9 @@ struct FriendsView: View {
         let name       = isUnknown ? fallback : pair.name
 
         // Duel status for this friend
-        let hasDuel: Bool = {
-            guard let d = duelManager.activeDuel else { return false }
-            return (d.challengerId == pair.deviceID || d.opponentId == pair.deviceID) && d.status == .active
-        }()
+        let hasDuel: Bool = duelManager.activeDuels.contains {
+            $0.challengerId == pair.deviceID || $0.opponentId == pair.deviceID
+        }
 
         return VStack(spacing: 0) {
             HStack(spacing: 14) {
@@ -496,9 +512,9 @@ struct FriendsView: View {
                 Text(t("Connect with friends", "Σύνδεσε φίλους", "Verbinde Freunde"))
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
                 Text(t(
-                    "Share the Challenge button on the Nudge tab. When a friend taps your link, you'll both appear here.",
-                    "Μοιράσου το κουμπί Πρόκλησης στην καρτέλα Ώθηση. Όταν ένας φίλος ανοίξει τον σύνδεσμό σου, θα εμφανιστείτε εδώ.",
-                    "Teile den Challenge-Button im Nudge-Tab. Wenn ein Freund deinen Link öffnet, erscheint ihr beide hier."
+                    "Tap the Challenge button above and share your link. When a friend opens it, you'll both appear here.",
+                    "Πάτησε το κουμπί Πρόκληση παραπάνω και μοιράσου τον σύνδεσμό σου. Όταν ένας φίλος τον ανοίξει, θα εμφανιστείτε εδώ.",
+                    "Tippe auf den Challenge-Button oben und teile deinen Link. Wenn ein Freund ihn öffnet, erscheint ihr beide hier."
                 ))
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(.secondary)
@@ -530,12 +546,11 @@ struct FriendsView: View {
 
     /// Shows the duel result sheet once per completed duel (tracked by ID in UserDefaults).
     private func checkForNewDuelResult() {
-        guard let duel = duelManager.activeDuel,
-              duel.status == .completed,
+        // Use duelHistory (newest first) — completed duels live there, not in activeDuels
+        guard let duel = duelManager.duelHistory.first,
               duel.id != lastSeenDuelResultId,
               // Only show if completed today or yesterday (fresh result)
-              let created = duel.createdAt as Date?,
-              Date().timeIntervalSince(created) < 48 * 3600
+              Date().timeIntervalSince(duel.createdAt) < 48 * 3600
         else { return }
 
         duelResultToShow     = duel
@@ -562,5 +577,48 @@ struct FriendsView: View {
     private func exactDateTime(_ date: Date) -> String {
         let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short
         return t("Connected", "Συνδέθηκε", "Verbunden") + " · " + f.string(from: date)
+    }
+
+    // ShareLink avoids the UIActivityViewController blank-screen-on-first-tap bug
+    // that occurs when wrapping UIActivityViewController in a SwiftUI .sheet().
+    private var challengeShareLink: some View {
+        let goal = dailyGoal > 0 ? dailyGoal : 50
+        let url: URL = ChallengeManager.buildURL(
+            displayName: challengeDisplayName,
+            weeklyPickups: store.weeklyPickups,
+            streak: store.currentStreak,
+            dailyGoal: goal
+        ) ?? URL(string: "https://fotiospongas.dev/challenge")!
+
+        let payload = ChallengePayload(
+            name: challengeDisplayName.isEmpty ? "A friend" : challengeDisplayName,
+            weekly: store.weeklyPickups,
+            streak: store.currentStreak,
+            goal: goal,
+            sentAt: Date().timeIntervalSince1970,
+            senderDeviceID: FriendSyncManager.shared.deviceID
+        )
+        let msg = ChallengeManager.shareMessage(payload: payload, language: appLanguage)
+
+        return ShareLink(item: url, message: Text(msg)) {
+            HStack(spacing: 4) {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(t("Challenge", "Πρόκληση", "Challenge"))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .foregroundColor(.black)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                Capsule()
+                    .fill(LinearGradient(
+                        colors: [.yellow, .orange.opacity(0.85)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    ))
+            )
+        }
+        .buttonStyle(.plain)
     }
 }

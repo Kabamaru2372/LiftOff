@@ -85,8 +85,10 @@ class DuelManager {
     static let shared = DuelManager()
 
     // MARK: Published state
-    /// The current active (or just-completed) duel for any pair.
-    var activeDuel: DuelRecord?       = nil
+    /// All currently active duels (one per friend pair, same day).
+    var activeDuels: [DuelRecord]     = []
+    /// Convenience: the first active duel, for backward-compat with DI / LiftOffApp code.
+    var activeDuel: DuelRecord?       { activeDuels.first }
     /// An incoming pending invite (I am the opponent).
     var pendingInvite: DuelRecord?    = nil
     /// A duel I sent that is still waiting for acceptance.
@@ -95,8 +97,12 @@ class DuelManager {
     var duelHistory: [DuelRecord]     = []
 
     // MARK: Rate limiting
-    /// Minimum seconds between actual network polls (prevents timer pile-ups)
+    /// Minimum seconds between polls when no duel is active.
     private let pollInterval: TimeInterval = 12
+    /// During an active duel we poll every 5 s so scores feel near-realtime.
+    private var effectivePollInterval: TimeInterval {
+        activeDuels.isEmpty ? pollInterval : 5.0
+    }
     private var lastPollDate: Date = .distantPast
     /// Last pickup count successfully pushed to Supabase (avoids redundant PATCHes)
     private var lastSyncedPickups: Int = -1
@@ -138,11 +144,14 @@ class DuelManager {
     ) async {
         let url = URL(string: "\(Self.supabaseURL)/rest/v1/duels")!
         let body: [String: Any] = [
-            "challenger_id":      myDeviceID,
-            "opponent_id":        opponent.deviceID,
-            "challenger_name":    myName.isEmpty ? "A friend" : myName,
-            "opponent_name":      opponent.name.isEmpty ? "A friend" : opponent.name,
-            "status":             "pending"
+            "challenger_id":        myDeviceID,
+            "opponent_id":          opponent.deviceID,
+            "challenger_name":      myName.isEmpty ? "A friend" : myName,
+            "opponent_name":        opponent.name.isEmpty ? "A friend" : opponent.name,
+            "status":               "pending",
+            // Persist the challenger's current count so the opponent sees a real
+            // score the moment they view the invite — before any pickup event fires.
+            "challenger_pickups":   myCurrentPickups
         ]
 
         var req = makeRequest(url: url, method: "POST")
@@ -203,10 +212,24 @@ class DuelManager {
         }
 
         await MainActor.run {
-            activeDuel   = updated
+            if !activeDuels.contains(where: { $0.id == updated.id }) {
+                activeDuels.append(updated)
+            } else {
+                activeDuels = activeDuels.map { $0.id == updated.id ? updated : $0 }
+            }
             pendingInvite = nil
+            // Reset so the guard in updateMyPickups() doesn't skip the upload
+            // even if this count matches a previous duel's lastSyncedPickups value.
+            lastSyncedPickups = -1
         }
         print("[Duel] ✅ Duel accepted, ends \(isoFrac.string(from: endOfDay))")
+
+        // Immediately sync the opponent's current pickup count to Supabase.
+        // poll() won't trigger updateMyPickups() automatically here because
+        // activeDuels is already populated (previouslyHadActiveDuel = true in
+        // every subsequent poll), so the normal "first discovery" path never fires.
+        let currentPickups = UserDefaults.standard.integer(forKey: "todayPickups")
+        await updateMyPickups(currentPickups)
 
         await sendPush(
             toDeviceID: duel.challengerId,
@@ -239,10 +262,9 @@ class DuelManager {
         print("[Duel] ❌ Sent duel cancelled: \(duel.id.prefix(8))…")
     }
 
-    /// Cancels an active duel. Used when the user wants to abandon an in-progress duel.
-    /// Sets status → "declined" so it disappears from both players' polls.
-    func cancelActiveDuel() async {
-        guard let duel = activeDuel, duel.status == .active else { return }
+    /// Cancels a specific active duel. Sets status → "declined" so it disappears from both players' polls.
+    func cancelActiveDuel(_ duel: DuelRecord) async {
+        guard duel.status == .active else { return }
         let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
         var req = makeRequest(url: URL(string: urlStr)!, method: "PATCH")
         req.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "declined"])
@@ -250,30 +272,36 @@ class DuelManager {
         _ = try? await URLSession.shared.data(for: req)
 
         await MainActor.run {
-            activeDuel = nil
-            NotificationCenter.default.post(name: .picksyDuelFinalized, object: nil)
+            activeDuels.removeAll { $0.id == duel.id }
+            if activeDuels.isEmpty {
+                NotificationCenter.default.post(name: .picksyDuelFinalized, object: nil)
+            }
         }
         print("[Duel] 🚫 Active duel cancelled: \(duel.id.prefix(8))…")
     }
 
-    /// Updates my pickup count in the active duel. Called on every pickup event.
+    /// Updates my pickup count across ALL active duels. Called on every pickup event.
     func updateMyPickups(_ pickups: Int) async {
-        guard let duel = activeDuel, duel.status == .active else { return }
+        guard !activeDuels.isEmpty else { return }
         // Skip if nothing changed — avoids hammering Supabase on every timer tick
         guard pickups != lastSyncedPickups else { return }
         lastSyncedPickups = pickups
 
-        let field = duel.amChallenger ? "challenger_pickups" : "opponent_pickups"
-        let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
-        var req = makeRequest(url: URL(string: urlStr)!, method: "PATCH")
-        req.setValue("return=representation", forHTTPHeaderField: "Prefer")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: [field: pickups])
+        for duel in activeDuels where duel.status == .active {
+            let field = duel.amChallenger ? "challenger_pickups" : "opponent_pickups"
+            let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
+            var req = makeRequest(url: URL(string: urlStr)!, method: "PATCH")
+            req.setValue("return=representation", forHTTPHeaderField: "Prefer")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: [field: pickups])
 
-        if let (data, resp) = try? await URLSession.shared.data(for: req),
-           let http = resp as? HTTPURLResponse, http.statusCode == 200,
-           let records = try? decoder.decode([DuelRecord].self, from: data),
-           let updated = records.first {
-            await MainActor.run { activeDuel = updated }
+            if let (data, resp) = try? await URLSession.shared.data(for: req),
+               let http = resp as? HTTPURLResponse, http.statusCode == 200,
+               let records = try? decoder.decode([DuelRecord].self, from: data),
+               let updated = records.first {
+                await MainActor.run {
+                    activeDuels = activeDuels.map { $0.id == updated.id ? updated : $0 }
+                }
+            }
         }
     }
 
@@ -284,7 +312,8 @@ class DuelManager {
         // Atomic check+set on MainActor prevents concurrent Tasks from all passing
         let proceed = await MainActor.run { () -> Bool in
             let now = Date()
-            guard now.timeIntervalSince(self.lastPollDate) >= self.pollInterval else { return false }
+            // Use shorter interval during active duels for near-realtime score updates
+            guard now.timeIntervalSince(self.lastPollDate) >= self.effectivePollInterval else { return false }
             self.lastPollDate = now   // claim the slot before any other Task can
             return true
         }
@@ -335,20 +364,15 @@ class DuelManager {
               let freshDuels = try? decoder.decode([DuelRecord].self, from: data2)
         else { return }
 
-        let todayStart = Calendar.current.startOfDay(for: Date())
+        let previouslyHadActiveDuel = await MainActor.run { !activeDuels.isEmpty }
 
-        let myActiveDuel = freshDuels.first { d -> Bool in
-            if d.status == .active { return true }
-            if d.status == .completed { return d.createdAt >= todayStart }
-            return false
-        }
-
-        let previouslyHadActiveDuel = await MainActor.run { activeDuel?.status == .active }
+        // All currently active duels I'm part of
+        let myActiveDuels = freshDuels.filter { $0.status == .active }
 
         await MainActor.run {
-            activeDuel = myActiveDuel
+            activeDuels = myActiveDuels
 
-            // Incoming pending invite (I am the opponent)
+            // Incoming pending invite (I am the opponent, first pending found)
             pendingInvite = freshDuels.first {
                 $0.status == .pending && $0.opponentId == myID
             }
@@ -364,9 +388,9 @@ class DuelManager {
                 .sorted { $0.createdAt > $1.createdAt }
         }
 
-        // If we just discovered an active duel for the first time, sync our pickup count.
+        // If we just discovered active duels for the first time, sync our pickup count.
         // The lastSyncedPickups guard in updateMyPickups prevents redundant PATCHes.
-        if myActiveDuel?.status == .active, !previouslyHadActiveDuel {
+        if !myActiveDuels.isEmpty, !previouslyHadActiveDuel {
             let pickups = UserDefaults.standard.integer(forKey: "todayPickups")
             await updateMyPickups(pickups)
         }

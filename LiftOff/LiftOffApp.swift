@@ -67,8 +67,9 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     var pendingZoneInsight: ZoneInsightData?
     var pendingUsageInsight: UsageInsightData?
 
-    static let zoneInsightRequestedNotification = Notification.Name("picksy.zoneInsightRequested")
-    static let usageInsightRequestedNotification = Notification.Name("picksy.usageInsightRequested")
+    static let zoneInsightRequestedNotification    = Notification.Name("picksy.zoneInsightRequested")
+    static let usageInsightRequestedNotification   = Notification.Name("picksy.usageInsightRequested")
+    static let milestoneDetailNotification         = Notification.Name("picksy.milestoneDetail")
 
     /// Set to true when a notification tap is about to trigger tab navigation.
     /// The foreground observer checks this so it doesn't override the notification's destination.
@@ -89,6 +90,25 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             handleZoneNotificationTap(userInfo: userInfo)
         } else if categoryId == "PICKSY_USAGE_THRESHOLD" {
             handleUsageNotificationTap(userInfo: userInfo)
+        } else if categoryId == "PICKSY_MESSAGE" || categoryId == "PICKSY_DUEL" {
+            DispatchQueue.main.async {
+                self.tabSelection?.selectedTab = 3  // Friends tab
+            }
+        } else if categoryId == "PICKSY_SCREEN_TIME_MILESTONE" {
+            let minutes = userInfo["milestoneMinutes"] as? Int ?? 60
+            let bodyEN  = userInfo["milestoneBodyEN"]  as? String ?? ""
+            let bodyGR  = userInfo["milestoneBodyGR"]  as? String ?? bodyEN
+            let bodyDE  = userInfo["milestoneBodyDE"]  as? String ?? bodyEN
+            let link    = (userInfo["milestoneLink"] as? String).flatMap { URL(string: $0) }
+            let data    = MilestoneNotificationData(
+                minutes: minutes, bodyEN: bodyEN, bodyGR: bodyGR, bodyDE: bodyDE, link: link
+            )
+            DispatchQueue.main.async {
+                self.tabSelection?.selectedTab = 0
+                NotificationCenter.default.post(
+                    name: Self.milestoneDetailNotification, object: data
+                )
+            }
         } else if identifier == "liftoff.midday"
                || identifier == "picksy.summary.afternoon"
                || identifier == "picksy.morning.wakeup"
@@ -178,7 +198,8 @@ struct LiftOffApp: App {
 
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
     @State private var foregroundObserver: NSObjectProtocol? = nil
-    @State private var pendingChallenge: ChallengePayload? = nil
+    @State private var pendingChallenge:  ChallengePayload?           = nil
+    @State private var pendingMilestone:  MilestoneNotificationData?  = nil
 
     static var sharedStore: DataStore?
     static var sharedLiveActivity: LiveActivityManager?
@@ -217,6 +238,12 @@ struct LiftOffApp: App {
                     .sheet(item: $pendingChallenge) { payload in
                         ChallengeReceivedView(payload: payload)
                             .environment(store)
+                    }
+                    .sheet(item: $pendingMilestone) { data in
+                        MilestoneDetailView(
+                            data: data,
+                            language: UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+                        )
                     }
                     .onAppear {
                         LiftOffApp.sharedStore = store
@@ -264,7 +291,26 @@ struct LiftOffApp: App {
         startAutoTrialIfNeeded()
         NotificationDelegate.shared.tabSelection = tabSelection
 
-        Task { await weatherManager.fetchWeather() }
+        Task {
+            await weatherManager.fetchWeather()
+            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+            ScreenTimeMilestoneNotifier.shared.scheduleUpcoming(
+                totalSeconds: store.todayTotalSeconds,
+                weather: weatherManager.activeCondition,
+                language: lang
+            )
+        }
+
+        // Show MilestoneDetailView when user taps a milestone notification
+        NotificationCenter.default.addObserver(
+            forName: NotificationDelegate.milestoneDetailNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let data = notification.object as? MilestoneNotificationData {
+                pendingMilestone = data
+            }
+        }
 
         // Poll duel state on launch, sync pickup count, then refresh DI immediately
         Task {
@@ -310,6 +356,7 @@ struct LiftOffApp: App {
             }
 
             store.recordPickup()
+            hourlyTracker.recordPickup()
             focusSessionManager.onPickup(currentPickups: store.todayPickups)
 
             // Upload updated status to Supabase on every pickup (rate-limited by hasPairs guard)
@@ -371,15 +418,24 @@ struct LiftOffApp: App {
         }
         ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in
             store.addUsageTime(seconds: seconds)
+            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+            ScreenTimeMilestoneNotifier.shared.checkAndFire(
+                totalSeconds: store.todayTotalSeconds,
+                weather: weatherManager.activeCondition,
+                language: lang
+            )
             print("[ScreenTime] ⏱ Session ended: \(seconds)s, total today: \(store.todayTotalSeconds)s, last2h: \(store.screenTimeLastTwoHours)s")
         }
         ScreenUnlockDetector.shared.startMonitoring()
         detector.startMonitoring()
 
+        // Single immediate load. The 20 s safety net only fires if the extension
+        // failed to render on first attempt; by then the process is warm so the
+        // re-render completes in < 1 s without a visible blank.
+        // NudgeView and AppsView no longer add their own immediate refresh calls,
+        // so this is the only trigger on cold start.
         AppsViewRefreshTrigger.shared.refresh()
-        AppsViewRefreshTrigger.shared.refreshAfter(seconds: 0.5)
-        AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
-        AppsViewRefreshTrigger.shared.refreshAfter(seconds: 3.0)
+        AppsViewRefreshTrigger.shared.refreshAfter(seconds: 20.0)
 
         PushNotificationManager.shared.registerForPushNotifications()
 
@@ -458,10 +514,8 @@ struct LiftOffApp: App {
             DispatchQueue.main.async {
                 if NotificationDelegate.shared.didNavigateViaNotification {
                     NotificationDelegate.shared.didNavigateViaNotification = false
-                } else if let duel = DuelManager.shared.activeDuel,
-                          duel.status == .active || duel.status == .completed {
+                } else if DuelManager.shared.activeDuel?.status == .active {
                     // Active duel → user may have tapped DI score
-                    // Completed duel → user tapped "duel ended" notification → show result
                     tabSelection.selectedTab = 3
                 } else {
                     tabSelection.selectedTab = 0
@@ -502,9 +556,7 @@ struct LiftOffApp: App {
             // so the 21:00 message reflects actual day data
             scheduleAllNotifications(pickupCount: store.todayPickups)
 
-            AppsViewRefreshTrigger.shared.refresh()
-            AppsViewRefreshTrigger.shared.refreshAfter(seconds: 0.5)
-            AppsViewRefreshTrigger.shared.refreshAfter(seconds: 1.5)
+            // Single retry after 3s — avoids killing an in-progress extension render
             AppsViewRefreshTrigger.shared.refreshAfter(seconds: 3.0)
 
             Task {
@@ -514,8 +566,11 @@ struct LiftOffApp: App {
                 // Ensure our public key is always up-to-date in Supabase
                 // so friends can send us encrypted messages
                 await MessagingManager.shared.uploadPublicKey()
-                // Poll duel state on foreground, then refresh Dynamic Island with latest scores
+                // Poll duel state on foreground, sync our pickup count, then refresh DI.
+                // updateMyPickups() ensures that whoever brings the app to foreground
+                // immediately uploads their real count — important right after a duel starts.
                 await DuelManager.shared.poll()
+                await DuelManager.shared.updateMyPickups(store.todayPickups)
                 if let duel = DuelManager.shared.activeDuel, duel.status == .active,
                    !focusSessionManager.isActive {
                     liveActivity.updateForDuel(
@@ -525,6 +580,14 @@ struct LiftOffApp: App {
                         theirPickups: duel.theirPickups
                     )
                 }
+                // Re-schedule upcoming milestones on every foreground event
+                // (ensures correct timing after the phone was idle / locked)
+                let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+                ScreenTimeMilestoneNotifier.shared.scheduleUpcoming(
+                    totalSeconds: store.todayTotalSeconds,
+                    weather: weatherManager.activeCondition,
+                    language: lang
+                )
             }
 
             // Friend sync — upload own status & check if any pair is also overusing
