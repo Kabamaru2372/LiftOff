@@ -95,21 +95,17 @@ struct NudgeView: View {
     }
 
     private var todayFilter: DeviceActivityFilter {
-        // Mirror the Apps tab EXACTLY: same day interval AND the same
-        // selected-apps/categories scope. Previously this filter omitted the
-        // selection, so the hosted Top-3 report summed ALL apps while the Apps
-        // tab summed only the tracked ones — two different totals written to the
-        // App Group. Matching the filter makes the screen-time total identical
-        // on both screens (and the Top-3 list now reflects the tracked apps).
-        let selection = AppSelectionStore.shared.selection
-        return DeviceActivityFilter(
+        // NO app/category filter on purpose: this hosted report computes the
+        // WHOLE-DEVICE screen-time total (all apps) for today, which is what
+        // users understand as "screen time". That total (always ≥ the Apps
+        // tab's selected-apps total) becomes the canonical value persisted to
+        // the App Group and shown on the Nudge and Stats screens.
+        DeviceActivityFilter(
             segment: .daily(
                 during: Calendar.current.dateInterval(of: .day, for: Date())!
             ),
             users: .all,
-            devices: .init([.iPhone]),
-            applications: selection.applicationTokens,
-            categories: selection.categoryTokens
+            devices: .init([.iPhone])
         )
     }
 

@@ -38,7 +38,7 @@ struct ActivityReport {
 
 // MARK: - Helper για data extraction
 
-private func extractReport(from data: DeviceActivityResults<DeviceActivityData>, limit: Int? = nil) async -> ActivityReport {
+private func extractReport(from data: DeviceActivityResults<DeviceActivityData>, limit: Int? = nil, persistDeviceTotal: Bool = false) async -> ActivityReport {
     var totalDuration: TimeInterval = 0
     var apps: [AppUsageData] = []
 
@@ -68,15 +68,17 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
 
     apps.sort { $0.duration > $1.duration }
 
-    // Persist the TRUE total to the App Group so the main app (Stats tab, Nudge
-    // screen, Watch, Friends/Duel scores) can display the exact same number the
-    // Apps tab shows. Without this, those surfaces only had a threshold-based
-    // lower bound (e.g. "1h" while the Apps tab showed "6h").
+    // Persist the WHOLE-DEVICE total to the App Group so the main app (Stats
+    // tab, Nudge screen, Watch, Friends/Duel scores) shows the total screen
+    // time across all apps — what users understand as "screen time".
     //
-    // Note: totalDuration is the full selected-apps total regardless of the
-    // `limit` (which only trims the per-app list), so both the Total and Top-3
-    // report contexts write a correct value.
-    persistTotalToAppGroup(totalDuration)
+    // Only the all-apps context (the Nudge's Top-3 report, which uses a filter
+    // WITHOUT an app/category restriction) persists. The Apps tab's report is
+    // scoped to the user's selected apps, so its smaller total must NOT become
+    // the canonical "screen time" value.
+    if persistDeviceTotal {
+        persistTotalToAppGroup(totalDuration)
+    }
 
     if let limit = limit {
         apps = Array(apps.prefix(limit))
@@ -85,9 +87,9 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
     return ActivityReport(totalDuration: totalDuration, apps: apps)
 }
 
-/// Writes today's authoritative screen-time total (seconds) to the shared App
+/// Writes today's whole-device screen-time total (seconds) to the shared App
 /// Group, stamped with today's date. The main app reads it back as the
-/// highest-priority source for `bestScreenTimeSecs`.
+/// canonical "screen time" value shown on the Nudge and Stats screens.
 private func persistTotalToAppGroup(_ totalDuration: TimeInterval) {
     guard let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") else { return }
 
@@ -115,7 +117,7 @@ private func persistTotalToAppGroup(_ totalDuration: TimeInterval) {
     // Cross-process UserDefaults writes don't trigger SwiftUI updates on their
     // own — DataStore observes this Darwin notification and re-reads the value,
     // so the Stats tab, Nudge screen, Watch and Friends/Duel scores all refresh
-    // to the exact same number the Apps tab shows.
+    // to the same whole-device screen-time total.
     if changed {
         CFNotificationCenterPostNotification(
             CFNotificationCenterGetDarwinNotifyCenter(),
@@ -143,7 +145,9 @@ struct Top3ActivityReport: DeviceActivityReportScene {
     let content: (ActivityReport) -> Top3ActivityView
 
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
-        await extractReport(from: data, limit: 3)
+        // This context is hosted by the Nudge with an all-apps filter, so its
+        // total is the whole-device screen time → persist it as canonical.
+        await extractReport(from: data, limit: 3, persistDeviceTotal: true)
     }
 }
 
