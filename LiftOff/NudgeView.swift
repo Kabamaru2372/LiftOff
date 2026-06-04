@@ -600,8 +600,9 @@ struct NudgeView: View {
 
     private var topAppsCard: some View {
         Button(action: {
-            // Explicit navigation — force refresh bypasses the cooldown
-            AppsViewRefreshTrigger.shared.forceRefresh()
+            // Just navigate — the Apps tab's onAppear syncs the report scope.
+            // We deliberately do NOT force a rebuild here: that tore the report
+            // view down on every tap and caused the blank-card flash.
             withAnimation { tabSelection.selectedTab = 2 }
         }) {
             VStack(alignment: .leading, spacing: 10) {
@@ -619,7 +620,7 @@ struct NudgeView: View {
                 }
 
                 DeviceActivityReport(.top3Activity, filter: todayFilter)
-                    .id(refreshTrigger.refreshID)
+                    .id(refreshTrigger.reportIdentity)
                     .frame(height: 110)
                     .allowsHitTesting(false)
             }

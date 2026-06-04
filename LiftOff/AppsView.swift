@@ -249,7 +249,7 @@ struct AppsView: View {
 
     private var reportView: some View {
         DeviceActivityReport(.totalActivity, filter: todayFilter)
-            .id(refreshTrigger.refreshID)
+            .id(refreshTrigger.reportIdentity)
             .padding(.horizontal, 16)
     }
 
