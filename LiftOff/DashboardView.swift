@@ -281,7 +281,7 @@ struct DashboardView: View {
             .frame(height: 112)
 
             // ── Row 2: Picksy Score ───────────────────────────────────
-            let score = store.todayPickups + (store.todayTotalSeconds / 60) * 5
+            let score = store.todayPickups + (store.bestScreenTimeSecs / 60) * 5
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
@@ -325,7 +325,7 @@ struct DashboardView: View {
     }
 
     private var todayScreenTimeLabel: String {
-        let secs = store.todayTotalSeconds
+        let secs = store.bestScreenTimeSecs
         if secs == 0 { return "—" }
         let h = secs / 3600
         let m = (secs % 3600) / 60
@@ -334,7 +334,7 @@ struct DashboardView: View {
     }
 
     private var screenTimeAccentColor: Color {
-        let mins = store.todayTotalSeconds / 60
+        let mins = store.bestScreenTimeSecs / 60
         if mins == 0   { return .secondary }
         if mins < 60   { return .green }
         if mins < 120  { return .blue }
