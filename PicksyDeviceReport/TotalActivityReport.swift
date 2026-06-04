@@ -38,7 +38,7 @@ struct ActivityReport {
 
 // MARK: - Helper για data extraction
 
-private func extractReport(from data: DeviceActivityResults<DeviceActivityData>, limit: Int? = nil, persistDeviceTotal: Bool = false) async -> ActivityReport {
+private func extractReport(from data: DeviceActivityResults<DeviceActivityData>, limit: Int? = nil) async -> ActivityReport {
     var totalDuration: TimeInterval = 0
     var apps: [AppUsageData] = []
 
@@ -72,13 +72,14 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
     // tab, Nudge screen, Watch, Friends/Duel scores) shows the total screen
     // time across all apps — what users understand as "screen time".
     //
-    // Only the all-apps context (the Nudge's Top-3 report, which uses a filter
-    // WITHOUT an app/category restriction) persists. The Apps tab's report is
-    // scoped to the user's selected apps, so its smaller total must NOT become
-    // the canonical "screen time" value.
-    if persistDeviceTotal {
-        persistTotalToAppGroup(totalDuration)
-    }
+    // IMPORTANT: `segment.totalActivityDuration` is the whole-device total for
+    // the day regardless of the report's app/category filter (the filter only
+    // scopes the per-app list, not the segment total). So BOTH report contexts
+    // — the Apps tab's filtered report and the Nudge's all-apps report —
+    // produce the same device total here, and both persist it. This is what
+    // lets the Apps tab show the correct total independent of which apps are
+    // selected, and we mirror that exact number to the App Group.
+    persistTotalToAppGroup(totalDuration)
 
     if let limit = limit {
         apps = Array(apps.prefix(limit))
@@ -145,9 +146,7 @@ struct Top3ActivityReport: DeviceActivityReportScene {
     let content: (ActivityReport) -> Top3ActivityView
 
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
-        // This context is hosted by the Nudge with an all-apps filter, so its
-        // total is the whole-device screen time → persist it as canonical.
-        await extractReport(from: data, limit: 3, persistDeviceTotal: true)
+        await extractReport(from: data, limit: 3)
     }
 }
 

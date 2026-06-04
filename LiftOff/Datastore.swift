@@ -34,65 +34,56 @@ class DataStore {
         return hourlyScreenTimeSecs[hour] + hourlyScreenTimeSecs[prev]
     }
 
+    /// Bumped every time an extension reports a new confirmed screen-time value
+    /// (via the Darwin "screenTimeUpdated" notification, foreground, onAppear,
+    /// or the Nudge timer). The confirmed-time computed properties below read
+    /// this tick so that mutating it forces @Observable-tracked views to
+    /// re-evaluate — a plain UserDefaults read is NOT observable on its own, so
+    /// without this a cross-process write would never refresh the UI.
+    private var screenTimeRefreshTick: Int = 0
+
     /// Screen time confirmed by Apple's DeviceActivity threshold events.
     /// These fire in the background even when Picksy is suspended — unlike
     /// ScreenUnlockDetector which only works while the app is alive.
     ///
-    /// IMPORTANT: this is a STORED @Observable property, not a computed one.
-    /// The value is written to the App Group by the DeviceActivityMonitor
-    /// extension (a separate process), and cross-process UserDefaults writes do
-    /// NOT trigger SwiftUI updates. We mirror it into this stored property via
-    /// refreshConfirmedScreenTime() so every view re-renders consistently.
-    var appleConfirmedScreenTimeSecs: Int = 0
+    /// Computed (live read) so it can never get stuck at a stale 0: it always
+    /// reflects whatever the extension last wrote to the App Group. The tick
+    /// read makes the access @Observable so views refresh on cross-process
+    /// writes.
+    var appleConfirmedScreenTimeSecs: Int {
+        _ = screenTimeRefreshTick
+        return defaults.integer(forKey: "picksy_apple_screen_time_secs")
+    }
 
-    /// The EXACT screen-time total shown on the Apps tab, written to the App
-    /// Group by the DeviceActivityReport extension (`PicksyDeviceReport`).
-    /// This is Apple's authoritative number — the same one the Apps tab renders.
-    ///
-    /// Also a STORED @Observable property (see note above) — refreshed from the
-    /// App Group via refreshConfirmedScreenTime(). Stays 0 until the report has
-    /// rendered at least once today (Apps tab or Nudge screen, both of which
-    /// host a DeviceActivityReport).
-    var reportConfirmedScreenTimeSecs: Int = 0
+    /// The whole-device screen-time total written to the App Group by the
+    /// DeviceActivityReport extension (`PicksyDeviceReport`) — the same number
+    /// the Apps tab shows. Date-guarded so a value from a previous day is never
+    /// shown. Returns 0 only until the report has rendered at least once today.
+    var reportConfirmedScreenTimeSecs: Int {
+        _ = screenTimeRefreshTick
+        let storedDate = defaults.string(forKey: "picksy_report_screen_time_date")
+        guard storedDate == todayDateString() else { return 0 }
+        return defaults.integer(forKey: "picksy_report_screen_time_secs")
+    }
 
     /// Best-estimate total screen time for today — the single source of truth
     /// for EVERY screen-time display in the app (Stats tab, Nudge, Watch,
     /// Friends/Duel scores), kept consistent with the Apps tab.
     ///
     /// Takes the maximum of:
-    ///   • reportConfirmedScreenTimeSecs (Apple's exact total — matches Apps tab)
+    ///   • reportConfirmedScreenTimeSecs (whole-device total — matches Apps tab)
     ///   • appleConfirmedScreenTimeSecs (Apple threshold events — lower bound,
     ///     available even before the report has rendered)
     ///   • todayTotalSeconds (ScreenUnlockDetector — accurate only while alive)
-    ///
-    /// This fixes the "31 min vs 6 hours" discrepancy where the app was suspended
-    /// during most of the user's phone session, AND guarantees cross-tab
-    /// consistency once the report has rendered.
     var bestScreenTimeSecs: Int {
         max(todayTotalSeconds, max(appleConfirmedScreenTimeSecs, reportConfirmedScreenTimeSecs))
     }
 
-    /// Re-reads the Apple-confirmed (threshold) and report-confirmed (Apps-tab
-    /// total) screen-time values from the App Group into the stored @Observable
-    /// properties above. Cross-process writes from the extensions don't notify
-    /// SwiftUI on their own, so this MUST be called whenever a screen-time
-    /// display might be on-screen: app foreground, the Darwin "screenTimeUpdated"
-    /// notification, the Nudge refresh timer, and each relevant view's onAppear.
+    /// Forces the confirmed-time computed properties to re-publish so any
+    /// on-screen view picks up a fresh cross-process write. Safe to call often;
+    /// it just bumps the observable tick (the actual values are read live).
     func refreshConfirmedScreenTime() {
-        let apple = defaults.integer(forKey: "picksy_apple_screen_time_secs")
-
-        let reportDate = defaults.string(forKey: "picksy_report_screen_time_date")
-        let report = (reportDate == todayDateString())
-            ? defaults.integer(forKey: "picksy_report_screen_time_secs")
-            : 0
-
-        // Only assign on change to avoid redundant @Observable invalidations.
-        if apple != appleConfirmedScreenTimeSecs {
-            appleConfirmedScreenTimeSecs = apple
-        }
-        if report != reportConfirmedScreenTimeSecs {
-            reportConfirmedScreenTimeSecs = report
-        }
+        screenTimeRefreshTick &+= 1
     }
 
     private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
@@ -295,9 +286,9 @@ class DataStore {
         defaults.set(0, forKey: "picksy_report_screen_time_secs")
         defaults.removeObject(forKey: "picksy_report_screen_time_date")
 
-        // Mirror the reset into the stored @Observable props so views update.
-        appleConfirmedScreenTimeSecs = 0
-        reportConfirmedScreenTimeSecs = 0
+        // Values are read live from the (now-zeroed) App Group; bump the tick
+        // so any on-screen view re-publishes immediately.
+        screenTimeRefreshTick &+= 1
 
         // v1.6: Clear last pickup timestamp στο NudgeView
         UserDefaults.standard.removeObject(forKey: "lastPickupTimestamp")
@@ -440,9 +431,9 @@ class DataStore {
             // Reset report-confirmed total for the new day.
             defaults.set(0, forKey: "picksy_report_screen_time_secs")
             defaults.removeObject(forKey: "picksy_report_screen_time_date")
-            // Mirror into the stored @Observable props so views update at midnight.
-            appleConfirmedScreenTimeSecs = 0
-            reportConfirmedScreenTimeSecs = 0
+            // Values are read live from the (now-zeroed) App Group; bump the
+            // tick so any on-screen view re-publishes at midnight.
+            screenTimeRefreshTick &+= 1
             saveData()
             WidgetCenter.shared.reloadAllTimelines()
         } else if lastDate == "" {

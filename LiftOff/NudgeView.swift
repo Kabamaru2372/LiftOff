@@ -828,6 +828,9 @@ struct NudgeView: View {
         refreshTimer?.invalidate()
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
             updateMinutesSinceLastPickup()
+            // Safety net: pull the latest whole-device total each minute in case
+            // the cross-process Darwin notification was missed.
+            store.refreshConfirmedScreenTime()
         }
     }
 }
