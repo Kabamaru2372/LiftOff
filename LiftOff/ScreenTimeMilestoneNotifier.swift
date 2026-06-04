@@ -126,7 +126,99 @@ final class ScreenTimeMilestoneNotifier {
         }
     }
 
-    // MARK: - App Group bridge (accurate, background firing)
+    // MARK: - Continuous-session milestones (intent-matching path)
+    //
+    // The user wants a notification after N minutes of CONTINUOUS use, with the
+    // counter resetting on lock — NOT a cumulative daily total. We schedule a
+    // one-shot local notification per threshold at the moment of unlock; if the
+    // screen locks first, cancelContinuousSession() removes the pending ones so
+    // they never fire. Firing (UNTimeIntervalNotificationTrigger) is reliable even
+    // when the app is suspended; cancellation on lock is best-effort (re-cleared
+    // on the next unlock) for the case where iOS suspended us deep inside another
+    // app before delivering the lock event.
+
+    /// Threshold levels in minutes (from the user's preset) + the activity-bank
+    /// bucket used to pick a "what you could do instead" message.
+    private func presetLevels() -> [(minutes: Int, bucket: Int)] {
+        let m: (Int, Int, Int)
+        switch UserDefaults.standard.string(forKey: "picksyThresholdPreset") ?? "light" {
+        case "moderate": m = (45, 90, 120)
+        case "strict":   m = (30, 60, 90)
+        default:         m = (60, 120, 180)   // light
+        }
+        return [(m.0, 60), (m.1, 120), (m.2, 180)]
+    }
+
+    private func sessionIdentifier(_ minutes: Int) -> String { "picksy.session.\(minutes)" }
+
+    /// Call on each unlock (continuous-session start). Schedules one notification
+    /// per threshold of CONTINUOUS use, counting from now.
+    func scheduleContinuousSession(weather: WeatherCondition, language: String) {
+        cancelContinuousSession()   // clear any previous session's pending alerts
+
+        for level in presetLevels() {
+            let activity = pickActivity(minutes: level.bucket, weather: weather)
+            let (title, body) = continuousStrings(minutes: level.minutes,
+                                                  activity: activity,
+                                                  language: language)
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body  = body
+            content.sound = .default
+            content.categoryIdentifier = "PICKSY_SCREEN_TIME_MILESTONE"
+
+            var info: [AnyHashable: Any] = [
+                "milestoneMinutes": level.minutes,
+                "milestoneBodyEN":  activity.bodyEN,
+                "milestoneBodyGR":  activity.bodyGR,
+                "milestoneBodyDE":  activity.bodyDE
+            ]
+            if let link = activity.link { info["milestoneLink"] = link.absoluteString }
+            content.userInfo = info
+
+            let trigger = UNTimeIntervalNotificationTrigger(
+                timeInterval: TimeInterval(level.minutes * 60),
+                repeats: false
+            )
+            let request = UNNotificationRequest(
+                identifier: sessionIdentifier(level.minutes),
+                content: content,
+                trigger: trigger
+            )
+            UNUserNotificationCenter.current().add(request) { err in
+                if let err { print("[Session] ❌ \(err.localizedDescription)") }
+                else       { print("[Session] ⏳ Scheduled \(level.minutes)min continuous-use alert") }
+            }
+        }
+    }
+
+    /// Call on lock (session end) — and defensively on the next unlock. Removes
+    /// pending continuous-use alerts that haven't fired yet: the session didn't
+    /// last long enough, so they must not fire.
+    func cancelContinuousSession() {
+        let ids = presetLevels().map { sessionIdentifier($0.minutes) }
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: ids)
+        print("[Session] 🗑 Cancelled pending continuous-use alerts")
+    }
+
+    private func continuousStrings(minutes: Int, activity: MilestoneActivity, language: String) -> (String, String) {
+        let hours = minutes / 60
+        let mins  = minutes % 60
+        switch language {
+        case "Ελληνικά":
+            let dur = hours > 0 && mins == 0 ? "\(hours) \(hours == 1 ? "ώρα" : "ώρες")" : "\(minutes) λεπτά"
+            return ("\(dur) συνεχόμενα στο κινητό 📱", "Σε αυτόν τον χρόνο μπορούσες να \(activity.bodyGR).")
+        case "Deutsch":
+            let dur = hours > 0 && mins == 0 ? "\(hours) \(hours == 1 ? "Stunde" : "Stunden")" : "\(minutes) Minuten"
+            return ("\(dur) am Stück am Handy 📱", "In dieser Zeit hättest du \(activity.bodyDE) können.")
+        default:
+            let dur = hours == 1 ? "1 hour" : hours > 1 ? "\(hours) hours" : "\(minutes) min"
+            return ("\(dur) straight on your phone 📱", "In that time you could have \(activity.bodyEN).")
+        }
+    }
+
+    // MARK: - App Group bridge (legacy cumulative path — no longer wired)
 
     /// Pre-computes the smart, weather/time-aware milestone message for each of
     /// the three usage-threshold levels and writes it to the App Group, so the

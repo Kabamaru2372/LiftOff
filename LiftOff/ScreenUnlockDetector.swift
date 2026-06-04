@@ -87,6 +87,12 @@ class ScreenUnlockDetector {
     /// Χρησιμοποιείται για screen time tracking.
     var onScreenSessionEnded: ((Int) -> Void)?
 
+    /// Καλείται σε ΚΑΘΕ unlock (πριν το pickup cooldown), δηλαδή στην αρχή κάθε
+    /// συνεχόμενης χρήσης οθόνης. Χρησιμοποιείται για τις ειδοποιήσεις
+    /// "συνεχόμενης χρήσης" (continuous-use), που προγραμματίζονται από αυτή τη
+    /// στιγμή και ακυρώνονται στο lock.
+    var onScreenSessionStarted: (() -> Void)?
+
     /// Timestamp που ξεκίνησε η τρέχουσα screen session (unlock time).
     private var sessionStartTime: Date?
 
@@ -148,6 +154,12 @@ class ScreenUnlockDetector {
     @objc private func handlePotentialPickup(_ notification: Notification) {
         let now = Date()
         let timeSinceLast = now.timeIntervalSince(lastPickupTime)
+
+        // Continuous-use session START — fires on EVERY unlock (independent of the
+        // pickup cooldown). Restarts the continuous clock from this moment.
+        DispatchQueue.main.async { [weak self] in
+            self?.onScreenSessionStarted?()
+        }
 
         // Cooldown check
         guard timeSinceLast > cooldownSeconds else {

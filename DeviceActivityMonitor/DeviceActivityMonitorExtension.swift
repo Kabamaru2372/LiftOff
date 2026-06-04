@@ -76,10 +76,14 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         super.eventDidReachThreshold(event, activity: activity)
         log("🎯 Event threshold reached: \(event.rawValue)")
 
-        // Usage milestone (screen-time) — accurate, background, NOT a pickup.
+        // Cumulative usage thresholds (picksy.threshold.levelN) are NO LONGER used
+        // for notifications. Screen-time alerts moved to a CONTINUOUS-use model
+        // (scheduled in-app from each unlock, cancelled on lock) because the
+        // cumulative daily total does not match user intent ("1 hour straight",
+        // not "1 hour total across the day"). We still must NOT count these as
+        // pickups — that was the old inflation bug.
         if event.rawValue.hasPrefix("picksy.threshold.level") {
-            let level = Int(String(event.rawValue.suffix(1))) ?? 0
-            fireScreenTimeMilestone(level: level)
+            log("ℹ️ Ignoring cumulative usage threshold \(event.rawValue) (continuous-session model)")
             return
         }
 
