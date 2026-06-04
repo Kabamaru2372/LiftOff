@@ -90,12 +90,6 @@ tmp/
 # Screenshots folder (not used currently)
 Screenshots/
 
-# Screenshots folder (not used currently)
-Screenshots/
-
-# Screenshots folder (not used currently)
-Screenshots/
-
 # Supabase CLI tooling state
 supabase/.temp/
 
