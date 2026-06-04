@@ -10,6 +10,8 @@ import SwiftUI
 @main
 struct Picksy_Watch_Watch_AppApp: App {
 
+    @Environment(\.scenePhase) private var scenePhase
+
     init() {
         // Start listening for data pushed from the iPhone.
         WatchConnectivityManager.shared.activate()
@@ -21,6 +23,16 @@ struct Picksy_Watch_Watch_AppApp: App {
         WindowGroup {
             ContentView()
                 .background(Color.black.ignoresSafeArea())
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // ⚡️ Battery: only track motion while the app is in the foreground.
+            // When the watch face drops / app backgrounds, stop the pedometer so
+            // nothing runs in the background.
+            switch phase {
+            case .active:                 MotionRewardManager.shared.start()
+            case .inactive, .background:  MotionRewardManager.shared.pause()
+            @unknown default:             break
+            }
         }
     }
 }
