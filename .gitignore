@@ -98,3 +98,9 @@ Screenshots/
 
 # Supabase CLI tooling state
 supabase/.temp/
+
+# Local AI tooling & generated artifacts (not part of the app)
+.claude/
+CLAUDE.md
+graphify-out/
+.cache/
