@@ -60,13 +60,24 @@ struct NudgeView: View {
         }
     }
 
-    private var goalProgress: Double {
+    /// Uncapped progress toward the personal daily goal (can exceed 1.0).
+    private var goalRatio: Double {
         let goal = dailyGoal > 0 ? dailyGoal : 50
-        return min(Double(store.todayPickups) / Double(goal), 1.0)
+        return Double(store.todayPickups) / Double(goal)
+    }
+
+    private var goalProgress: Double {
+        min(goalRatio, 1.0)
+    }
+
+    /// Home-screen zone is GOAL-relative (color + badge follow how close you are
+    /// to YOUR daily goal), not the absolute research zones used elsewhere.
+    private var goalZone: PickupZone {
+        PickupZone.goalZone(progress: goalRatio)
     }
 
     private var zoneColor: Color {
-        store.currentZone.color
+        goalZone.color
     }
 
     private var timeOfDay: TimeOfDay {
@@ -233,7 +244,7 @@ struct NudgeView: View {
             }
             // Zone badge pulse (only in danger zone)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                badgePulse = store.currentZone == .problematic || store.currentZone == .heavy
+                badgePulse = goalZone == .problematic || goalZone == .heavy
             }
 
             // C4 fix: save the token so onDisappear can properly remove this observer.
@@ -264,7 +275,7 @@ struct NudgeView: View {
                         }
                     }
                     // Update danger zone pulse
-                    badgePulse = store.currentZone == .problematic || store.currentZone == .heavy
+                    badgePulse = goalZone == .problematic || goalZone == .heavy
                 }
             }
         }
@@ -471,7 +482,7 @@ struct NudgeView: View {
 
                 // Zone badge + info — inside the ring so nothing overflows below
                 HStack(spacing: 5) {
-                    Text(store.currentZone.displayName(language: appLanguage))
+                    Text(goalZone.goalDisplayName(language: appLanguage))
                         .font(.system(size: 10, weight: .semibold, design: .rounded))
                         .foregroundColor(.white)
                         .padding(.horizontal, 7)
@@ -479,7 +490,7 @@ struct NudgeView: View {
                         .background(Capsule().fill(zoneColor.opacity(0.80)))
                         .scaleEffect(badgePulse ? 1.08 : 1.0)
                         .animation(
-                            store.currentZone == .problematic || store.currentZone == .heavy
+                            goalZone == .problematic || goalZone == .heavy
                                 ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true)
                                 : .default,
                             value: badgePulse
@@ -502,7 +513,7 @@ struct NudgeView: View {
                 .frame(width: 200, height: 200)
                 .blur(radius: 30)
                 .animation(
-                    store.currentZone == .problematic || store.currentZone == .heavy
+                    goalZone == .problematic || goalZone == .heavy
                         ? .easeInOut(duration: 1.4).repeatForever(autoreverses: true)
                         : .easeOut(duration: 0.7),
                     value: badgePulse
