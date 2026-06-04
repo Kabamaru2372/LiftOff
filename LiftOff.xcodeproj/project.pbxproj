@@ -207,8 +207,6 @@
 		};
 		4815EB162FD0C1C6006BBA38 /* Picksy Watch Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = "Picksy Watch Watch App";
 			sourceTree = "<group>";
 		};
