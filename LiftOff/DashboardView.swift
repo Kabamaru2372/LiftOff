@@ -149,6 +149,11 @@ struct DashboardView: View {
             }
             .padding(.horizontal, 24)
         }
+        .onAppear {
+            // Pull the latest Apps-tab total from the App Group so the Screen
+            // Time card and Picksy Score match every other surface on entry.
+            store.refreshConfirmedScreenTime()
+        }
         .sheet(item: $shareItem) { item in
             ShareStatsSheet(image: item.image, language: appLanguage)
         }

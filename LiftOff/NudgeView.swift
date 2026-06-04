@@ -221,6 +221,14 @@ struct NudgeView: View {
         .onAppear {
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
             updateMinutesSinceLastPickup()
+            // Pull the latest confirmed screen-time total from the App Group so
+            // the score pill matches the Stats tab and Apps tab immediately.
+            // The hosted Top-3 DeviceActivityReport (separate process) needs a
+            // few seconds to warm up and write today's total; the Darwin
+            // notification handles that, and these delayed reads are a safety net.
+            store.refreshConfirmedScreenTime()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { store.refreshConfirmedScreenTime() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 7) { store.refreshConfirmedScreenTime() }
             startRefreshTimer()
             checkTogetherBanner()
             displayPickups = store.todayPickups   // seed ring counter on every appear

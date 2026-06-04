@@ -105,10 +105,24 @@ private func persistTotalToAppGroup(_ totalDuration: TimeInterval) {
 
     // Screen time only grows during a day; never let a transient smaller read
     // (e.g. a partial extension load) shrink the displayed total.
+    let changed = (totalSecs > baseline) || (storedDate != today)
     if totalSecs >= baseline {
         defaults.set(totalSecs, forKey: "picksy_report_screen_time_secs")
     }
     defaults.set(today, forKey: "picksy_report_screen_time_date")
+
+    // Notify the main app (a separate process) that a fresh total is available.
+    // Cross-process UserDefaults writes don't trigger SwiftUI updates on their
+    // own — DataStore observes this Darwin notification and re-reads the value,
+    // so the Stats tab, Nudge screen, Watch and Friends/Duel scores all refresh
+    // to the exact same number the Apps tab shows.
+    if changed {
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
+            nil, nil, true
+        )
+    }
 }
 
 // MARK: - Total Activity Report (full list)

@@ -487,6 +487,14 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         if confirmedSecs > current {
             defaults.set(confirmedSecs, forKey: "picksy_apple_screen_time_secs")
             log("📊 Apple screen time confirmed: ≥\(confirmedSecs / 60)min (\(eventName), preset: \(presetRaw))")
+
+            // Tell the main app to re-read the confirmed value so any on-screen
+            // total (Nudge, Stats) refreshes immediately if the app is alive.
+            CFNotificationCenterPostNotification(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
+                nil, nil, true
+            )
         }
     }
 

@@ -37,24 +37,23 @@ class DataStore {
     /// Screen time confirmed by Apple's DeviceActivity threshold events.
     /// These fire in the background even when Picksy is suspended — unlike
     /// ScreenUnlockDetector which only works while the app is alive.
-    var appleConfirmedScreenTimeSecs: Int {
-        defaults.integer(forKey: "picksy_apple_screen_time_secs")
-    }
+    ///
+    /// IMPORTANT: this is a STORED @Observable property, not a computed one.
+    /// The value is written to the App Group by the DeviceActivityMonitor
+    /// extension (a separate process), and cross-process UserDefaults writes do
+    /// NOT trigger SwiftUI updates. We mirror it into this stored property via
+    /// refreshConfirmedScreenTime() so every view re-renders consistently.
+    var appleConfirmedScreenTimeSecs: Int = 0
 
     /// The EXACT screen-time total shown on the Apps tab, written to the App
     /// Group by the DeviceActivityReport extension (`PicksyDeviceReport`).
     /// This is Apple's authoritative number — the same one the Apps tab renders.
     ///
-    /// Guarded by today's date so a stale total from yesterday is never shown
-    /// (the report extension stamps the value with the day it was computed).
-    /// Returns 0 until the report has rendered at least once today (i.e. the
-    /// user has opened the Apps tab or the Nudge screen, both of which host a
-    /// DeviceActivityReport).
-    var reportConfirmedScreenTimeSecs: Int {
-        let storedDate = defaults.string(forKey: "picksy_report_screen_time_date")
-        guard storedDate == todayDateString() else { return 0 }
-        return defaults.integer(forKey: "picksy_report_screen_time_secs")
-    }
+    /// Also a STORED @Observable property (see note above) — refreshed from the
+    /// App Group via refreshConfirmedScreenTime(). Stays 0 until the report has
+    /// rendered at least once today (Apps tab or Nudge screen, both of which
+    /// host a DeviceActivityReport).
+    var reportConfirmedScreenTimeSecs: Int = 0
 
     /// Best-estimate total screen time for today — the single source of truth
     /// for EVERY screen-time display in the app (Stats tab, Nudge, Watch,
@@ -73,6 +72,29 @@ class DataStore {
         max(todayTotalSeconds, max(appleConfirmedScreenTimeSecs, reportConfirmedScreenTimeSecs))
     }
 
+    /// Re-reads the Apple-confirmed (threshold) and report-confirmed (Apps-tab
+    /// total) screen-time values from the App Group into the stored @Observable
+    /// properties above. Cross-process writes from the extensions don't notify
+    /// SwiftUI on their own, so this MUST be called whenever a screen-time
+    /// display might be on-screen: app foreground, the Darwin "screenTimeUpdated"
+    /// notification, the Nudge refresh timer, and each relevant view's onAppear.
+    func refreshConfirmedScreenTime() {
+        let apple = defaults.integer(forKey: "picksy_apple_screen_time_secs")
+
+        let reportDate = defaults.string(forKey: "picksy_report_screen_time_date")
+        let report = (reportDate == todayDateString())
+            ? defaults.integer(forKey: "picksy_report_screen_time_secs")
+            : 0
+
+        // Only assign on change to avoid redundant @Observable invalidations.
+        if apple != appleConfirmedScreenTimeSecs {
+            appleConfirmedScreenTimeSecs = apple
+        }
+        if report != reportConfirmedScreenTimeSecs {
+            reportConfirmedScreenTimeSecs = report
+        }
+    }
+
     private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
     private var midnightTimer: Timer?
     // H5 fix: store the observer opaque pointer so deinit can remove it and prevent UAF crashes.
@@ -83,6 +105,7 @@ class DataStore {
         startMidnightTimer()
         observeForeground()
         observeDeviceActivityPickups()
+        observeScreenTimeUpdates()
 
         // Initial sync με DeviceActivity data
         syncWithDeviceActivity()
@@ -104,6 +127,9 @@ class DataStore {
         }
 
         checkNewDay()
+
+        // Seed the confirmed screen-time values from the App Group on launch.
+        refreshConfirmedScreenTime()
     }
 
     func recordPickup() {
@@ -142,6 +168,9 @@ class DataStore {
 
             ZoneNotificationManager.shared.checkAndNotify(currentPickups: todayPickups)
         }
+
+        // Also pull the latest confirmed screen-time totals on every sync.
+        refreshConfirmedScreenTime()
     }
 
     private func observeDeviceActivityPickups() {
@@ -160,6 +189,32 @@ class DataStore {
                 let store = Unmanaged<DataStore>.fromOpaque(observer).takeUnretainedValue()
                 DispatchQueue.main.async {
                     store.syncWithDeviceActivity()
+                }
+            },
+            name,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    /// Observes the Darwin notification posted by the DeviceActivityReport and
+    /// DeviceActivityMonitor extensions whenever they write a new confirmed
+    /// screen-time value to the App Group. Without this, those cross-process
+    /// writes never reach SwiftUI and screens (e.g. Nudge) keep a stale total.
+    private func observeScreenTimeUpdates() {
+        let name = "dev.fotiospongas.picksy.screenTimeUpdated" as CFString
+        // Reuse the same opaque self pointer as the pickup observer; removal in
+        // deinit is keyed by notification name, so one pointer serves both.
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            observer,
+            { (_, observer, _, _, _) in
+                guard let observer = observer else { return }
+                let store = Unmanaged<DataStore>.fromOpaque(observer).takeUnretainedValue()
+                DispatchQueue.main.async {
+                    store.refreshConfirmedScreenTime()
                 }
             },
             name,
@@ -239,6 +294,10 @@ class DataStore {
         // Reset report-confirmed screen time (Apps-tab total mirror)
         defaults.set(0, forKey: "picksy_report_screen_time_secs")
         defaults.removeObject(forKey: "picksy_report_screen_time_date")
+
+        // Mirror the reset into the stored @Observable props so views update.
+        appleConfirmedScreenTimeSecs = 0
+        reportConfirmedScreenTimeSecs = 0
 
         // v1.6: Clear last pickup timestamp στο NudgeView
         UserDefaults.standard.removeObject(forKey: "lastPickupTimestamp")
@@ -378,11 +437,12 @@ class DataStore {
             defaults.removeObject(forKey: todayPickupsKey())
             // Reset Apple-confirmed screen time for the new day.
             defaults.set(0, forKey: "picksy_apple_screen_time_secs")
-            // Reset report-confirmed total for the new day. The date-guard in
-            // reportConfirmedScreenTimeSecs already protects against stale reads,
-            // but clearing keeps the App Group tidy.
+            // Reset report-confirmed total for the new day.
             defaults.set(0, forKey: "picksy_report_screen_time_secs")
             defaults.removeObject(forKey: "picksy_report_screen_time_date")
+            // Mirror into the stored @Observable props so views update at midnight.
+            appleConfirmedScreenTimeSecs = 0
+            reportConfirmedScreenTimeSecs = 0
             saveData()
             WidgetCenter.shared.reloadAllTimelines()
         } else if lastDate == "" {
@@ -407,12 +467,19 @@ class DataStore {
 
     deinit {
         midnightTimer?.invalidate()
-        // H5 fix: remove the Darwin notification observer before deallocation.
+        // H5 fix: remove the Darwin notification observers before deallocation.
         if let observer = darwinObserver {
+            let center = CFNotificationCenterGetDarwinNotifyCenter()
             CFNotificationCenterRemoveObserver(
-                CFNotificationCenterGetDarwinNotifyCenter(),
+                center,
                 observer,
                 CFNotificationName("dev.fotiospongas.picksy.pickupRecorded" as CFString),
+                nil
+            )
+            CFNotificationCenterRemoveObserver(
+                center,
+                observer,
+                CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
                 nil
             )
         }
