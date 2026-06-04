@@ -95,12 +95,21 @@ struct NudgeView: View {
     }
 
     private var todayFilter: DeviceActivityFilter {
-        DeviceActivityFilter(
+        // Mirror the Apps tab EXACTLY: same day interval AND the same
+        // selected-apps/categories scope. Previously this filter omitted the
+        // selection, so the hosted Top-3 report summed ALL apps while the Apps
+        // tab summed only the tracked ones — two different totals written to the
+        // App Group. Matching the filter makes the screen-time total identical
+        // on both screens (and the Top-3 list now reflects the tracked apps).
+        let selection = AppSelectionStore.shared.selection
+        return DeviceActivityFilter(
             segment: .daily(
                 during: Calendar.current.dateInterval(of: .day, for: Date())!
             ),
             users: .all,
-            devices: .init([.iPhone])
+            devices: .init([.iPhone]),
+            applications: selection.applicationTokens,
+            categories: selection.categoryTokens
         )
     }
 
@@ -331,11 +340,19 @@ struct NudgeView: View {
             pickupRingCard
 
             // ── Screen Time + Picksy Score pill ──────────────────────
+            // Score: untouched — keeps the existing formula/source.
             let scoreMins  = store.bestScreenTimeSecs / 60
             let score      = store.todayPickups + scoreMins * 5
-            let stHours    = scoreMins / 60
-            let stMins     = scoreMins % 60
-            let screenLabel = stHours > 0 ? "\(stHours)h \(stMins)m" : "\(stMins)m"
+            // Screen-time label: show EXACTLY the Apps-tab total (the report
+            // extension's selected-apps total), never the notification
+            // threshold. Shows "—" until the report has computed today's value.
+            let stTotalSecs = store.reportConfirmedScreenTimeSecs
+            let stMinsTotal = stTotalSecs / 60
+            let stHours     = stMinsTotal / 60
+            let stMins      = stMinsTotal % 60
+            let screenLabel = stTotalSecs <= 0
+                ? "—"
+                : (stHours > 0 ? "\(stHours)h \(stMins)m" : "\(stMins)m")
 
             HStack(spacing: 0) {
                 // Screen time

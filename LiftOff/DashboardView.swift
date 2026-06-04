@@ -330,7 +330,10 @@ struct DashboardView: View {
     }
 
     private var todayScreenTimeLabel: String {
-        let secs = store.bestScreenTimeSecs
+        // Show EXACTLY the Apps-tab total (report extension's selected-apps
+        // total), never the notification threshold. "—" until the report has
+        // computed today's value.
+        let secs = store.reportConfirmedScreenTimeSecs
         if secs == 0 { return "—" }
         let h = secs / 3600
         let m = (secs % 3600) / 60
@@ -339,7 +342,7 @@ struct DashboardView: View {
     }
 
     private var screenTimeAccentColor: Color {
-        let mins = store.bestScreenTimeSecs / 60
+        let mins = store.reportConfirmedScreenTimeSecs / 60
         if mins == 0   { return .secondary }
         if mins < 60   { return .green }
         if mins < 120  { return .blue }
