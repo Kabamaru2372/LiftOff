@@ -62,10 +62,9 @@ struct DuelRecord: Codable, Identifiable, Equatable {
     var myScreenTime:    Int { amChallenger ? challengerScreenTime : opponentScreenTime }
     var theirScreenTime: Int { amChallenger ? opponentScreenTime   : challengerScreenTime }
 
-    // Picksy Score: lower = better. pickups + screen_time_minutes × 5
-    // Screen time weighted 5× because prolonged use is the real problem.
-    var myScore:    Int { myPickups + (myScreenTime / 60) * 5 }
-    var theirScore: Int { theirPickups + (theirScreenTime / 60) * 5 }
+    // Picksy Score: lower = better. See PicksyScore (1× pickup, 5× minute, ÷20).
+    var myScore:    Int { PicksyScore.value(pickups: myPickups, screenTimeSeconds: myScreenTime) }
+    var theirScore: Int { PicksyScore.value(pickups: theirPickups, screenTimeSeconds: theirScreenTime) }
 
     var myName:       String { amChallenger ? challengerName : opponentName }
     var theirName:    String { amChallenger ? opponentName   : challengerName }
@@ -369,9 +368,9 @@ class DuelManager {
             return
         }
 
-        // Use Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
-        let challengerScore = duel.challengerPickups + (duel.challengerScreenTime / 60) * 5
-        let opponentScore   = duel.opponentPickups   + (duel.opponentScreenTime   / 60) * 5
+        // Use Picksy Score (1× pickup, 5× minute, ÷20). Lower = better.
+        let challengerScore = PicksyScore.value(pickups: duel.challengerPickups, screenTimeSeconds: duel.challengerScreenTime)
+        let opponentScore   = PicksyScore.value(pickups: duel.opponentPickups,   screenTimeSeconds: duel.opponentScreenTime)
         let winner: String
         if challengerScore < opponentScore {
             winner = duel.challengerId

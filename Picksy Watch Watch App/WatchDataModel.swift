@@ -29,9 +29,11 @@ final class WatchDataModel {
 
     // ── Derived ───────────────────────────────────────────────────────────
 
-    /// Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
+    /// Picksy Score: 1× pickup + 5× screen-time minute, scaled ÷20 so it lands
+    /// roughly 0–100. Lower = better. Must match PicksyScore in the main app.
     var picksyScore: Int {
-        todayPickups + (todayTotalSeconds / 60) * 5
+        let raw = todayPickups + (todayTotalSeconds / 60) * 5
+        return (raw + 10) / 20
     }
 
     var zone: WatchPickupZone {

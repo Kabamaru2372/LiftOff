@@ -199,7 +199,7 @@ struct AboutScienceView: View {
                     Text(t("Formula", "Τύπος", "Formel"))
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundColor(.secondary)
-                    Text("Score = pickups + (screen time minutes × 5)")
+                    Text("Score = (pickups + screen-time min × 5) ÷ 20")
                         .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundColor(.primary)
                         .padding(10)

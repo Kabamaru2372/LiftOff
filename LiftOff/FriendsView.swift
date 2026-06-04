@@ -266,7 +266,7 @@ struct FriendsView: View {
         // Use Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
         // For "me" we use local store values (always up-to-date).
         // For opponent we use Supabase values via poll().
-        let myScore    = store.todayPickups + (store.bestScreenTimeSecs / 60) * 5
+        let myScore    = PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
         let theirScore = duel.theirScore
         let myColor: Color = myScore < theirScore
             ? Color(red: 0.4, green: 1.0, blue: 0.6)

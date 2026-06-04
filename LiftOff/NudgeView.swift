@@ -338,7 +338,7 @@ struct NudgeView: View {
             // ── Screen Time + Picksy Score pill ──────────────────────
             // Score: untouched — keeps the existing formula/source.
             let scoreMins  = store.bestScreenTimeSecs / 60
-            let score      = store.todayPickups + scoreMins * 5
+            let score      = PicksyScore.value(pickups: store.todayPickups, screenTimeMinutes: scoreMins)
             HStack(spacing: 0) {
                 // Screen time — the WHOLE-DEVICE total, rendered by the report
                 // extension (it can't pass the number back to the app, so the

@@ -287,7 +287,7 @@ struct DashboardView: View {
             .frame(height: 112)
 
             // ── Row 2: Picksy Score ───────────────────────────────────
-            let score = store.todayPickups + (store.bestScreenTimeSecs / 60) * 5
+            let score = PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
@@ -315,7 +315,7 @@ struct DashboardView: View {
                     Text(t("How it's calculated", "Πώς υπολογίζεται", "Berechnung"))
                         .font(.system(size: 10, weight: .medium, design: .rounded))
                         .foregroundColor(.secondary)
-                    Text(t("pickups + (min × 5)", "σηκώματα + (λεπτά × 5)", "Griffe + (Min. × 5)"))
+                    Text(t("(pickups + min × 5) ÷ 20", "(σηκώματα + λεπτά × 5) ÷ 20", "(Griffe + Min. × 5) ÷ 20"))
                         .font(.system(size: 10, design: .monospaced))
                         .foregroundColor(.secondary)
                 }
@@ -348,10 +348,12 @@ struct DashboardView: View {
     private var screenTimeAccentColor: Color { .indigo }
 
     private func scoreAccentColor(_ score: Int) -> Color {
+        // Thresholds are the old 100/300/600 cutoffs rescaled by the ÷20 in
+        // PicksyScore, so the color behavior is unchanged on the new scale.
         if score == 0   { return .blue }
-        if score < 100  { return .green }
-        if score < 300  { return .blue }
-        if score < 600  { return .orange }
+        if score < 5    { return .green }
+        if score < 15   { return .blue }
+        if score < 30   { return .orange }
         return .red
     }
 
