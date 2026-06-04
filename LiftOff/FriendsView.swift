@@ -20,23 +20,45 @@ struct FriendsView: View {
     private var friendSync: FriendSyncManager { FriendSyncManager.shared }
     private var duelManager: DuelManager      { DuelManager.shared }
 
-    @State private var messagingPair: RegisteredPair? = nil
-    @State private var duelPair:      RegisteredPair? = nil
+    @State private var pokePair:  RegisteredPair? = nil
+    @State private var duelPair:  RegisteredPair? = nil
     @State private var renamingPair:  RegisteredPair? = nil
     @State private var renameText:    String = ""
     @State private var showRemoveAllConfirm: Bool = false
     @State private var showPaywall: Bool = false
+    @State private var showAllFriends: Bool = false
+    private let defaultVisibleFriends = 3
 
     // Duel result sheet
     @State private var duelResultToShow: DuelRecord? = nil
-    @AppStorage("lastSeenDuelResultId") private var lastSeenDuelResultId: String = ""
+    /// Comma-separated set of duel IDs already shown to the user.
+    /// Replaces the old single-ID "lastSeenDuelResultId" so multiple same-night results all surface.
+    @AppStorage("seenDuelResultIds") private var seenDuelResultIdsRaw: String = ""
+
+    // LOW fix: cache the parsed Set in @State to avoid splitting the CSV string
+    // on every property access (called 3× per checkForNewDuelResult invocation).
+    @State private var seenDuelResultIdsCache: Set<String>? = nil
+
+    private var seenDuelResultIds: Set<String> {
+        if let cached = seenDuelResultIdsCache { return cached }
+        let parsed = Set(seenDuelResultIdsRaw.split(separator: ",").map(String.init))
+        return parsed
+    }
+    private func markDuelSeen(_ id: String) {
+        var ids = seenDuelResultIds
+        ids.insert(id)
+        seenDuelResultIdsCache = ids
+        seenDuelResultIdsRaw = ids.joined(separator: ",")
+    }
+
+    // Taunt / Nudge
+    @State private var tauntDuel:    DuelRecord? = nil
+    @State private var toastMessage: String?     = nil
 
     // 1-second tick for live countdown display
+    // H1 fix: was Timer.publish.autoconnect() — leaked polls after navigation.
+    // Now managed by .task modifiers which auto-cancel on view disappear.
     @State private var tick: Date = Date()
-    let countdownTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-    // 5-second poll — combined with DuelManager's 5 s effectivePollInterval this
-    // gives near-realtime score updates during active duels (score lag ≤ ~5 s).
-    let pollTimer      = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -50,7 +72,7 @@ struct FriendsView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
+            ZStack(alignment: .bottom) {
                 Color(.systemGroupedBackground).ignoresSafeArea()
 
                 ScrollView {
@@ -61,13 +83,11 @@ struct FriendsView: View {
                             activeDuelBanner(duel)
                         }
 
-                        // Pending invite (only shown when no active duels occupy the top)
-                        if duelManager.activeDuels.isEmpty, let invite = duelManager.pendingInvite {
-                            pendingInviteBanner(invite)
-                        }
-
                         // Friends list
                         friendsCard
+
+                        // Rival records — compact per-opponent duel history
+                        rivalRecordsSection
 
                         // How to connect tip
                         if friendSync.registeredPairs.isEmpty {
@@ -79,20 +99,53 @@ struct FriendsView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 12)
                 }
+
+                // ── Toast ──────────────────────────────────────────────
+                if let msg = toastMessage {
+                    HStack(spacing: 10) {
+                        Text(msg)
+                            .font(.system(size: 14, weight: .medium, design: .rounded))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(Capsule().fill(Color(white: 0.12).opacity(0.95)))
+                    .shadow(color: .black.opacity(0.25), radius: 12, x: 0, y: 4)
+                    .padding(.bottom, 24)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .zIndex(99)
+                }
             }
             .navigationTitle(t("Friends", "Φίλοι", "Freunde"))
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    challengeShareLink
+                    addFriendsShareLink
                 }
             }
         }
-        .onReceive(countdownTimer) { date in tick = date }
-        .onReceive(pollTimer) { _ in
-            Task { await duelManager.poll() }
+        .task {
+            // Tick every second for live countdown — cancelled automatically on disappear
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(1000))
+                tick = Date()
+            }
         }
         .task {
+            // Poll every 5 s during active duels — initial delay lets forcePoll run first
+            try? await Task.sleep(for: .seconds(3))
+            while !Task.isCancelled {
+                await duelManager.poll()
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+        .task {
+            // One-time migration: absorb the old single-ID key into the new set.
+            let legacyKey = "lastSeenDuelResultId"
+            if let old = UserDefaults.standard.string(forKey: legacyKey), !old.isEmpty {
+                markDuelSeen(old)
+                UserDefaults.standard.removeObject(forKey: legacyKey)
+            }
             // Force (bypass rate-limit) on first appearance so scores are always fresh.
             await duelManager.forcePoll()
             checkForNewDuelResult()
@@ -103,16 +156,68 @@ struct FriendsView: View {
             guard newCount > 0 else { return }
             Task { await duelManager.forcePoll() }
         }
-        .sheet(item: $duelResultToShow) { duel in
+        .onReceive(NotificationCenter.default.publisher(for: .picksyDuelNotifTapped)) { _ in
+            // User tapped a duel/message push notification — re-poll and show result if new.
+            // This fires even when FriendsView is already loaded (i.e. .task doesn't re-run).
+            Task {
+                await duelManager.forcePoll()
+                checkForNewDuelResult()
+            }
+        }
+        .sheet(item: $duelResultToShow, onDismiss: {
+            // Chain-show the next unseen result if there is one (e.g. two duels ended at midnight)
+            checkForNewDuelResult()
+        }) { duel in
             DuelResultView(duel: duel, hourlyData: hourlyTracker.hourlyData[0])
         }
-        .sheet(item: $messagingPair) { pair in
-            MessageView(pair: pair)
+        .confirmationDialog(
+            pokePair.map { t("Nudge \($0.name)", "Nudge τον \($0.name)", "\($0.name) anstupsen") } ?? "",
+            isPresented: Binding(get: { pokePair != nil }, set: { if !$0 { pokePair = nil } }),
+            titleVisibility: .visible
+        ) {
+            let nudges: [String] = [
+                "🏆 " + t("I'm winning and you know it.", "Κερδίζω και το ξέρεις.", "Ich gewinne und du weißt es."),
+                "😂 " + t("You don't stand a chance.", "Δεν έχεις καμία ελπίδα.", "Du hast keine Chance."),
+                "📱 " + t("Still on your phone? Embarrassing.", "Ακόμα στο κινητό; Ντροπή.", "Noch am Handy? Peinlich."),
+                "👀 " + t("I see you scrolling...", "Σε βλέπω που σκρολάρεις...", "Ich sehe dich scrollen..."),
+                "🔥 " + t("Put it down. You can't beat me.", "Κατέβασέ το. Δεν μπορείς να με νικήσεις.", "Leg es weg. Du kannst mich nicht schlagen.")
+            ]
+            ForEach(nudges, id: \.self) { nudge in
+                Button(nudge) {
+                    guard let pair = pokePair else { return }
+                    Task { await duelManager.sendNudge(toDeviceID: pair.deviceID, text: nudge, senderName: challengeDisplayName) }
+                    pokePair = nil
+                    showToast(t("Nudge sent 👋", "Το nudge στάλθηκε 👋", "Nudge gesendet 👋"))
+                }
+            }
+            Button(t("Cancel", "Άκυρο", "Abbrechen"), role: .cancel) { pokePair = nil }
         }
         .sheet(item: $duelPair) { pair in
             DuelView(pair: pair)
                 .environment(store)
                 .environment(proManager)
+        }
+        .confirmationDialog(
+            t("Pick a taunt", "Διάλεξε taunt", "Taunt auswählen"),
+            isPresented: Binding(get: { tauntDuel != nil }, set: { if !$0 { tauntDuel = nil } }),
+            titleVisibility: .visible
+        ) {
+            let taunts: [String] = [
+                "🏆 " + t("Enjoy second place.", "Απόλαυσε τη δεύτερη θέση.", "Genieß den zweiten Platz."),
+                "😂 " + t("Is that all you've got?", "Αυτά έχεις;", "Ist das alles?"),
+                "📉 " + t("Your score is a disaster.", "Το σκορ σου είναι καταστροφή.", "Dein Score ist eine Katastrophe."),
+                "😤 " + t("I'm not even trying.", "Δεν κάνω καν προσπάθεια.", "Ich geb mir nicht mal Mühe."),
+                "🔒 " + t("My phone is basically off.", "Το κινητό μου είναι σχεδόν κλειστό.", "Mein Handy ist quasi aus.")
+            ]
+            ForEach(taunts, id: \.self) { taunt in
+                Button(taunt) {
+                    guard let duel = tauntDuel else { return }
+                    Task { await duelManager.sendTaunt(to: duel, tauntText: taunt, myName: challengeDisplayName) }
+                    tauntDuel = nil
+                    showToast(t("Taunt sent 😤", "Το taunt στάλθηκε 😤", "Taunt gesendet 😤"))
+                }
+            }
+            Button(t("Cancel", "Άκυρο", "Abbrechen"), role: .cancel) { tauntDuel = nil }
         }
         .alert(
             t("Rename friend", "Μετονομασία φίλου", "Freund umbenennen"),
@@ -158,18 +263,19 @@ struct FriendsView: View {
     // MARK: - Active Duel Banner
 
     private func activeDuelBanner(_ duel: DuelRecord) -> some View {
-        // Always use local store.todayPickups for "You" — it's always up-to-date.
-        // duel.theirPickups comes from Supabase via poll().
-        let myCount    = store.todayPickups
-        let theirCount = duel.theirPickups
-        let myColor: Color = myCount < theirCount
+        // Use Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
+        // For "me" we use local store values (always up-to-date).
+        // For opponent we use Supabase values via poll().
+        let myScore    = store.todayPickups + (store.todayTotalSeconds / 60) * 5
+        let theirScore = duel.theirScore
+        let myColor: Color = myScore < theirScore
             ? Color(red: 0.4, green: 1.0, blue: 0.6)
-            : myCount > theirCount
+            : myScore > theirScore
                 ? Color(red: 1.0, green: 0.38, blue: 0.38)
                 : .white
-        let theirColor: Color = theirCount < myCount
+        let theirColor: Color = theirScore < myScore
             ? Color(red: 0.4, green: 1.0, blue: 0.6)
-            : theirCount > myCount
+            : theirScore > myScore
                 ? Color(red: 1.0, green: 0.38, blue: 0.38)
                 : .white
         return VStack(spacing: 12) {
@@ -187,7 +293,7 @@ struct FriendsView: View {
                     Text(t("You", "Εσύ", "Du"))
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.8))
-                    Text("\(myCount)")
+                    Text("\(myScore)")
                         .font(.system(size: 44, weight: .semibold, design: .rounded))
                         .foregroundColor(myColor)
                 }
@@ -197,7 +303,7 @@ struct FriendsView: View {
                     Text("VS")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundColor(.white.opacity(0.5))
-                    Text(t("pickups", "σηκώματα", "Griffe"))
+                    Text("Picksy Score")
                         .font(.system(size: 10, design: .rounded))
                         .foregroundColor(.white.opacity(0.4))
                 }
@@ -208,9 +314,10 @@ struct FriendsView: View {
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.8))
                         .lineLimit(1)
-                    Text("\(theirCount)")
+                    let theirDisplay = (theirScore == 0 && myScore > 0) ? "?" : "\(theirScore)"
+                    Text(theirDisplay)
                         .font(.system(size: 44, weight: .semibold, design: .rounded))
-                        .foregroundColor(theirColor)
+                        .foregroundColor(theirDisplay == "?" ? .white.opacity(0.4) : theirColor)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -236,6 +343,21 @@ struct FriendsView: View {
                 .font(.system(size: 12, design: .rounded))
                 .foregroundColor(.white.opacity(0.5))
 
+            // Taunt button
+            Button(action: { tauntDuel = duel }) {
+                HStack(spacing: 6) {
+                    Text("😤")
+                        .font(.system(size: 13))
+                    Text(t("Send a taunt", "Στείλε taunt", "Taunt senden"))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white.opacity(0.75))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+
             // Cancel duel button
             Button(action: {
                 Task { await DuelManager.shared.cancelActiveDuel(duel) }
@@ -245,7 +367,7 @@ struct FriendsView: View {
                     .foregroundColor(.white.opacity(0.45))
             }
             .buttonStyle(.plain)
-            .padding(.top, 4)
+            .padding(.top, 2)
         }
         .padding(20)
         .frame(maxWidth: .infinity)
@@ -257,33 +379,6 @@ struct FriendsView: View {
                     endPoint: .bottomTrailing
                 ))
         )
-    }
-
-    // MARK: - Pending Invite Banner
-
-    private func pendingInviteBanner(_ invite: DuelRecord) -> some View {
-        HStack(spacing: 14) {
-            Text("🔔").font(.system(size: 28))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(t("\(invite.theirName) challenges you!", "\(invite.theirName) σε προκαλεί!", "\(invite.theirName) fordert dich heraus!"))
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                Text(t("Tap to respond", "Πάτα για απάντηση", "Tippe zum Antworten"))
-                    .font(.system(size: 13, design: .rounded))
-                    .foregroundColor(.secondary)
-            }
-            Spacer()
-            if let pair = friendSync.registeredPairs.first(where: { $0.deviceID == invite.challengerId }) {
-                Button(action: { duelPair = pair }) {
-                    Text("⚔️")
-                        .font(.system(size: 22))
-                        .padding(10)
-                        .background(Circle().fill(Color.blue.opacity(0.12)))
-                }
-            }
-        }
-        .padding(16)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
-        .overlay(RoundedRectangle(cornerRadius: 16).stroke(Color.blue.opacity(0.25), lineWidth: 1))
     }
 
     // MARK: - Friends Card
@@ -343,9 +438,9 @@ struct FriendsView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "lock.fill").font(.system(size: 10))
                         Text(t(
-                            "Free plan: 1 friend, no messaging or duels · Upgrade",
-                            "Δωρεάν: 1 φίλος, χωρίς μηνύματα ή duels · Αναβάθμιση",
-                            "Kostenlos: 1 Freund, kein Messaging oder Duell · Upgrade"
+                            "Free plan: 1 friend & 1 duel, no accountability nudges · Upgrade",
+                            "Δωρεάν: 1 φίλος & 1 μονομαχία, χωρίς accountability nudges · Αναβάθμιση",
+                            "Kostenlos: 1 Freund & 1 Duell, kein Accountability-Nudge · Upgrade"
                         ))
                         .font(.system(size: 11, design: .rounded))
                     }
@@ -382,10 +477,36 @@ struct FriendsView: View {
 
     private var friendsList: some View {
         let sortedPairs = friendSync.registeredPairs.sorted { $0.registeredAt < $1.registeredAt }
+        let total       = sortedPairs.count
+        let visible     = showAllFriends ? sortedPairs : Array(sortedPairs.prefix(defaultVisibleFriends))
+        let hidden      = total - defaultVisibleFriends
 
         return VStack(spacing: 0) {
-            ForEach(Array(sortedPairs.enumerated()), id: \.element.id) { index, pair in
-                friendRow(pair: pair, index: index, isLast: pair.id == sortedPairs.last?.id)
+            ForEach(Array(visible.enumerated()), id: \.element.id) { index, pair in
+                friendRow(pair: pair, index: index, isLast: pair.id == visible.last?.id && (showAllFriends || hidden <= 0))
+            }
+
+            // "Show N more / Show less" button
+            if total > defaultVisibleFriends {
+                Button(action: {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.82)) {
+                        showAllFriends.toggle()
+                    }
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: showAllFriends ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text(showAllFriends
+                             ? t("Show less", "Λιγότερα", "Weniger")
+                             : t("Show \(hidden) more", "Εμφάνιση \(hidden) ακόμα", "\(hidden) weitere"))
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Color(.systemGroupedBackground).opacity(0.5))
+                }
+                .buttonStyle(.plain)
             }
         }
     }
@@ -453,31 +574,20 @@ struct FriendsView: View {
                     }
                     .buttonStyle(.plain)
 
-                    // Message
+                    // Poke / Nudge
                     Button(action: {
-                        proManager.isPro ? (messagingPair = pair) : (showPaywall = true)
+                        proManager.isPro ? (pokePair = pair) : (showPaywall = true)
                     }) {
-                        ZStack(alignment: .topTrailing) {
-                            Image(systemName: proManager.isPro ? "bubble.left.fill" : "lock.fill")
-                                .font(.system(size: proManager.isPro ? 18 : 15))
-                                .foregroundColor(proManager.isPro ? .blue.opacity(0.75) : .secondary.opacity(0.4))
-                            let unread = MessagingManager.shared.unreadCountForFriend(pair.deviceID)
-                            if proManager.isPro && unread > 0 {
-                                Circle()
-                                    .fill(Color.red)
-                                    .frame(width: 9, height: 9)
-                                    .offset(x: 3, y: -3)
-                            }
-                        }
+                        Image(systemName: proManager.isPro ? "hand.wave.fill" : "lock.fill")
+                            .font(.system(size: proManager.isPro ? 18 : 15))
+                            .foregroundColor(proManager.isPro ? .orange.opacity(0.8) : .secondary.opacity(0.4))
                     }
                     .buttonStyle(.plain)
 
-                    // Duel
-                    Button(action: {
-                        proManager.isPro ? (duelPair = pair) : (showPaywall = true)
-                    }) {
-                        Text(proManager.isPro ? "⚔️" : "🔒")
-                            .font(.system(size: proManager.isPro ? 18 : 14))
+                    // Duel — available on Free (1 friend = 1 duel) and Pro (unlimited)
+                    Button(action: { duelPair = pair }) {
+                        Text("⚔️")
+                            .font(.system(size: 18))
                     }
                     .buttonStyle(.plain)
 
@@ -501,6 +611,20 @@ struct FriendsView: View {
         }
     }
 
+    // MARK: - Toast
+
+    private func showToast(_ message: String) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+            toastMessage = message
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.2) {
+            withAnimation(.easeOut(duration: 0.3)) {
+                toastMessage = nil
+            }
+        }
+    }
+
     // MARK: - Connect Tip
 
     private var connectTip: some View {
@@ -512,9 +636,9 @@ struct FriendsView: View {
                 Text(t("Connect with friends", "Σύνδεσε φίλους", "Verbinde Freunde"))
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
                 Text(t(
-                    "Tap the Challenge button above and share your link. When a friend opens it, you'll both appear here.",
-                    "Πάτησε το κουμπί Πρόκληση παραπάνω και μοιράσου τον σύνδεσμό σου. Όταν ένας φίλος τον ανοίξει, θα εμφανιστείτε εδώ.",
-                    "Tippe auf den Challenge-Button oben und teile deinen Link. Wenn ein Freund ihn öffnet, erscheint ihr beide hier."
+                    "Tap \"Add Friends\" above and share your link. Whether they already have Picksy or not — the link handles it.",
+                    "Πάτησε «Πρόσθεσε φίλους» πάνω και μοιράσου τον σύνδεσμό σου. Είτε έχουν ήδη το Picksy είτε όχι — ο σύνδεσμος τα βολεύει.",
+                    "Tippe auf \"Freunde einladen\" oben und teile deinen Link. Egal ob sie Picksy schon haben — der Link regelt alles."
                 ))
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(.secondary)
@@ -524,6 +648,97 @@ struct FriendsView: View {
         .padding(24)
         .frame(maxWidth: .infinity)
         .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
+    }
+
+    // MARK: - Rival Records
+
+    /// Per-opponent summary: name → (wins, losses, ties, lastDate), sorted by most recent.
+    private var opponentRecords: [(name: String, w: Int, l: Int, t: Int, last: Date)] {
+        let history = duelManager.duelHistory
+        guard !history.isEmpty else { return [] }
+        let grouped = Dictionary(grouping: history, by: { $0.theirName })
+        return grouped.map { name, duels in
+            let w = duels.filter { $0.iWon  }.count
+            let l = duels.filter { $0.iLost }.count
+            let t = duels.filter { $0.isTie }.count
+            let last = duels.map(\.createdAt).max() ?? .distantPast
+            return (name: name, w: w, l: l, t: t, last: last)
+        }
+        .sorted { $0.last > $1.last }
+    }
+
+    @ViewBuilder
+    private var rivalRecordsSection: some View {
+        let records = opponentRecords
+        if !records.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+
+                // Header
+                HStack(spacing: 6) {
+                    Image(systemName: "trophy.fill")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                    Text(t("RIVAL RECORDS", "ΙΣΤΟΡΙΚΟ ΜΟΝΟΜΑΧΙΩΝ", "DUELLE"))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .tracking(0.5)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 10)
+
+                Divider().padding(.horizontal, 16)
+
+                ForEach(Array(records.enumerated()), id: \.element.name) { idx, rec in
+                    rivalRow(rec, isLast: idx == records.count - 1)
+                }
+            }
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
+        }
+    }
+
+    private func rivalRow(_ rec: (name: String, w: Int, l: Int, t: Int, last: Date), isLast: Bool) -> some View {
+        let icon    = rec.w > rec.l ? "🏆" : (rec.l > rec.w ? "📱" : "🤝")
+        let record  = "\(rec.w)W · \(rec.l)L" + (rec.t > 0 ? " · \(rec.t)T" : "")
+        let outcome = rec.w > rec.l
+            ? t("Winning", "Κερδίζεις", "Gewinnst")
+            : rec.l > rec.w
+                ? t("Losing", "Χάνεις", "Verlierst")
+                : t("Tied", "Ισοπαλία", "Unentsch.")
+        let outcomeColor: Color = rec.w > rec.l ? .green : (rec.l > rec.w ? .orange : .secondary)
+
+        return VStack(spacing: 0) {
+            HStack(spacing: 14) {
+                Text(icon)
+                    .font(.system(size: 22))
+                    .frame(width: 32)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(t("vs \(rec.name)", "με \(rec.name)", "vs. \(rec.name)"))
+                        .font(.system(size: 15, weight: .medium, design: .rounded))
+                    Text(relativeDate(rec.last))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(record)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text(outcome)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundColor(outcomeColor)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            if !isLast {
+                Divider().padding(.leading, 62)
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -544,17 +759,19 @@ struct FriendsView: View {
         renamingPair = nil
     }
 
-    /// Shows the duel result sheet once per completed duel (tracked by ID in UserDefaults).
+    /// Shows the next unseen duel result sheet.
+    /// Called on launch, on notification tap, and on sheet dismiss — so multiple
+    /// same-night results surface one by one (fixes the "second duel never shown" bug).
     private func checkForNewDuelResult() {
-        // Use duelHistory (newest first) — completed duels live there, not in activeDuels
-        guard let duel = duelManager.duelHistory.first,
-              duel.id != lastSeenDuelResultId,
-              // Only show if completed today or yesterday (fresh result)
-              Date().timeIntervalSince(duel.createdAt) < 48 * 3600
-        else { return }
+        guard duelResultToShow == nil else { return }   // already showing one
+        let seen = seenDuelResultIds
+        guard let duel = duelManager.duelHistory.first(where: {
+            !seen.contains($0.id) &&
+            Date().timeIntervalSince($0.createdAt) < 48 * 3600
+        }) else { return }
 
-        duelResultToShow     = duel
-        lastSeenDuelResultId = duel.id
+        duelResultToShow = duel
+        markDuelSeen(duel.id)
     }
 
     private func formattedCountdown(_ secs: TimeInterval) -> String {
@@ -565,23 +782,32 @@ struct FriendsView: View {
         return String(format: "%02d:%02d:%02d", h, m, s)
     }
 
+    // Static formatters — DateFormatter is expensive to construct; cache once.
+    private static let dateOnlyFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; return f
+    }()
+    private static let dateTimeFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short; return f
+    }()
+
     private func relativeDate(_ date: Date) -> String {
         let days = Calendar.current.dateComponents([.day], from: date, to: Date()).day ?? 0
         if days == 0 { return t("today", "σήμερα", "heute") }
         if days == 1 { return t("yesterday", "χτες", "gestern") }
         if days < 7  { return t("\(days) days ago", "πριν \(days) μέρες", "vor \(days) Tagen") }
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none
-        return f.string(from: date)
+        return Self.dateOnlyFormatter.string(from: date)
     }
 
     private func exactDateTime(_ date: Date) -> String {
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short
-        return t("Connected", "Συνδέθηκε", "Verbunden") + " · " + f.string(from: date)
+        return t("Connected", "Συνδέθηκε", "Verbunden") + " · " + Self.dateTimeFormatter.string(from: date)
     }
 
-    // ShareLink avoids the UIActivityViewController blank-screen-on-first-tap bug
-    // that occurs when wrapping UIActivityViewController in a SwiftUI .sheet().
-    private var challengeShareLink: some View {
+    // MARK: - Add Friends Share Link
+
+    // ShareLink avoids the UIActivityViewController blank-screen-on-first-tap bug.
+    // The link is smart: existing Picksy users get deep-linked to connect with you;
+    // new users land on the App Store first, then connect after downloading.
+    private var addFriendsShareLink: some View {
         let goal = dailyGoal > 0 ? dailyGoal : 50
         let url: URL = ChallengeManager.buildURL(
             displayName: challengeDisplayName,
@@ -590,35 +816,25 @@ struct FriendsView: View {
             dailyGoal: goal
         ) ?? URL(string: "https://fotiospongas.dev/challenge")!
 
-        let payload = ChallengePayload(
-            name: challengeDisplayName.isEmpty ? "A friend" : challengeDisplayName,
-            weekly: store.weeklyPickups,
-            streak: store.currentStreak,
-            goal: goal,
-            sentAt: Date().timeIntervalSince1970,
-            senderDeviceID: FriendSyncManager.shared.deviceID
+        let message = t(
+            "I'm using Picksy to cut down my phone pickups — want to compete? 📱👇",
+            "Χρησιμοποιώ το Picksy για να μειώσω τα σηκώματα κινητού — να κάνουμε κόντρα; 📱👇",
+            "Ich nutze Picksy, um meine Handy-Griffe zu reduzieren — wollen wir konkurrieren? 📱👇"
         )
-        let msg = ChallengeManager.shareMessage(payload: payload, language: appLanguage)
 
-        return ShareLink(item: url, message: Text(msg)) {
-            HStack(spacing: 4) {
-                Image(systemName: "trophy.fill")
+        return ShareLink(item: url, message: Text(message)) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.badge.plus")
                     .font(.system(size: 13, weight: .semibold))
-                Text(t("Challenge", "Πρόκληση", "Challenge"))
+                Text(t("Add Friends", "Πρόσθεσε φίλους", "Freunde einladen"))
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
             }
-            .foregroundColor(.black)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(
-                Capsule()
-                    .fill(LinearGradient(
-                        colors: [.yellow, .orange.opacity(0.85)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    ))
-            )
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(Capsule().fill(Color.blue))
         }
         .buttonStyle(.plain)
     }
 }
+

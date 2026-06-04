@@ -2,22 +2,15 @@
 // Picksy
 //
 // Shown on the Stats (Dashboard) tab.
-// Active duels live in the Friends tab now — this view shows:
-//   1. Incoming pending invite (if any) — still needs action
-//   2. Completed duel history (last 7 days)
+// Analytics: win rate, streak, per-opponent breakdown + full history.
 
 import SwiftUI
-import Combine
 
 struct DuelBannerView: View {
 
     @AppStorage("appLanguage") private var appLanguage: String = "English"
-    @Environment(DataStore.self) private var store
 
     private var duelManager: DuelManager { DuelManager.shared }
-    private var friendSync:  FriendSyncManager { FriendSyncManager.shared }
-
-    @State private var showDuelSheet: Bool = false
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -27,85 +20,176 @@ struct DuelBannerView: View {
         }
     }
 
+    // MARK: - Computed analytics
+
+    private var history: [DuelRecord] { duelManager.duelHistory }
+
+    private var wins:   Int { history.filter { $0.iWon   }.count }
+    private var losses: Int { history.filter { $0.iLost  }.count }
+    private var ties:   Int { history.filter { $0.isTie  }.count }
+    private var total:  Int { wins + losses + ties }
+    private var winRate: Double { total > 0 ? Double(wins) / Double(total) : 0 }
+
+    /// Consecutive wins or losses from the newest duel
+    private var streakInfo: (count: Int, isWin: Bool) {
+        guard let first = history.first, !first.isTie else { return (0, true) }
+        let isWin = first.iWon
+        var count = 0
+        for duel in history {
+            if duel.isTie { count += 1; continue }   // ties don't break streak
+            if duel.iWon == isWin { count += 1 }
+            else { break }
+        }
+        return (count, isWin)
+    }
+
+    /// Per-opponent: name → (wins, losses, ties, lastDate)
+    private var opponentRecords: [(name: String, w: Int, l: Int, t: Int, last: Date)] {
+        let grouped = Dictionary(grouping: history, by: { $0.theirName })
+        return grouped.map { name, duels in
+            let w = duels.filter { $0.iWon  }.count
+            let l = duels.filter { $0.iLost }.count
+            let t = duels.filter { $0.isTie }.count
+            let last = duels.map(\.createdAt).max() ?? .distantPast
+            return (name: name, w: w, l: l, t: t, last: last)
+        }
+        .sorted { $0.last > $1.last }   // most recent first
+    }
+
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 10) {
-
-            // Incoming invite — still needs action, so keep it here too
-            if let invite = duelManager.pendingInvite {
-                incomingBanner(invite)
-            }
-
-            // Completed duel history
-            if !duelManager.duelHistory.isEmpty {
+        if !history.isEmpty {
+            VStack(spacing: 12) {
+                analyticsCard
                 historySection
             }
         }
-        .sheet(isPresented: $showDuelSheet) {
-            if let pair = invitePair {
-                DuelView(pair: pair)
-                    .environment(store)
-            }
-        }
     }
 
-    // MARK: - Incoming Invite Banner
+    // MARK: - Analytics Card
 
-    private func incomingBanner(_ duel: DuelRecord) -> some View {
-        Button(action: { showDuelSheet = true }) {
-            HStack(spacing: 14) {
-                Text("🔔")
-                    .font(.system(size: 28))
+    private var analyticsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(t(
-                        "\(duel.theirName) challenges you!",
-                        "\(duel.theirName) σε προκαλεί!",
-                        "\(duel.theirName) fordert dich heraus!"
-                    ))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(.primary)
-                    Text(t("Tap to accept the duel", "Πάτησε για να αποδεχτείς", "Tippe zum Annehmen"))
-                        .font(.system(size: 12, design: .rounded))
-                        .foregroundColor(.secondary)
+            // Section label
+            HStack(spacing: 6) {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text(t("DUEL STATS · 7 DAYS", "ΣΤΑΤΙΣΤΙΚΑ ΜΟΝΟΜΑΧΙΩΝ · 7 ΜΕΡΕΣ", "DUELL-STATS · 7 TAGE"))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .tracking(0.5)
+            }
+
+            // Win rate + streak side by side
+            HStack(spacing: 12) {
+
+                // Win rate ring
+                HStack(spacing: 12) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color(.systemGray5), lineWidth: 5)
+                            .frame(width: 52, height: 52)
+                        Circle()
+                            .trim(from: 0, to: max(CGFloat(winRate), winRate > 0 ? 0.04 : 0))
+                            .stroke(
+                                winRate >= 0.5 ? Color.green : Color.orange,
+                                style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                            )
+                            .frame(width: 52, height: 52)
+                            .rotationEffect(.degrees(-90))
+                            .animation(.easeOut(duration: 0.6), value: winRate)
+                        Text(total > 0 ? "\(Int(winRate * 100))%" : "—")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                    }
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(t("Win rate", "Ποσοστό νικών", "Siegrate"))
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                        Text("\(wins)W · \(losses)L\(ties > 0 ? " · \(ties)T" : "")")
+                            .font(.system(size: 12, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
                 }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
 
-                Spacer()
-
-                Text(t("Accept", "Αποδοχή", "Annehmen"))
-                    .font(.system(size: 13, weight: .medium, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 7)
-                    .background(Capsule().fill(Color.blue))
+                // Streak
+                let streak = streakInfo
+                VStack(spacing: 3) {
+                    Text(streak.count > 0 ? (streak.isWin ? "🔥" : "💪") : "➖")
+                        .font(.system(size: 22))
+                    if streak.count > 1 {
+                        Text("\(streak.count) \(streak.isWin ? t("wins", "νίκες", "Siege") : t("losses", "ήττες", "Niederlagen"))")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundColor(streak.isWin ? .green : .orange)
+                        Text(t("in a row", "στη σειρά", "hintereinander"))
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text(t("No streak", "Χωρίς σερί", "Keine Serie"))
+                            .font(.system(size: 11, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 14)
-                    .fill(Color(.systemBackground))
-                    .shadow(color: .black.opacity(0.06), radius: 8, x: 0, y: 2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14)
-                    .strokeBorder(Color.blue.opacity(0.3), lineWidth: 1)
-            )
+
+            // Per-opponent breakdown
+            if opponentRecords.count > 0 {
+                VStack(spacing: 6) {
+                    ForEach(opponentRecords, id: \.name) { rec in
+                        HStack(spacing: 8) {
+                            Text(rec.w > rec.l ? "🏆" : (rec.l > rec.w ? "📱" : "🤝"))
+                                .font(.system(size: 13))
+                            Text("vs \(rec.name)")
+                                .font(.system(size: 13, weight: .medium, design: .rounded))
+                            Spacer()
+                            Text("\(rec.w)W · \(rec.l)L\(rec.t > 0 ? " · \(rec.t)T" : "")")
+                                .font(.system(size: 12, design: .rounded))
+                                .foregroundColor(.secondary)
+                            // Mini win-rate bar
+                            let total = rec.w + rec.l + rec.t
+                            let frac  = total > 0 ? CGFloat(rec.w) / CGFloat(total) : 0
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 2).fill(Color(.systemGray5)).frame(height: 4)
+                                    RoundedRectangle(cornerRadius: 2)
+                                        .fill(rec.w >= rec.l ? Color.green.opacity(0.7) : Color.orange.opacity(0.7))
+                                        .frame(width: max(geo.size.width * frac, 2), height: 4)
+                                }
+                            }
+                            .frame(width: 48, height: 4)
+                        }
+                    }
+                }
+                .padding(12)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
+            }
         }
-        .buttonStyle(.plain)
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 14)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.05), radius: 6, x: 0, y: 2)
+        )
     }
 
-    // MARK: - History Section
+    // MARK: - History Section (full list)
 
     private var historySection: some View {
         VStack(alignment: .leading, spacing: 0) {
 
-            // Header
             HStack(spacing: 6) {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
-                Text(t("DUEL HISTORY · 7 DAYS", "ΙΣΤΟΡΙΚΟ ΜΟΝΟΜΑΧΙΩΝ · 7 ΜΕΡΕΣ", "DUELL-VERLAUF · 7 TAGE"))
+                Text(t("HISTORY", "ΙΣΤΟΡΙΚΟ", "VERLAUF"))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundColor(.secondary)
                     .tracking(0.5)
@@ -116,8 +200,8 @@ struct DuelBannerView: View {
 
             Divider().padding(.horizontal, 16)
 
-            ForEach(Array(duelManager.duelHistory.prefix(5).enumerated()), id: \.element.id) { idx, duel in
-                historyRow(duel, isLast: idx == min(duelManager.duelHistory.count, 5) - 1)
+            ForEach(Array(history.prefix(7).enumerated()), id: \.element.id) { idx, duel in
+                historyRow(duel, isLast: idx == min(history.count, 7) - 1)
             }
         }
         .background(
@@ -128,26 +212,17 @@ struct DuelBannerView: View {
     }
 
     private func historyRow(_ duel: DuelRecord, isLast: Bool) -> some View {
-        let icon   = duel.isTie ? "🤝" : (duel.iWon ? "🏆" : "📱")
-        let myC    = duel.myPickups
-        let theirC = duel.theirPickups
-        let myColor: Color   = duel.iWon ? Color(red: 0.2, green: 0.78, blue: 0.4) : (duel.iLost ? Color(red: 1.0, green: 0.3, blue: 0.3) : .primary)
-        let theirColor: Color = duel.iLost ? Color(red: 0.2, green: 0.78, blue: 0.4) : (duel.iWon ? Color(red: 1.0, green: 0.3, blue: 0.3) : .primary)
+        let icon      = duel.isTie ? "🤝" : (duel.iWon ? "🏆" : "📱")
+        let myColor   = duel.iWon  ? Color.green : (duel.iLost ? Color.red : Color.primary)
+        let theirColor = duel.iLost ? Color.green : (duel.iWon  ? Color.red : Color.primary)
 
         return VStack(spacing: 0) {
             HStack(spacing: 14) {
-                Text(icon)
-                    .font(.system(size: 22))
+                Text(icon).font(.system(size: 22))
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(t(
-                        "vs \(duel.theirName)",
-                        "με \(duel.theirName)",
-                        "vs. \(duel.theirName)"
-                    ))
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(.primary)
-
+                    Text(t("vs \(duel.theirName)", "με \(duel.theirName)", "vs. \(duel.theirName)"))
+                        .font(.system(size: 14, weight: .medium, design: .rounded))
                     Text(relativeDate(duel.createdAt))
                         .font(.system(size: 11, design: .rounded))
                         .foregroundColor(.secondary)
@@ -155,52 +230,30 @@ struct DuelBannerView: View {
 
                 Spacer()
 
-                // Score — show "?" when a side never synced (stayed at 0 while other played)
-                let myDisplay    = (myC == 0 && theirC > 0) ? "?" : "\(myC)"
-                let theirDisplay = (theirC == 0 && myC > 0) ? "?" : "\(theirC)"
+                let myD    = (duel.myScore == 0 && duel.theirScore > 0) ? "?" : "\(duel.myScore)"
+                let theirD = (duel.theirScore == 0 && duel.myScore > 0) ? "?" : "\(duel.theirScore)"
                 HStack(spacing: 3) {
-                    Text(myDisplay)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundColor(myC == 0 && theirC > 0 ? .secondary : myColor)
-                    Text("–")
-                        .font(.system(size: 13, design: .rounded))
-                        .foregroundColor(.secondary)
-                    Text(theirDisplay)
-                        .font(.system(size: 17, weight: .semibold, design: .rounded))
-                        .foregroundColor(theirC == 0 && myC > 0 ? .secondary : theirColor)
+                    Text(myD).font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundColor(myColor)
+                    Text("–").font(.system(size: 13, design: .rounded)).foregroundColor(.secondary)
+                    Text(theirD).font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundColor(theirColor)
                 }
 
-                // Result label
-                Text(duel.isTie
-                     ? t("Tie", "Ισοπαλία", "Unentschieden")
-                     : (duel.iWon
-                        ? t("Won", "Νίκη", "Sieg")
-                        : t("Lost", "Ήττα", "Niederlage")))
+                Text(duel.isTie ? t("Tie","Ισοπαλία","Unentsch.") : (duel.iWon ? t("Won","Νίκη","Sieg") : t("Lost","Ήττα","Niederlage")))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundColor(duel.isTie ? .secondary : (duel.iWon ? Color(red: 0.2, green: 0.78, blue: 0.4) : Color(red: 1.0, green: 0.3, blue: 0.3)))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .foregroundColor(duel.isTie ? .secondary : (duel.iWon ? .green : .red))
+                    .padding(.horizontal, 8).padding(.vertical, 4)
                     .background(Capsule().fill(
-                        duel.isTie ? Color.secondary.opacity(0.1)
-                            : (duel.iWon ? Color.green.opacity(0.12) : Color.red.opacity(0.12))
+                        duel.isTie ? Color.secondary.opacity(0.1) : (duel.iWon ? Color.green.opacity(0.12) : Color.red.opacity(0.12))
                     ))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
 
-            if !isLast {
-                Divider().padding(.leading, 52)
-            }
+            if !isLast { Divider().padding(.leading, 52) }
         }
     }
 
     // MARK: - Helpers
-
-    private var invitePair: RegisteredPair? {
-        guard let invite = duelManager.pendingInvite else { return nil }
-        return friendSync.registeredPairs.first { $0.deviceID == invite.challengerId }
-            ?? RegisteredPair(deviceID: invite.challengerId, name: invite.theirName, registeredAt: Date())
-    }
 
     private func relativeDate(_ date: Date) -> String {
         let days = Calendar.current.dateComponents([.day], from: date, to: Date()).day ?? 0

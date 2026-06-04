@@ -27,14 +27,17 @@ class DataStore {
     var hourlyScreenTimeSecs: [Int] = Array(repeating: 0, count: 24)
 
     /// Total screen time in seconds for the current + previous hour (rolling 2-hour window).
+    /// Wraps to hour 23 at midnight to avoid double-counting hour 0.
     var screenTimeLastTwoHours: Int {
         let hour = Calendar.current.component(.hour, from: Date())
-        let prev = hour > 0 ? hour - 1 : 0
+        let prev = hour > 0 ? hour - 1 : 23
         return hourlyScreenTimeSecs[hour] + hourlyScreenTimeSecs[prev]
     }
 
     private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
     private var midnightTimer: Timer?
+    // H5 fix: store the observer opaque pointer so deinit can remove it and prevent UAF crashes.
+    private var darwinObserver: UnsafeMutableRawPointer? = nil
 
     init() {
         loadData()
@@ -104,7 +107,11 @@ class DataStore {
 
     private func observeDeviceActivityPickups() {
         let name = "dev.fotiospongas.picksy.pickupRecorded" as CFString
+        // H5 fix: store the observer pointer so deinit can remove it.
+        // Without removal, DataStore deallocation leaves a dangling opaque pointer
+        // in the Darwin notification center, causing a Use-After-Free crash.
         let observer = Unmanaged.passUnretained(self).toOpaque()
+        darwinObserver = observer
 
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
@@ -120,6 +127,42 @@ class DataStore {
             nil,
             .deliverImmediately
         )
+    }
+
+    // MARK: - Reset today only
+
+    /// Μηδενίζει μόνο τα σημερινά σηκώματα.
+    /// Αφαιρεί το σημερινό count από το totalPickups ώστε να παραμείνει συνεπές.
+    /// Το streak, η εβδομαδιαία ιστορία (εκτός σήμερα) και τα achievements δεν επηρεάζονται.
+    func resetTodayPickups() {
+        let todayCount = todayPickups
+
+        // Αφαίρεσε το σημερινό count από το all-time total
+        totalPickups = max(0, totalPickups - todayCount)
+
+        // Μηδένισε σήμερα
+        todayPickups = 0
+        weeklyPickups[currentDayIndex()] = 0
+
+        // Persist
+        defaults.set(totalPickups, forKey: "totalPickups")
+        defaults.set(0, forKey: "todayPickups")
+        defaults.set(weeklyPickups, forKey: "weeklyPickups")
+
+        // Καθάρισε το DeviceActivity shared key για σήμερα
+        defaults.removeObject(forKey: todayPickupsKey())
+
+        // Άσε το ScreenUnlockDetector να μετρήσει το επόμενο unlock
+        UserDefaults.standard.removeObject(forKey: "ScreenUnlockDetector.lastPickupTime")
+        ScreenUnlockDetector.shared.sessionPickupCount = 0
+
+        // Άσε τις zone notifications να ξανατριγκάρουν από 0
+        ZoneNotificationManager.shared.resetForNewDay()
+
+        // Ανανέωσε widgets
+        WidgetCenter.shared.reloadAllTimelines()
+
+        print("🔄 Today's pickups reset (was \(todayCount), total adjusted to \(totalPickups))")
     }
 
     // MARK: - Reset all stats
@@ -148,8 +191,8 @@ class DataStore {
         // Reset DeviceActivity shared key
         defaults.removeObject(forKey: todayPickupsKey())
 
-        // v1.6: Clear ScreenUnlockDetector persisted state
-        UserDefaults.standard.removeObject(forKey: "ScreenUnlockDetector.lastPickupTime")
+        // Clear shared cooldown key (used by both ScreenUnlockDetector + extension, fix #1)
+        defaults.removeObject(forKey: "picksy_last_pickup_timestamp")
 
         // v1.6: Clear last pickup timestamp στο NudgeView
         UserDefaults.standard.removeObject(forKey: "lastPickupTimestamp")
@@ -256,9 +299,11 @@ class DataStore {
             let dailyGoal = defaults.integer(forKey: "dailyGoal")
             let goal = dailyGoal > 0 ? dailyGoal : 50
 
-            if todayPickups <= goal && todayPickups > 0 {
+            if todayPickups > 0 && todayPickups <= goal {
                 currentStreak += 1
-            } else if todayPickups > goal {
+            } else if todayPickups > goal || todayPickups == 0 {
+                // H6 fix: 0 pickups (phone not opened) also resets streak —
+                // previously a day with 0 pickups silently skipped the streak check.
                 currentStreak = 0
             }
 
@@ -309,6 +354,15 @@ class DataStore {
 
     deinit {
         midnightTimer?.invalidate()
+        // H5 fix: remove the Darwin notification observer before deallocation.
+        if let observer = darwinObserver {
+            CFNotificationCenterRemoveObserver(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                observer,
+                CFNotificationName("dev.fotiospongas.picksy.pickupRecorded" as CFString),
+                nil
+            )
+        }
     }
 }
 

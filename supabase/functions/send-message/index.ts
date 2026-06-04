@@ -56,27 +56,35 @@ async function sendPush(
   deviceToken: string,
   title: string,
   body: string,
-  isProduction: boolean
+  isProduction: boolean,
+  silent: boolean = false
 ): Promise<void> {
   const jwt  = await getApnsJwt();
   const host = isProduction ? APNS_PROD : APNS_SANDBOX;
   const url  = `${host}/3/device/${deviceToken}`;
 
-  const payload = {
-    aps: {
-      alert: { title, body },
-      sound: "default",
-      category: "PICKSY_MESSAGE"
-    }
-  };
+  // Silent push: wakes up the app in background without showing any notification.
+  // Used to trigger pickup count sync on the opponent's device during a duel.
+  // Regular push: includes content-available:1 so the app also runs handleSilentPush
+  // in the background even if the user doesn't tap the notification.
+  const payload = silent
+    ? { aps: { "content-available": 1 } }
+    : {
+        aps: {
+          alert: { title, body },
+          sound: "default",
+          "content-available": 1,   // wake app in background on all notifications
+          category: "PICKSY_MESSAGE"
+        }
+      };
 
   const resp = await fetch(url, {
     method: "POST",
     headers: {
       authorization:      `bearer ${jwt}`,
       "apns-topic":       BUNDLE_ID,
-      "apns-push-type":   "alert",
-      "apns-priority":    "10",
+      "apns-push-type":   silent ? "background" : "alert",
+      "apns-priority":    silent ? "5" : "10",   // background must use priority 5
       "content-type":     "application/json"
     },
     body: JSON.stringify(payload)
@@ -86,7 +94,7 @@ async function sendPush(
     const err = await resp.text();
     console.error(`[send-message] ❌ APNs ${resp.status}: ${err}`);
   } else {
-    console.log(`[send-message] ✅ Push sent to ${deviceToken.slice(0, 8)}…`);
+    console.log(`[send-message] ✅ ${silent ? "Silent" : "Alert"} push sent to ${deviceToken.slice(0, 8)}…`);
   }
 }
 
@@ -111,6 +119,7 @@ Deno.serve(async (req: Request) => {
     device_id?: string;
     title?: string;
     body?: string;
+    silent?: boolean;
   };
   try {
     payload = await req.json();
@@ -153,7 +162,7 @@ Deno.serve(async (req: Request) => {
   const isProduction: boolean = tokenRow?.is_production ?? true;
   console.log(`[send-message] 🌐 APNs env: ${isProduction ? "production" : "sandbox"}`);
 
-  await sendPush(pushToken, notifTitle, notifBody, isProduction);
+  await sendPush(pushToken, notifTitle, notifBody, isProduction, payload.silent ?? false);
 
   return new Response("OK", { status: 200 });
 });

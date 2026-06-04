@@ -12,6 +12,7 @@ import SwiftUI
 import UserNotifications
 import StoreKit
 import FamilyControls
+import WidgetKit
 
 struct SettingsView: View {
     @AppStorage("dailyGoal") private var dailyGoal: Int = 50
@@ -31,12 +32,16 @@ struct SettingsView: View {
     @State private var showAboutScience: Bool = false
     @State private var showPaywall: Bool = false
     @State private var showResetConfirm: Bool = false
+    @State private var showResetTodayConfirm: Bool = false
     @State private var showAppInfo: Bool = false
     @State private var showActivityPrefs: Bool = false
     @State private var showAppPicker: Bool = false
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
     @State private var isAuthorized: Bool = false
     @State private var showAchievements: Bool = false
+    #if DEBUG
+    @State private var showDebugDuelResult: Bool = false
+    #endif
 
     // v1.7: Threshold preset
     @State private var selectedPreset: ThresholdPreset = ThresholdPreset.current
@@ -306,6 +311,28 @@ struct SettingsView: View {
             AchievementsView(onUnlockTap: { showPaywall = true })
                 .environment(proManager)
         }
+        #if DEBUG
+        .sheet(isPresented: $showDebugDuelResult) {
+            let myID = FriendSyncManager.shared.deviceID
+            let mockDuel = DuelRecord(
+                id: "debug-duel",
+                challengerId: myID,
+                opponentId: "opponent-debug-id",
+                challengerName: "You",
+                opponentName: "Test Friend",
+                status: .completed,
+                startedAt: Date(),
+                endsAt: Date(),
+                challengerPickups: 22,
+                opponentPickups: 45,
+                challengerScreenTime: 3600,
+                opponentScreenTime: 7200,
+                winnerId: myID,
+                createdAt: Date()
+            )
+            DuelResultView(duel: mockDuel, hourlyData: Array(repeating: 0, count: 24))
+        }
+        #endif
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
         .onAppear {
             isAuthorized = FamilyControlsManager.shared.isAuthorized
@@ -315,6 +342,12 @@ struct SettingsView: View {
         .onChange(of: pickerSelection) { _, newValue in
             AppSelectionStore.shared.selection = newValue
             UsageThresholdManager.shared.restartMonitoring()
+        }
+        // Mirror dailyGoal to App Group suite immediately so the widget reflects
+        // the new goal without waiting for the next pickup (which triggers saveData).
+        .onChange(of: dailyGoal) { _, newValue in
+            UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(newValue, forKey: "dailyGoal")
+            WidgetCenter.shared.reloadAllTimelines()
         }
     }
 
@@ -579,6 +612,32 @@ struct SettingsView: View {
                     .background(Capsule().fill(!proManager.isPro ? Color.gray : Color.orange))
                 }
                 .disabled(!proManager.isPro)
+            }
+
+            Divider().padding(.vertical, 4)
+
+            HStack(spacing: 10) {
+                Button(action: { store.resetTodayPickups() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise").font(.system(size: 12))
+                        Text("Reset Pickups").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.red.opacity(0.8)))
+                }
+
+                Button(action: { showDebugDuelResult = true }) {
+                    HStack(spacing: 6) {
+                        Text("🏆").font(.system(size: 12))
+                        Text("Test Win").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.purple.opacity(0.8)))
+                }
             }
 
             Text("These buttons exist only in DEBUG builds and will not appear in the App Store version.")

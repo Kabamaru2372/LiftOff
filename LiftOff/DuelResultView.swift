@@ -13,28 +13,30 @@ import SwiftUI
 private struct Particle: Identifiable {
     let id       = UUID()
     let color:   Color
-    let offsetX: CGFloat
-    let offsetY: CGFloat
+    let xFrac:   CGFloat   // horizontal position as fraction of screen width (0...1)
+    let driftX:  CGFloat   // horizontal drift while falling
     let scale:   CGFloat
-    let delay:   Double   // stored once, never changes
+    let delay:   Double    // staggered start delay
+    let duration: Double   // individual fall duration
     let isEmoji: Bool
     let emoji:   String
+    let spin:    Double    // total rotation degrees during fall
 }
 
 private func makeParticles() -> [Particle] {
-    let colors: [Color] = [.red, .orange, .yellow, .green, .blue, .purple, .pink, .cyan]
-    let emojis = ["🎉", "⭐", "✨", "💫", "🏆"]
-    return (0..<24).map { i in
-        let angle = Double(i) / 24.0 * 2 * .pi + Double.random(in: -0.4...0.4)
-        let dist  = CGFloat.random(in: 100...240)
-        return Particle(
-            color:   colors[i % colors.count],
-            offsetX: cos(angle) * dist,
-            offsetY: sin(angle) * dist,
-            scale:   CGFloat.random(in: 0.5...1.0),
-            delay:   Double(i) * 0.025,          // evenly staggered, deterministic
-            isEmoji: i % 5 == 0,
-            emoji:   emojis[i % emojis.count]
+    let colors: [Color] = [.red, .orange, .yellow, .green, .blue, .purple, .pink, .cyan, .mint, .indigo]
+    let emojis = ["🏆", "⭐", "✨", "💫", "🎉", "🎊", "🌟"]
+    return (0..<135).map { i in
+        Particle(
+            color:    colors[i % colors.count],
+            xFrac:    CGFloat.random(in: 0.02...0.98),
+            driftX:   CGFloat.random(in: -55...55),
+            scale:    CGFloat.random(in: 0.5...1.4),
+            delay:    Double.random(in: 0...2.4),
+            duration: Double.random(in: 2.0...3.4),
+            isEmoji:  i % 8 == 0,
+            emoji:    emojis[i % emojis.count],
+            spin:     Double.random(in: 180...540)
         )
     }
 }
@@ -52,7 +54,10 @@ struct DuelResultView: View {
     @State private var animateHero     = false
     @State private var animateScore    = false
     @State private var animateAnalysis = false
-    @State private var particlesOut    = false
+    @State private var showParticles   = false   // particles in view hierarchy
+    @State private var particlesOut    = false   // false=center, true=burst outward
+    // C5 fix: single cancellable Task replaces all DispatchQueue.asyncAfter chains
+    @State private var confettiTask: Task<Void, Never>? = nil
 
     // Particles created once — static per view instance
     private let particles = makeParticles()
@@ -71,25 +76,36 @@ struct DuelResultView: View {
         ZStack {
             background.ignoresSafeArea()
 
-            // Confetti — only when won, only 24 particles
-            if duel.iWon && particlesOut {
-                ForEach(particles) { p in
-                    Group {
-                        if p.isEmoji {
-                            Text(p.emoji).font(.system(size: 18 * p.scale))
-                        } else {
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(p.color)
-                                .frame(width: 9 * p.scale, height: 9 * p.scale)
+            // Confetti curtain — particles fall from top to bottom across the
+            // full screen width. GeometryReader provides screen dimensions so
+            // particles are distributed evenly and fall completely off-screen.
+            if duel.iWon && showParticles {
+                GeometryReader { geo in
+                    ForEach(particles) { p in
+                        Group {
+                            if p.isEmoji {
+                                Text(p.emoji)
+                                    .font(.system(size: 20 * p.scale))
+                                    .rotationEffect(.degrees(particlesOut ? p.spin : 0))
+                            } else {
+                                RoundedRectangle(cornerRadius: 2)
+                                    .fill(p.color)
+                                    .frame(width: 8 * p.scale, height: 14 * p.scale)
+                                    .rotationEffect(.degrees(particlesOut ? p.spin : 0))
+                            }
                         }
+                        .position(
+                            x: geo.size.width * p.xFrac + (particlesOut ? p.driftX : 0),
+                            y: particlesOut ? geo.size.height + 80 : -30
+                        )
+                        .animation(
+                            .easeIn(duration: p.duration).delay(p.delay),
+                            value: particlesOut
+                        )
                     }
-                    .offset(x: p.offsetX, y: p.offsetY)
-                    .opacity(0)                              // fade out after burst
-                    .animation(
-                        .easeOut(duration: 1.0).delay(p.delay),
-                        value: particlesOut
-                    )
                 }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
             }
 
             ScrollView {
@@ -115,10 +131,56 @@ struct DuelResultView: View {
                 animateAnalysis = true
             }
             if duel.iWon {
-                withAnimation(.easeOut(duration: 0.1).delay(0.1)) {
-                    particlesOut = true
+                // C5 fix: single Task replaces all DispatchQueue.asyncAfter chains.
+                // If the sheet is dismissed, .onDisappear cancels the Task and
+                // Task.sleep throws CancellationError, immediately unwinding everything.
+                confettiTask = Task { @MainActor in
+                    do {
+                        // Wave 1 — place particles, then trigger fall
+                        try await Task.sleep(for: .milliseconds(300))
+                        showParticles = true
+                        try await Task.sleep(for: .milliseconds(50))
+                        particlesOut = true
+
+                        // Haptics wave 1 (cumulative delays match original absolute times)
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                        let wave1: [(Int, UIImpactFeedbackGenerator.FeedbackStyle)] = [
+                            (150, .heavy), (450, .medium), (450, .light),
+                            (450, .medium), (450, .light), (450, .medium), (450, .light)
+                        ]
+                        for (ms, style) in wave1 {
+                            try await Task.sleep(for: .milliseconds(ms))
+                            UIImpactFeedbackGenerator(style: style).impactOccurred()
+                        }
+
+                        // Wave 2 — reset and repeat
+                        try await Task.sleep(for: .milliseconds(1000))
+                        particlesOut = false
+                        showParticles = false
+                        try await Task.sleep(for: .milliseconds(100))
+                        showParticles = true
+                        try await Task.sleep(for: .milliseconds(50))
+                        particlesOut = true
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+
+                        let wave2: [(Int, UIImpactFeedbackGenerator.FeedbackStyle)] = [
+                            (400, .medium), (500, .light), (500, .medium), (500, .light)
+                        ]
+                        for (ms, style) in wave2 {
+                            try await Task.sleep(for: .milliseconds(ms))
+                            UIImpactFeedbackGenerator(style: style).impactOccurred()
+                        }
+                    } catch {
+                        // Cancelled on dismiss — reset particle state cleanly
+                        showParticles = false
+                        particlesOut = false
+                    }
                 }
             }
+        }
+        .onDisappear {
+            confettiTask?.cancel()
+            confettiTask = nil
         }
     }
 
@@ -169,7 +231,7 @@ struct DuelResultView: View {
                     Text(t("You", "Εσύ", "Du"))
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.7))
-                    Text("\(duel.myPickups)")
+                    Text("\(duel.myScore)")
                         .font(.system(size: 52, weight: .bold, design: .rounded))
                         .foregroundColor(
                             duel.iWon  ? Color(red: 0.4, green: 1.0, blue: 0.6) :
@@ -194,7 +256,7 @@ struct DuelResultView: View {
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.7))
                         .lineLimit(1)
-                    let theirDisplay = (duel.theirPickups == 0 && duel.myPickups > 0) ? "?" : "\(duel.theirPickups)"
+                    let theirDisplay = (duel.theirScore == 0 && duel.myScore > 0) ? "?" : "\(duel.theirScore)"
                     Text(theirDisplay)
                         .font(.system(size: 52, weight: .bold, design: .rounded))
                         .foregroundColor(

@@ -60,13 +60,24 @@ struct AppsView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t("Apps", "Εφαρμογές", "Apps"))
-                        .font(.system(size: 24, weight: .medium, design: .rounded))
-                    Text(t("Today's usage", "Χρήση σήμερα", "Heutige Nutzung"))
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.indigo.opacity(0.15))
+                                .frame(width: 32, height: 32)
+                            Image(systemName: "apps.iphone")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.indigo)
+                        }
+                        Text(t("Apps", "Εφαρμογές", "Apps"))
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                    }
+                    Text(t("Today's screen time", "Χρόνος οθόνης σήμερα", "Heutige Bildschirmzeit"))
                         .font(.system(size: 13, weight: .regular, design: .rounded))
                         .foregroundColor(.secondary)
+                        .padding(.leading, 40)
                 }
                 Spacer()
 
@@ -74,18 +85,18 @@ struct AppsView: View {
                     HStack(spacing: 8) {
                         Button(action: { refreshTrigger.forceRefresh() }) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14))
+                                .font(.system(size: 13))
                                 .foregroundColor(.secondary)
-                                .frame(width: 36, height: 36)
-                                .background(Circle().fill(Color.gray.opacity(0.1)))
+                                .frame(width: 34, height: 34)
+                                .background(Circle().fill(Color(.systemGray6)))
                         }
 
                         Button(action: { showAppPicker = true }) {
                             Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 16))
-                                .foregroundColor(.blue)
-                                .frame(width: 36, height: 36)
-                                .background(Circle().fill(Color.blue.opacity(0.1)))
+                                .font(.system(size: 15))
+                                .foregroundColor(.indigo)
+                                .frame(width: 34, height: 34)
+                                .background(Circle().fill(Color.indigo.opacity(0.12)))
                         }
                     }
                 }

@@ -228,6 +228,89 @@ class CorrelationStore {
         }
     }
 
+    // MARK: - Weekday vs Weekend
+
+    var weekdayAvgPickups: Double {
+        let days = snapshots.filter {
+            guard let d = isoDate($0.date) else { return false }
+            let wd = Calendar.current.component(.weekday, from: d)
+            return wd >= 2 && wd <= 6  // Mon–Fri
+        }
+        guard !days.isEmpty else { return 0 }
+        return Double(days.map(\.pickupCount).reduce(0, +)) / Double(days.count)
+    }
+
+    var weekendAvgPickups: Double {
+        let days = snapshots.filter {
+            guard let d = isoDate($0.date) else { return false }
+            let wd = Calendar.current.component(.weekday, from: d)
+            return wd == 1 || wd == 7  // Sun or Sat
+        }
+        guard !days.isEmpty else { return 0 }
+        return Double(days.map(\.pickupCount).reduce(0, +)) / Double(days.count)
+    }
+
+    /// nil if not enough contrast or data
+    func weekdayInsight(language: String) -> String? {
+        guard weekdayAvgPickups > 0, weekendAvgPickups > 0 else { return nil }
+        let diff = abs(weekendAvgPickups - weekdayAvgPickups)
+        let base = max(weekdayAvgPickups, weekendAvgPickups)
+        let pct  = Int((diff / base * 100).rounded())
+        guard pct >= 10 else { return nil }
+        let weekendMore = weekendAvgPickups > weekdayAvgPickups
+        switch language {
+        case "Ελληνικά":
+            return weekendMore
+                ? "Τα Σ/Κ σηκώνεις \(pct)% περισσότερο 📅"
+                : "Τις εργάσιμες σηκώνεις \(pct)% περισσότερο 💼"
+        case "Deutsch":
+            return weekendMore
+                ? "Am Wochenende \(pct)% mehr Griffe 📅"
+                : "An Werktagen \(pct)% mehr Griffe 💼"
+        default:
+            return weekendMore
+                ? "Weekends: \(pct)% more pickups 📅"
+                : "Weekdays: \(pct)% more pickups 💼"
+        }
+    }
+
+    // MARK: - Temperature Insight
+
+    func temperatureInsight(language: String) -> String? {
+        let hot  = snapshots.filter { $0.temperature >= 25 }
+        let cold = snapshots.filter { $0.temperature <  15 }
+        guard hot.count >= 3, cold.count >= 3 else { return nil }
+        let hotAvg  = Double(hot.map(\.pickupCount).reduce(0, +))  / Double(hot.count)
+        let coldAvg = Double(cold.map(\.pickupCount).reduce(0, +)) / Double(cold.count)
+        let diff = abs(hotAvg - coldAvg)
+        let pct  = Int((diff / max(hotAvg, coldAvg) * 100).rounded())
+        guard pct >= 10 else { return nil }
+        let hotter = hotAvg > coldAvg
+        switch language {
+        case "Ελληνικά":
+            return hotter
+                ? "Στη ζέστη (+25°) σηκώνεις \(pct)% περισσότερο 🌡️"
+                : "Στο κρύο (-15°) σηκώνεις \(pct)% περισσότερο 🥶"
+        case "Deutsch":
+            return hotter
+                ? "Bei Hitze (+25°) \(pct)% mehr Griffe 🌡️"
+                : "In der Kälte (<15°) \(pct)% mehr Griffe 🥶"
+        default:
+            return hotter
+                ? "In hot weather (+25°) \(pct)% more pickups 🌡️"
+                : "In cold weather (<15°) \(pct)% more pickups 🥶"
+        }
+    }
+
+    private static let isoFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f
+    }()
+
+    // Cached formatter: was allocating a new DateFormatter per snapshot (up to 90× per property access).
+    private func isoDate(_ s: String) -> Date? {
+        return Self.isoFormatter.date(from: s)
+    }
+
     // MARK: - Persistence
 
     private func loadSnapshots() {

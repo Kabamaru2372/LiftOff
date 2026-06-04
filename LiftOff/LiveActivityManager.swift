@@ -40,19 +40,23 @@ class LiveActivityManager {
 
     private func recoverExistingActivity() {
         let activities = Activity<LiftOffActivityAttributes>.activities
-        if let existing = activities.first {
+
+        // Only recover activities that are truly active — dismissed activities cannot
+        // be updated and must not block creation of a fresh one on next launch.
+        if let existing = activities.first(where: { $0.activityState == .active }) {
             currentActivity = existing
-            print("✅ Recovered existing Live Activity")
-
+            print("✅ Recovered existing Live Activity (state: .active)")
             observeActivity(existing)
+        }
 
-            if activities.count > 1 {
-                Task {
-                    for activity in activities.dropFirst() {
-                        await activity.end(nil, dismissalPolicy: .immediate)
-                    }
-                    print("🧹 Cleaned up \(activities.count - 1) duplicate Live Activities")
+        // Clean up any ended or dismissed stragglers
+        let stale = activities.filter { $0.activityState != .active }
+        if !stale.isEmpty {
+            Task {
+                for activity in stale {
+                    await activity.end(nil, dismissalPolicy: .immediate)
                 }
+                print("🧹 Ended \(stale.count) stale/dismissed Live Activities")
             }
         }
     }
@@ -75,7 +79,27 @@ class LiveActivityManager {
                         if self.currentActivity?.id == activity.id {
                             self.currentActivity = nil
                             self.pushToken = nil
-                            print("[LiveActivity] ⚠️ Activity ended externally — cleared reference")
+                            print("[LiveActivity] ⚠️ Activity \(state == .dismissed ? "dismissed" : "ended") externally — cleared reference")
+                        }
+                    }
+
+                    // Auto-restart after accidental swipe-dismiss (e.g. WiiM taking over DI).
+                    // Respects the user's explicit "disable" choice in SettingsView:
+                    // liveActivityEnabled defaults to true, is false only when user turned it off.
+                    if state == .dismissed {
+                        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 s
+                        let shouldRestart = await MainActor.run {
+                            let enabled = UserDefaults.standard.object(forKey: "liveActivityEnabled") as? Bool ?? true
+                            return enabled && self.currentActivity == nil
+                        }
+                        guard shouldRestart else { continue }
+                        let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
+                        let pickups = suite.integer(forKey: "todayPickups")
+                        let rawGoal = UserDefaults.standard.integer(forKey: "dailyGoal")
+                        let goal = rawGoal > 0 ? rawGoal : 50
+                        await MainActor.run {
+                            self.start(pickupCount: pickups, dailyGoal: goal)
+                            print("[LiveActivity] 🔄 Auto-restarted after external dismissal")
                         }
                     }
                 }
@@ -107,14 +131,22 @@ class LiveActivityManager {
             currentActivity = nil
         }
 
-        // Έλεγξε αν υπάρχει system activity που μπορεί να ανακτηθεί
+        // Recover an active system activity if one exists.
+        // IMPORTANT: skip .dismissed activities — they can't be updated and would
+        // silently block creation of a fresh activity, leaving the DI blank.
         let systemActivities = Activity<LiftOffActivityAttributes>.activities
-        if let existing = systemActivities.first, existing.activityState != .ended {
+        if let existing = systemActivities.first(where: { $0.activityState == .active }) {
             currentActivity = existing
             observeActivity(existing)
             update(pickupCount: pickupCount)
-            print("ℹ️ Recovered system Live Activity (state: \(existing.activityState)) — updating")
+            print("ℹ️ Recovered active system Live Activity — updating")
             return
+        }
+        // End any dismissed/ended activities so iOS doesn't hit per-app limits
+        Task {
+            for old in systemActivities where old.activityState != .active {
+                await old.end(nil, dismissalPolicy: .immediate)
+            }
         }
 
         let attributes = LiftOffActivityAttributes(dailyGoal: dailyGoal)
@@ -134,7 +166,8 @@ class LiveActivityManager {
 
         let content = ActivityContent(
             state: state,
-            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) // midnight tonight
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)),
+            relevanceScore: 100 // midnight tonight
         )
 
         do {
@@ -174,7 +207,8 @@ class LiveActivityManager {
             )
             let content = ActivityContent(
                 state: state,
-                staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))
+                staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)),
+            relevanceScore: 100
             )
             Task { await activity.update(content) }
             return
@@ -193,7 +227,8 @@ class LiveActivityManager {
         )
         let content = ActivityContent(
             state: state,
-            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)),
+            relevanceScore: 100
         )
         Task { await activity.update(content) }
     }
@@ -214,7 +249,8 @@ class LiveActivityManager {
         )
         let content = ActivityContent(
             state: state,
-            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)) // midnight tonight
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)),
+            relevanceScore: 100 // midnight tonight
         )
         Task { await activity.update(content) }
     }
@@ -235,9 +271,80 @@ class LiveActivityManager {
         )
         let content = ActivityContent(
             state: state,
-            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400))
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)),
+            relevanceScore: 100
         )
         Task { await activity.update(content) }
+    }
+
+    // MARK: - Async update (for background pickup callback)
+    //
+    // The sync variants above fire `Task { await activity.update() }` and return
+    // immediately. When called from a UIBackgroundTask, iOS may re-suspend the app
+    // before the detached Task runs — so the DI never updates.
+    //
+    // These async variants properly await `activity.update()`, allowing the caller
+    // to keep the UIBackgroundTask alive until the DI is actually updated.
+
+    /// Awaitable update — use from `onPickupDetected` background callback only.
+    /// Applies the same duel/focus/normal priority logic as `update()`.
+    func updateAsync(pickupCount: Int) async {
+        guard let activity = currentActivity else { return }
+        if let duel = DuelManager.shared.activeDuel, duel.status == .active {
+            let state = LiftOffActivityAttributes.ContentState(
+                pickupCount: pickupCount,
+                currentQuote: "⚔️ Duel vs \(duel.theirName)",
+                lastPickupTime: Date(),
+                focusEndTime: nil,
+                focusPickupCount: 0,
+                duelOpponentName: duel.theirName,
+                duelMyPickups: pickupCount,
+                duelTheirPickups: duel.theirPickups
+            )
+            let content = ActivityContent(
+                state: state,
+                staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)),
+            relevanceScore: 100
+            )
+            await activity.update(content)
+            return
+        }
+        let state = LiftOffActivityAttributes.ContentState(
+            pickupCount: pickupCount,
+            currentQuote: QuoteBank.random(),
+            lastPickupTime: Date(),
+            focusEndTime: nil,
+            focusPickupCount: 0,
+            duelOpponentName: nil,
+            duelMyPickups: 0,
+            duelTheirPickups: 0
+        )
+        let content = ActivityContent(
+            state: state,
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)),
+            relevanceScore: 100
+        )
+        await activity.update(content)
+    }
+
+    func updateForFocusAsync(pickupCount: Int, focusEndTime: Date?, focusPickupCount: Int) async {
+        guard let activity = currentActivity else { return }
+        let state = LiftOffActivityAttributes.ContentState(
+            pickupCount: pickupCount,
+            currentQuote: focusEndTime != nil ? "Stay present 🍃" : QuoteBank.random(),
+            lastPickupTime: Date(),
+            focusEndTime: focusEndTime,
+            focusPickupCount: focusPickupCount,
+            duelOpponentName: nil,
+            duelMyPickups: 0,
+            duelTheirPickups: 0
+        )
+        let content = ActivityContent(
+            state: state,
+            staleDate: Calendar.current.startOfDay(for: Date().addingTimeInterval(86400)),
+            relevanceScore: 100
+        )
+        await activity.update(content)
     }
 
     // MARK: - Stop

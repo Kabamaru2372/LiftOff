@@ -13,7 +13,8 @@ class HourlyTracker {
     // Index 0 = σήμερα, 1 = χθες, ... 6 = πριν 6 μέρες
     var hourlyData: [[Int]] = Array(repeating: Array(repeating: 0, count: 24), count: 7)
 
-    private let defaults = UserDefaults.standard
+    // H4 fix: use App Group suite so the extension and widget can read this data.
+    private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
     private let storageKey = "hourlyPickupData"
     private let lastDateKey = "hourlyLastDate"
 

@@ -5,8 +5,13 @@
 //
 // PRIVACY MODEL:
 //   • Each device generates a random UUID — never linked to a name, email, or account.
-//   • Data uploaded: { device_id (UUID), pickups_today (Int), daily_goal (Int) }
-//   • No personal information leaves the device.
+//   • Data uploaded to device_status: {
+//       device_id (UUID), pickups_today (Int), daily_goal (Int),
+//       pickups_last_2h (Int), screen_time_last_2h_seconds (Int), updated_at (String)
+//     }
+//   • screen_time_last_2h_seconds is Picksy's own measurement of screen-on time
+//     (via ScreenUnlockDetector session tracking) — NOT Apple's Screen Time API data.
+//     No per-app breakdown, no browsing history — just an aggregate total in seconds.
 //   • Uploads happen ONLY if the user has at least one registered friend pair.
 //   • The user can remove all pairs at any time from Settings.
 
@@ -61,18 +66,28 @@ class FriendSyncManager {
 
     private static let deviceIDKey     = "picksy_anonymous_device_id"
     private static let pairsKey        = "picksy_friend_pairs_v2"
+    private static let isoFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 
     // MARK: - Device ID
 
     /// Persistent anonymous device identifier.
-    /// Generated once, stored locally. Never transmitted alongside any personal info.
-    var deviceID: String {
-        if let stored = UserDefaults.standard.string(forKey: Self.deviceIDKey) {
-            return stored
+    /// C8 fix: stored as a `let` constant set in init — eliminates the non-atomic
+    /// read-then-write race where two concurrent callers could both see nil and
+    /// generate different UUIDs, with one silently discarded.
+    let deviceID: String
+
+    private init() {
+        if let stored = UserDefaults.standard.string(forKey: FriendSyncManager.deviceIDKey) {
+            deviceID = stored
+        } else {
+            let new = UUID().uuidString
+            UserDefaults.standard.set(new, forKey: FriendSyncManager.deviceIDKey)
+            deviceID = new
         }
-        let new = UUID().uuidString
-        UserDefaults.standard.set(new, forKey: Self.deviceIDKey)
-        return new
     }
 
     // MARK: - Pair Registry (local)
@@ -110,15 +125,17 @@ class FriendSyncManager {
     func registerPair(theirDeviceID: String, theirName: String) async {
         guard theirDeviceID != deviceID else { return }   // don't pair with self
 
-        // Save locally first (on MainActor to avoid Sendable capture warning)
-        let alreadyKnown = registeredPairs.contains(where: { $0.deviceID == theirDeviceID })
-        if !alreadyKnown {
-            let newPair = RegisteredPair(
-                deviceID: theirDeviceID,
-                name: theirName,
-                registeredAt: Date()
-            )
-            await MainActor.run {
+        // H13 fix: check + append inside the same MainActor.run block so
+        // concurrent calls to registerPair can't both see alreadyKnown=false
+        // and both append, creating a duplicate local entry.
+        await MainActor.run {
+            let alreadyKnown = registeredPairs.contains(where: { $0.deviceID == theirDeviceID })
+            if !alreadyKnown {
+                let newPair = RegisteredPair(
+                    deviceID: theirDeviceID,
+                    name: theirName,
+                    registeredAt: Date()
+                )
                 var pairs = registeredPairs
                 pairs.append(newPair)
                 registeredPairs = pairs
@@ -126,16 +143,21 @@ class FriendSyncManager {
         }
 
         // Normalise order (smaller UUID is always device_a)
-        let (a, b) = deviceID < theirDeviceID
-            ? (deviceID, theirDeviceID)
-            : (theirDeviceID, deviceID)
+        let myIsA = deviceID < theirDeviceID
+        let (a, b) = myIsA ? (deviceID, theirDeviceID) : (theirDeviceID, deviceID)
+        let myOwnName = UserDefaults.standard.string(forKey: "challengeDisplayName") ?? "A friend"
 
         guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/friend_pairs") else { return }
 
+        // name_a = display name of whoever has the smaller UUID (device_a)
+        // name_b = display name of whoever has the larger UUID (device_b)
+        // This lets EITHER device look up the other's name correctly on sync.
         let body: [String: Any] = [
             "device_a":    a,
             "device_b":    b,
-            "friend_name": theirName
+            "friend_name": theirName,                          // legacy field, kept for compatibility
+            "name_a":      myIsA ? myOwnName : theirName,
+            "name_b":      myIsA ? theirName : myOwnName
         ]
 
         var req = makeRequest(url: url, method: "POST")
@@ -145,6 +167,82 @@ class FriendSyncManager {
         if let (_, resp) = try? await URLSession.shared.data(for: req),
            let http = resp as? HTTPURLResponse {
             print("[FriendSync] 🔗 Pair registered – HTTP \(http.statusCode)")
+        }
+    }
+
+    // MARK: - Sync Friends from Supabase
+
+    /// Fetches all friend_pairs rows from Supabase where this device is either
+    /// device_a or device_b, and adds any unknown friends to the local registry.
+    ///
+    /// This is the ONLY way the sender discovers that someone accepted their invite,
+    /// since ChallengeReceivedView only writes to the recipient's local storage.
+    /// Call on every app foreground so the list stays in sync.
+    func syncFriendsFromSupabase() async {
+        let myID = deviceID
+        let escaped = myID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? myID
+
+        guard let url = URL(string:
+            "\(Self.supabaseURL)/rest/v1/friend_pairs?or=(device_a.eq.\(escaped),device_b.eq.\(escaped))&select=device_a,device_b,friend_name,name_a,name_b"
+        ) else { return }
+
+        var req = makeRequest(url: url, method: "GET")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        guard let (data, resp) = try? await URLSession.shared.data(for: req),
+              let http = resp as? HTTPURLResponse, http.statusCode == 200,
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]]
+        else { return }
+
+        // Collect new pairs to add — all MainActor mutations in one block
+        let myOwnName = UserDefaults.standard.string(forKey: "challengeDisplayName") ?? ""
+
+        var toUpsert: [(id: String, name: String)] = []
+        for row in rows {
+            let deviceA = row["device_a"] ?? ""
+            let deviceB = row["device_b"] ?? ""
+            let otherID = deviceA == myID ? deviceB : deviceA
+            guard !otherID.isEmpty else { continue }
+
+            // Priority 1: new name_a / name_b columns — always correct
+            let nameA = row["name_a"] ?? ""
+            let nameB = row["name_b"] ?? ""
+            let name: String
+            if !nameA.isEmpty && !nameB.isEmpty {
+                // I am device_a when myID < otherID (same UUID normalisation as registerPair)
+                name = (myID < otherID) ? nameB : nameA
+            } else {
+                // Legacy fallback: friend_name stores the SENDER's name.
+                // If it equals MY name, I was the sender → the other person has no name stored yet.
+                let friendName = row["friend_name"] ?? ""
+                if !friendName.isEmpty && friendName != myOwnName {
+                    name = friendName   // I was the recipient → friend_name is the other person
+                } else {
+                    name = "A friend"  // I was the sender → friend_name is myself, unknown other
+                }
+            }
+            toUpsert.append((id: otherID, name: name))
+        }
+
+        await MainActor.run {
+            var pairs = registeredPairs
+            var changed = 0
+            for item in toUpsert {
+                if let idx = pairs.firstIndex(where: { $0.deviceID == item.id }) {
+                    // Update name if it was wrong (e.g. was "Fotios" instead of "Νεφέλη")
+                    if pairs[idx].name != item.name && item.name != "A friend" {
+                        pairs[idx] = RegisteredPair(deviceID: item.id, name: item.name, registeredAt: pairs[idx].registeredAt)
+                        changed += 1
+                    }
+                } else {
+                    pairs.append(RegisteredPair(deviceID: item.id, name: item.name, registeredAt: Date()))
+                    changed += 1
+                }
+            }
+            if changed > 0 {
+                registeredPairs = pairs
+                print("[FriendSync] 🔄 Synced \(changed) friend(s) from Supabase")
+            }
         }
     }
 
@@ -164,7 +262,7 @@ class FriendSyncManager {
             "daily_goal":                 dailyGoal,
             "pickups_last_2h":            pickupsLast2h,
             "screen_time_last_2h_seconds": screenTimeLast2hSecs,
-            "updated_at":                 ISO8601DateFormatter().string(from: Date())
+            "updated_at":                 Self.isoFormatter.string(from: Date())
         ]
 
         var req = makeRequest(url: url, method: "POST")
@@ -206,28 +304,33 @@ class FriendSyncManager {
             return []
         }
 
-        var result: [OverusingPartner] = []
+        // MEDIUM fix: parallel fetches with withTaskGroup (was N sequential network calls).
+        let eligiblePairs = registeredPairs.filter { !alreadyNotifiedToday(for: $0.deviceID) }
+        let partnerThreshold = 20 * 60
 
-        for pair in registeredPairs {
-            print("[FriendSync] 👥 Checking pair: \(pair.deviceID.prefix(16))…")
-            if alreadyNotifiedToday(for: pair.deviceID) {
-                print("[FriendSync] ⏭ Already notified today for \(pair.name)")
-                continue
+        let result: [OverusingPartner] = await withTaskGroup(
+            of: OverusingPartner?.self,
+            returning: [OverusingPartner].self
+        ) { group in
+            for pair in eligiblePairs {
+                group.addTask {
+                    guard let row = await self.fetchStatus(for: pair.deviceID) else {
+                        print("[FriendSync] ⚠️ No status found for \(pair.name)")
+                        return nil
+                    }
+                    print("[FriendSync] 📊 \(pair.name): screenTime2h=\(row.screen_time_last_2h_seconds)s")
+                    guard row.screen_time_last_2h_seconds >= partnerThreshold else { return nil }
+                    return OverusingPartner(
+                        deviceID: pair.deviceID,
+                        friendName: pair.name,
+                        pickupsToday: row.pickups_today,
+                        dailyGoal: row.daily_goal
+                    )
+                }
             }
-            guard let row = await fetchStatus(for: pair.deviceID) else {
-                print("[FriendSync] ⚠️ No status found for \(pair.name)")
-                continue
-            }
-            let partnerThreshold = 20 * 60  // 20 min screen time in last 2h
-            print("[FriendSync] 📊 \(pair.name): screenTime2h=\(row.screen_time_last_2h_seconds)s, pickups2h=\(row.pickups_last_2h)")
-            if row.screen_time_last_2h_seconds >= partnerThreshold {
-                result.append(OverusingPartner(
-                    deviceID: pair.deviceID,
-                    friendName: pair.name,
-                    pickupsToday: row.pickups_today,
-                    dailyGoal: row.daily_goal
-                ))
-            }
+            var found: [OverusingPartner] = []
+            for await partner in group { if let p = partner { found.append(p) } }
+            return found
         }
         print("[FriendSync] ✅ Found \(result.count) overusing partner(s)")
         return result
@@ -280,21 +383,29 @@ class FriendSyncManager {
         let myMins = myScreenTimeSecs / 60
         guard myMins >= 15 else { return [] }
 
-        var result: [TogetherBannerData] = []
+        // MEDIUM fix: parallel fetches (was N sequential).
+        let eligiblePairs = registeredPairs.filter { !bannerShownThisSlot(for: $0.deviceID) }
 
-        for pair in registeredPairs {
-            guard !bannerShownThisSlot(for: pair.deviceID) else { continue }
-            guard let row = await fetchStatus(for: pair.deviceID) else { continue }
-            let theirMins = row.screen_time_last_2h_seconds / 60
-            if theirMins >= 15 {
-                result.append(TogetherBannerData(
-                    pair: pair,
-                    theirScreenTimeMins: theirMins,
-                    myScreenTimeMins: myMins
-                ))
+        return await withTaskGroup(
+            of: TogetherBannerData?.self,
+            returning: [TogetherBannerData].self
+        ) { group in
+            for pair in eligiblePairs {
+                group.addTask {
+                    guard let row = await self.fetchStatus(for: pair.deviceID) else { return nil }
+                    let theirMins = row.screen_time_last_2h_seconds / 60
+                    guard theirMins >= 15 else { return nil }
+                    return TogetherBannerData(
+                        pair: pair,
+                        theirScreenTimeMins: theirMins,
+                        myScreenTimeMins: myMins
+                    )
+                }
             }
+            var found: [TogetherBannerData] = []
+            for await banner in group { if let b = banner { found.append(b) } }
+            return found
         }
-        return result
     }
 
     /// Mark that we showed the banner for this friend in the current 2h slot.

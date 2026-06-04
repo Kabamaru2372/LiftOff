@@ -19,8 +19,10 @@ struct NudgeView: View {
     @Environment(LiveActivityManager.self) var liveActivity
     @Environment(TabSelection.self) var tabSelection
     @AppStorage("appLanguage") private var appLanguage: String = "English"
-    @AppStorage("dailyGoal") private var dailyGoal: Int = 15
-    @AppStorage("lastPickupTimestamp") private var lastPickupTimestamp: Double = 0
+    @AppStorage("dailyGoal") private var dailyGoal: Int = 50
+    // C10 fix: read from the App Group suite — the extension writes here, not standard defaults
+    @AppStorage("lastPickupTimestamp", store: UserDefaults(suiteName: "group.fotiospongas.picksy"))
+    private var lastPickupTimestamp: Double = 0
     @AppStorage("challengeDisplayName") private var displayName: String = ""
 
     @State private var currentQuote: String = ""
@@ -36,7 +38,7 @@ struct NudgeView: View {
 
     // Together banner (friends also overusing right now)
     @State private var togetherBanners: [TogetherBannerData] = []
-    @State private var messagingPair: RegisteredPair? = nil
+    @State private var togetherNudgePair: TogetherBannerData? = nil   // for nudge dialog
 
     // Animations
     @State private var refreshTrigger = AppsViewRefreshTrigger.shared
@@ -47,6 +49,8 @@ struct NudgeView: View {
     @State private var moonGlow: Bool = false
     // Separate display state so we can drive .contentTransition via withAnimation
     @State private var displayPickups: Int = 0
+    // C4 fix: store the closure-based observer token so we can properly remove it
+    @State private var pickupObserverToken: NSObjectProtocol? = nil
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -57,7 +61,7 @@ struct NudgeView: View {
     }
 
     private var goalProgress: Double {
-        let goal = dailyGoal > 0 ? dailyGoal : 15
+        let goal = dailyGoal > 0 ? dailyGoal : 50
         return min(Double(store.todayPickups) / Double(goal), 1.0)
     }
 
@@ -149,10 +153,37 @@ struct NudgeView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.hidden)
         }
-        // Together banner → messaging sheet
-        .sheet(item: $messagingPair) { pair in
-            MessageView(pair: pair)
-                .presentationDetents([.large])
+        // Together nudge — confirmation dialog με preset μηνύματα
+        .confirmationDialog(
+            togetherNudgePair.map {
+                t("Poke \($0.pair.name)", "Μήνυμα στον \($0.pair.name)", "\($0.pair.name) poken")
+            } ?? "",
+            isPresented: Binding(
+                get: { togetherNudgePair != nil },
+                set: { if !$0 { togetherNudgePair = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            let messages = togetherMessages
+            ForEach(messages, id: \.self) { msg in
+                Button(msg) {
+                    guard let pair = togetherNudgePair else { return }
+                    let name = displayName.trimmingCharacters(in: .whitespaces).isEmpty
+                        ? "A friend" : displayName
+                    Task {
+                        await DuelManager.shared.sendNudge(
+                            toDeviceID: pair.pair.deviceID,
+                            text: msg,
+                            senderName: name
+                        )
+                    }
+                    withAnimation { togetherBanners.removeAll { $0.id == pair.id } }
+                    togetherNudgePair = nil
+                }
+            }
+            Button(t("Cancel", "Άκυρο", "Abbrechen"), role: .cancel) {
+                togetherNudgePair = nil
+            }
         }
         // Focus Session sheet
         .sheet(isPresented: $showFocusSession) {
@@ -205,32 +236,36 @@ struct NudgeView: View {
                 badgePulse = store.currentZone == .problematic || store.currentZone == .heavy
             }
 
-            NotificationCenter.default.addObserver(
-                forName: .picksyPickupDetected,
-                object: nil,
-                queue: .main
-            ) { _ in
-                lastPickupTimestamp = Date().timeIntervalSince1970
-                updateMinutesSinceLastPickup()
-                currentQuote = ActivityBank.random(
-                    weather: weatherManager.activeCondition,
-                    categories: activityPrefs.effectiveCategories
-                )
-                // Ring counter rolls up via numericText transition
-                withAnimation(.bouncy(duration: 0.45)) {
-                    displayPickups = store.todayPickups
-                }
-                // Ring number spring bounce
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.4)) {
-                    counterScale = 1.35
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                        counterScale = 1.0
+            // C4 fix: save the token so onDisappear can properly remove this observer.
+            // The closure-based addObserver API requires removeObserver(token), NOT removeObserver(self, name:).
+            if pickupObserverToken == nil {
+                pickupObserverToken = NotificationCenter.default.addObserver(
+                    forName: .picksyPickupDetected,
+                    object: nil,
+                    queue: .main
+                ) { _ in
+                    lastPickupTimestamp = Date().timeIntervalSince1970
+                    updateMinutesSinceLastPickup()
+                    currentQuote = ActivityBank.random(
+                        weather: weatherManager.activeCondition,
+                        categories: activityPrefs.effectiveCategories
+                    )
+                    // Ring counter rolls up via numericText transition
+                    withAnimation(.bouncy(duration: 0.45)) {
+                        displayPickups = store.todayPickups
                     }
+                    // Ring number spring bounce
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.4)) {
+                        counterScale = 1.35
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            counterScale = 1.0
+                        }
+                    }
+                    // Update danger zone pulse
+                    badgePulse = store.currentZone == .problematic || store.currentZone == .heavy
                 }
-                // Update danger zone pulse
-                badgePulse = store.currentZone == .problematic || store.currentZone == .heavy
             }
         }
         .onDisappear {
@@ -239,11 +274,11 @@ struct NudgeView: View {
             // Μόνο τα looping animations σταματούν για να μην τρέχουν off-screen
             titleShimmer = false
             badgePulse = false
-            NotificationCenter.default.removeObserver(
-                self,
-                name: .picksyPickupDetected,
-                object: nil
-            )
+            // C4 fix: use the stored token (closure-based API requires this form)
+            if let token = pickupObserverToken {
+                NotificationCenter.default.removeObserver(token)
+                pickupObserverToken = nil
+            }
         }
         .onChange(of: appLanguage) { _, _ in
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
@@ -255,10 +290,11 @@ struct NudgeView: View {
     // MARK: - Idle screen
 
     private var idleContent: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
 
-            // Small gap from safe area top to title
-            Spacer().frame(maxHeight: 20)
+            // Flexible top spacer — centers the whole block vertically
+            // so the content isn't bunched at the top with empty space below.
+            Spacer(minLength: 16)
 
             // Picksy title — subtle shimmer
             Text("Picksy")
@@ -270,57 +306,60 @@ struct NudgeView: View {
                 .animation(.easeOut(duration: 0.5).delay(0.05), value: appeared)
                 .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: titleShimmer)
 
-            // Flexible gap — capped so content doesn't overflow on larger screens
-            // (iPhone 16 Pro is ~100pt taller; uncapped Spacer pushes stats card off-screen)
-            Spacer().frame(maxHeight: 50)
+            Spacer(minLength: 12)
 
-            // Inspirational quote card — crossfade on quote change
-            VStack(spacing: 12) {
-                HStack {
-                    Image(systemName: "quote.opening")
-                        .font(.system(size: 14))
-                        .foregroundColor(.white.opacity(0.7))
+            // ── HERO: Pickup ring ─────────────────────────────────────
+            pickupRingCard
 
-                    Spacer()
+            // ── Screen Time + Picksy Score pill ──────────────────────
+            let scoreMins  = store.todayTotalSeconds / 60
+            let score      = store.todayPickups + scoreMins * 5
+            let stHours    = scoreMins / 60
+            let stMins     = scoreMins % 60
+            let screenLabel = stHours > 0 ? "\(stHours)h \(stMins)m" : "\(stMins)m"
 
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            currentQuote = ActivityBank.random(
-                                weather: weatherManager.activeCondition,
-                                categories: activityPrefs.effectiveCategories
-                            )
-                        }
-                    }) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 12))
-                            .foregroundColor(.white.opacity(0.6))
-                    }
+            HStack(spacing: 0) {
+                // Screen time
+                HStack(spacing: 5) {
+                    Image(systemName: "hourglass")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.55))
+                    Text(screenLabel)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
 
-                Text(currentQuote)
-                    .font(.system(size: 14, weight: .regular, design: .rounded))
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .shadow(color: .black.opacity(0.3), radius: 2)
-                    .id(currentQuote)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .offset(y: 8)),
-                        removal:   .opacity.combined(with: .offset(y: -8))
-                    ))
+                // Divider
+                Rectangle()
+                    .fill(Color.white.opacity(0.2))
+                    .frame(width: 1, height: 22)
+
+                // Score
+                HStack(spacing: 5) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.white.opacity(0.55))
+                    Text("\(score)")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                    Text(t("lower = better", "χαμηλότερο = καλύτερο", "niedriger = besser"))
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundColor(.white.opacity(0.45))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity)
             .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.ultraThinMaterial)
-                    .opacity(0.6)
+                Capsule().fill(.ultraThinMaterial).opacity(0.5)
             )
-            .padding(.horizontal, 32)
             .opacity(appeared ? 1 : 0)
-            .offset(y: appeared ? 0 : 24)
-            .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.1), value: appeared)
+            .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.42), value: appeared)
+
+            Spacer(minLength: 12)
+
+            // ── Utility cards ─────────────────────────────────────────
 
             // Top 3 apps card
             if shouldShowTopApps {
@@ -348,24 +387,21 @@ struct NudgeView: View {
                 .offset(y: appeared ? 0 : 20)
                 .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.26), value: appeared)
 
-            // v1.7: "Τι να κάνω τώρα;" button
+            // "Τι να κάνω τώρα;" button
             activitySuggestionsButton
                 .padding(.horizontal, 32)
                 .opacity(appeared ? 1 : 0)
                 .offset(y: appeared ? 0 : 20)
                 .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.30), value: appeared)
 
-            // Together banner — εμφανίζεται όταν εσύ και φίλος είστε ταυτόχρονα στο κινητό
+            // Together banner
             ForEach(togetherBanners) { data in
                 togetherBannerView(data: data)
                     .padding(.horizontal, 32)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
 
-            Spacer().frame(maxHeight: 16)
-
-            // Animated pickup ring — replaces the progress bar
-            pickupRingCard
+            Spacer(minLength: 12)
         }
     }
 
@@ -378,8 +414,8 @@ struct NudgeView: View {
     ///  • Ambient glow that breathes in danger zones
     ///  • Zone badge + info button below
     private var pickupRingCard: some View {
-        let ringSize:  CGFloat = 140
-        let lineWidth: CGFloat = 10
+        let ringSize:  CGFloat = 180
+        let lineWidth: CGFloat = 12
         let tipRadius: CGFloat = ringSize / 2
 
         // The glow lives in .background so it does NOT contribute to the ZStack's
@@ -421,7 +457,7 @@ struct NudgeView: View {
             // ── Center: rolling number + goal + zone badge ────────────────
             VStack(spacing: 3) {
                 Text("\(displayPickups)")
-                    .font(.system(size: 48, weight: .semibold, design: .rounded))
+                    .font(.system(size: 58, weight: .semibold, design: .rounded))
                     .foregroundColor(.white)
                     .shadow(color: zoneColor.opacity(0.55), radius: 10)
                     .scaleEffect(counterScale)
@@ -472,10 +508,9 @@ struct NudgeView: View {
                     value: badgePulse
                 )
         )
-        .padding(.bottom, 25)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
-        .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.38), value: appeared)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.12), value: appeared)
     }
 
     // MARK: - Focus Session Button
@@ -631,6 +666,36 @@ struct NudgeView: View {
 
     // MARK: - Together Banner
 
+    /// 5 preset together-nudge messages, localized.
+    private var togetherMessages: [String] {
+        switch appLanguage {
+        case "Ελληνικά":
+            return [
+                "📱 Πάλι στο κινητό είμαστε — πάμε για καφέ;",
+                "😅 Κάνουμε και οι δυο doom scrolling... σταμάτα πρώτος!",
+                "📞 Κατέβασε το κινητό και πάρε με τηλέφωνο να τα πούμε",
+                "☕ Βλέπω ότι είσαι online — πάμε κάπου;",
+                "🤙 Ψηφιακή αποτοξίνωση μαζί; Εσύ πρώτα."
+            ]
+        case "Deutsch":
+            return [
+                "📱 Mal wieder am Handy — Lust auf einen Kaffee?",
+                "😅 Wir beide doomscrolln... hör zuerst auf!",
+                "📞 Leg das Handy weg und ruf mich an",
+                "☕ Ich seh, du bist online — sollen wir was machen?",
+                "🤙 Digital Detox zusammen? Du fängst an."
+            ]
+        default:
+            return [
+                "📱 We're both on our phones again — wanna grab a coffee?",
+                "😅 Doom scrolling together... you stop first!",
+                "📞 Put the phone down and give me a call",
+                "☕ I can see you're online — let's do something instead",
+                "🤙 Digital detox together? You go first."
+            ]
+        }
+    }
+
     private func checkTogetherBanner() {
         guard FriendSyncManager.shared.hasPairs else { return }
         // Together banner is a Pro feature (Friend Accountability)
@@ -643,6 +708,12 @@ struct NudgeView: View {
             await MainActor.run {
                 withAnimation(.easeIn(duration: 0.35).delay(0.6)) {
                     togetherBanners = banners
+                }
+                // Mark as shown immediately on display — not just on tap.
+                // Without this, navigating away and back re-shows the banner
+                // repeatedly within the same 2-hour slot.
+                for banner in banners {
+                    FriendSyncManager.shared.markBannerShown(for: banner.pair.deviceID)
                 }
             }
         }
@@ -676,11 +747,9 @@ struct NudgeView: View {
 
             VStack(spacing: 6) {
                 Button(action: {
-                    FriendSyncManager.shared.markBannerShown(for: data.pair.deviceID)
-                    messagingPair = data.pair
-                    withAnimation { togetherBanners.removeAll { $0.id == data.id } }
+                    togetherNudgePair = data
                 }) {
-                    Text(t("Message", "Μήνυμα", "Schreiben"))
+                    Text(t("Poke", "Μήνυμα", "Poke"))
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundColor(.black)
                         .padding(.horizontal, 10)
@@ -822,12 +891,12 @@ private struct WeatherPillFABView: View {
                 }
                 Text("\(Int(weather.temperature))°")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color(white: 0.85))
             }
             if !subtitle.isEmpty {
                 Text(subtitle)
                     .font(.system(size: 11, weight: .regular, design: .rounded))
-                    .foregroundColor(.white.opacity(0.75))
+                    .foregroundColor(Color(white: 0.70))
                     .fixedSize(horizontal: false, vertical: true)
                     .multilineTextAlignment(.leading)
             }

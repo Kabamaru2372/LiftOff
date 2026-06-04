@@ -30,7 +30,12 @@ extension Notification.Name {
     /// Posted από το DuelManager όταν μια μονομαχία ολοκληρωθεί/expire.
     /// Χρησιμοποιείται από το LiftOffApp για να καθαρίσει το Dynamic Island
     /// από το stale duel state (⚔️ + παλιά scores).
-    static let picksyDuelFinalized  = Notification.Name("picksy.duelFinalized")
+    static let picksyDuelFinalized      = Notification.Name("picksy.duelFinalized")
+
+    /// Posted από το NotificationDelegate όταν ο χρήστης πατήσει duel/message
+    /// push notification. Το FriendsView το ακούει για να κάνει re-poll και
+    /// να δείξει DuelResultView αν υπάρχει νέο αποτέλεσμα.
+    static let picksyDuelNotifTapped    = Notification.Name("picksy.duelNotificationTapped")
 }
 
 @Observable
@@ -49,14 +54,17 @@ class ScreenUnlockDetector {
     var sessionPickupCount: Int = 0
 
     /// Timestamp του τελευταίου detected pickup.
-    /// Persisted στο UserDefaults για να επιβιώνει σε app suspensions.
+    /// Fix #1: Αποθηκεύεται στο App Group UserDefaults ώστε να μοιράζεται
+    /// με το DeviceActivity extension — ένα κοινό cooldown και για τα δύο systems.
     private(set) var lastPickupTime: Date {
         get {
-            let timestamp = UserDefaults.standard.double(forKey: Self.lastPickupKey)
+            let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
+            let timestamp = defaults.double(forKey: Self.lastPickupKey)
             return timestamp > 0 ? Date(timeIntervalSince1970: timestamp) : .distantPast
         }
         set {
-            UserDefaults.standard.set(newValue.timeIntervalSince1970, forKey: Self.lastPickupKey)
+            let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
+            defaults.set(newValue.timeIntervalSince1970, forKey: Self.lastPickupKey)
         }
     }
 
@@ -66,8 +74,8 @@ class ScreenUnlockDetector {
     /// 30s αποφεύγει διπλομέτρηση από quick lock/unlock cycles.
     private let cooldownSeconds: TimeInterval = 30
 
-    /// Key για persistence του lastPickupTime
-    private static let lastPickupKey = "ScreenUnlockDetector.lastPickupTime"
+    /// Shared key — ίδιο με το DeviceActivity extension για κοινό cooldown (fix #1)
+    private static let lastPickupKey = "picksy_last_pickup_timestamp"
 
     // MARK: - Callback
 

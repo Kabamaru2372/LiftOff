@@ -21,8 +21,12 @@ class ProManager {
     var isLoading: Bool = false
     var errorMessage: String? = nil
 
+    /// Tracks verified App Store purchases separately from trial status.
+    /// isPro = hasPaidSubscription || isTrialActive
+    private var hasPaidSubscription: Bool = false
+
     private let productID = "dev.fotiospongas.liftoff.pro"
-    private let trialDuration: TimeInterval = 7 * 24 * 3600 // 7 μέρες
+    private let trialDuration: TimeInterval = 14 * 24 * 3600 // 14 μέρες
     private let trialKey = "picksyProTrialStartDate"
     private var transactionListener: Task<Void, Never>?
 
@@ -74,7 +78,9 @@ class ProManager {
     }
 
     private func updateProStatus() {
-        if !isPro {
+        // Always recompute — never latch. Paid subscribers keep Pro
+        // regardless of trial state; trial users lose Pro when trial expires.
+        if !hasPaidSubscription {
             isPro = isTrialActive
         }
     }
@@ -117,6 +123,7 @@ class ProManager {
             switch result {
             case .success(let verification):
                 let transaction = try verify(verification)
+                hasPaidSubscription = true
                 isPro = true
                 isTrialActive = false
                 await transaction.finish()
@@ -151,16 +158,24 @@ class ProManager {
 
     @MainActor
     private func checkEntitlements() async {
+        var foundValidPurchase = false
         for await result in Transaction.currentEntitlements {
             if let tx = try? verify(result), tx.productID == productID {
-                isPro = true
-                isTrialActive = false
-                isCheckingEntitlements = false
-                return
+                foundValidPurchase = true
+                _ = tx // suppress unused warning
+                break
             }
         }
-        // Αν δεν έχει αγοράσει, ελέγχει το trial
-        checkTrial()
+        if foundValidPurchase {
+            hasPaidSubscription = true
+            isPro = true
+            isTrialActive = false
+        } else {
+            // No active purchase — let trial state decide isPro
+            hasPaidSubscription = false
+            isPro = false
+            checkTrial()
+        }
         isCheckingEntitlements = false
     }
 
@@ -169,6 +184,7 @@ class ProManager {
             for await result in Transaction.updates {
                 if case .verified(let tx) = result {
                     await MainActor.run {
+                        ProManager.shared.hasPaidSubscription = true
                         ProManager.shared.isPro = true
                         ProManager.shared.isTrialActive = false
                     }

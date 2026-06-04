@@ -90,7 +90,17 @@ enum ChallengeManager {
             .replacingOccurrences(of: "_", with: "/")
         let padding = String(repeating: "=", count: (4 - padded.count % 4) % 4)
         guard let data = Data(base64Encoded: padded + padding) else { return nil }
-        return try? JSONDecoder().decode(ChallengePayload.self, from: data)
+        guard let payload = try? JSONDecoder().decode(ChallengePayload.self, from: data) else {
+            return nil
+        }
+        // MEDIUM fix: reject stale links (older than 7 days) to prevent replay attacks.
+        // Without this, a link shared months ago could still register a friend pair.
+        let age = Date().timeIntervalSince1970 - payload.sentAt
+        guard age < 7 * 24 * 3600 else {
+            print("[Challenge] ⚠️ Rejected stale link (age: \(Int(age / 3600))h)")
+            return nil
+        }
+        return payload
     }
 
     // MARK: - Share Text

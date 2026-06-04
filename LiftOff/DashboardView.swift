@@ -22,6 +22,7 @@ struct DashboardView: View {
     @Environment(WeeklySummaryManager.self) var weeklyManager
     @Environment(ProManager.self) var proManager
     @Environment(CorrelationStore.self) var correlationStore
+    @Environment(HourlyTracker.self) var hourly
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     @AppStorage("dailyGoal") private var dailyGoal: Int = 15
 
@@ -91,10 +92,17 @@ struct DashboardView: View {
                     .font(.system(size: 13, weight: .regular, design: .rounded))
                     .foregroundColor(.secondary)
 
-                HStack(spacing: 12) {
-                    StatCard(title: t("Pickups", "Σηκώματα", "Griffe"), value: "\(store.todayPickups)")
-                    StatCard(title: t("Avg time", "Μέσος χρόνος", "Ø Zeit"), value: store.averageSessionLabel)
-                }
+                todaySection
+
+                // Coach Card
+                CoachCardView(
+                    todayPickups: store.todayPickups,
+                    weeklyPickups: store.weeklyPickups,
+                    streak: store.currentStreak,
+                    goal: dailyGoal,
+                    worstHours: hourly.worstHours,
+                    language: appLanguage
+                )
 
                 // Active Duel Banner
                 DuelBannerView()
@@ -131,35 +139,11 @@ struct DashboardView: View {
                 // MARK: - Heatmap section (NEW!)
                 heatmapSection
 
-                // Streak
-                Text(t("Streak", "Σερί", "Serie"))
-                    .font(.system(size: 13, weight: .regular, design: .rounded))
-                    .foregroundColor(.secondary)
+                // Streak Card
+                streakCard
 
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("\(store.currentStreak)")
-                        .font(.system(size: 36, weight: .medium, design: .rounded))
-
-                    Text(t("days under\n15 pickups", "μέρες κάτω\nαπό 15 σηκώματα", "Tage unter\n15 Griffen"))
-                        .font(.system(size: 13, weight: .regular, design: .rounded))
-                        .foregroundColor(.secondary)
-                }
-
-                // All Time
-                Divider().padding(.vertical, 4)
-
-                Text(t("All time", "Συνολικά", "Gesamt"))
-                    .font(.system(size: 13, weight: .regular, design: .rounded))
-                    .foregroundColor(.secondary)
-
-                HStack(spacing: 12) {
-                    StatCard(title: t("Total pickups", "Συνολικά σηκώματα", "Griffe gesamt"), value: "\(store.totalPickups)")
-                    StatCard(title: t("Daily avg", "Μέσος/ημέρα", "Ø pro Tag"), value: "\(store.averageDailyPickups)")
-                }
-
-                HStack(spacing: 12) {
-                    StatCard(title: t("Days tracked", "Μέρες χρήσης", "Tage erfasst"), value: "\(store.totalDaysTracked)")
-                }
+                // Journey Card
+                journeyCard
 
                 Spacer().frame(height: 20)
             }
@@ -181,6 +165,339 @@ struct DashboardView: View {
         .fullScreenCover(isPresented: $showPaywall) {
             PaywallView().environment(proManager)
         }
+    }
+
+    // MARK: - Today Section
+
+    private var avgSessionSeconds: Int {
+        guard store.todayPickups > 0 else { return 0 }
+        return store.todayTotalSeconds / store.todayPickups
+    }
+
+    /// Short sessions = green (mindful), long sessions = red (sucked in)
+    private var avgTimeAccentColor: Color {
+        let s = avgSessionSeconds
+        if s == 0    { return .secondary }
+        if s < 60    { return .green }
+        if s < 180   { return .blue }
+        if s < 600   { return .orange }
+        return .red
+    }
+
+    private var pickupsAccentColor: Color {
+        let p = store.todayPickups
+        if p == 0             { return .blue }
+        if p <= dailyGoal / 2 { return .green }
+        if p <= dailyGoal     { return .blue }
+        if p <= dailyGoal + 10 { return .orange }
+        return .red
+    }
+
+    private var todaySection: some View {
+        VStack(spacing: 12) {
+
+            // ── Row 1: Pickups + Screen Time ─────────────────────────
+            HStack(spacing: 12) {
+
+                // Pickups card
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "hand.raised.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(pickupsAccentColor)
+                        Text(t("Pickups", "Σηκώματα", "Griffe"))
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.bottom, 8)
+
+                    Text("\(store.todayPickups)")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(pickupsAccentColor)
+
+                    Spacer()
+
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(Color(.systemGray5))
+                                .frame(height: 4)
+                            RoundedRectangle(cornerRadius: 3)
+                                .fill(pickupsAccentColor.opacity(0.75))
+                                .frame(
+                                    width: min(geo.size.width, geo.size.width * CGFloat(store.todayPickups) / CGFloat(max(dailyGoal, 1))),
+                                    height: 4
+                                )
+                                .animation(.easeOut(duration: 0.4), value: store.todayPickups)
+                        }
+                    }
+                    .frame(height: 4)
+                    .padding(.bottom, 6)
+
+                    Text(t("goal \(dailyGoal)", "στόχος \(dailyGoal)", "Ziel \(dailyGoal)"))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(pickupsAccentColor.opacity(0.07))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(pickupsAccentColor.opacity(0.18), lineWidth: 1))
+                )
+
+                // Screen Time card
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "hourglass")
+                            .font(.system(size: 11))
+                            .foregroundColor(screenTimeAccentColor)
+                        Text(t("Screen Time", "Χρόνος Χρήσης", "Bildschirmzeit"))
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.bottom, 8)
+
+                    Text(todayScreenTimeLabel)
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .foregroundColor(screenTimeAccentColor)
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Text(t("today", "σήμερα", "heute"))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(screenTimeAccentColor.opacity(0.07))
+                        .overlay(RoundedRectangle(cornerRadius: 14).stroke(screenTimeAccentColor.opacity(0.18), lineWidth: 1))
+                )
+            }
+            .frame(height: 112)
+
+            // ── Row 2: Picksy Score ───────────────────────────────────
+            let score = store.todayPickups + (store.todayTotalSeconds / 60) * 5
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(scoreAccentColor(score))
+                        Text("Picksy Score")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    Text(t("Lower = better", "Χαμηλότερο = καλύτερο", "Niedriger = besser"))
+                        .font(.system(size: 10, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Text("\(score)")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundColor(scoreAccentColor(score))
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(t("How it's calculated", "Πώς υπολογίζεται", "Berechnung"))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Text(t("pickups + (min × 5)", "σηκώματα + (λεπτά × 5)", "Griffe + (Min. × 5)"))
+                        .font(.system(size: 10, design: .monospaced))
+                        .foregroundColor(.secondary)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(scoreAccentColor(score).opacity(0.07))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(scoreAccentColor(score).opacity(0.18), lineWidth: 1))
+            )
+        }
+    }
+
+    private var todayScreenTimeLabel: String {
+        let secs = store.todayTotalSeconds
+        if secs == 0 { return "—" }
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        if h > 0 { return "\(h)h \(m)m" }
+        return "\(m)m"
+    }
+
+    private var screenTimeAccentColor: Color {
+        let mins = store.todayTotalSeconds / 60
+        if mins == 0   { return .secondary }
+        if mins < 60   { return .green }
+        if mins < 120  { return .blue }
+        if mins < 240  { return .orange }
+        return .red
+    }
+
+    private func scoreAccentColor(_ score: Int) -> Color {
+        if score == 0   { return .blue }
+        if score < 100  { return .green }
+        if score < 300  { return .blue }
+        if score < 600  { return .orange }
+        return .red
+    }
+
+    // MARK: - Streak Card
+
+    @ViewBuilder
+    private var streakCard: some View {
+        let milestones = [3, 7, 14, 21, 30, 60, 90, 365]
+        let nextMilestone = milestones.first(where: { $0 > store.currentStreak })
+        let prevMilestone = milestones.last(where: { $0 <= store.currentStreak }) ?? 0
+        let progress: CGFloat = {
+            let next = nextMilestone ?? (prevMilestone + 10)
+            let span = next - prevMilestone
+            return span > 0 ? CGFloat(store.currentStreak - prevMilestone) / CGFloat(span) : 1.0
+        }()
+        let ringColor: Color = {
+            if store.currentStreak >= 30 { return .purple }
+            if store.currentStreak >= 14 { return .orange }
+            if store.currentStreak >= 7  { return .yellow }
+            if store.currentStreak >= 3  { return .green }
+            return .blue
+        }()
+
+        HStack(spacing: 16) {
+            // Progress ring
+            ZStack {
+                Circle()
+                    .stroke(Color(.systemGray5), lineWidth: 5)
+                    .frame(width: 64, height: 64)
+                if store.currentStreak > 0 {
+                    Circle()
+                        .trim(from: 0, to: max(progress, 0.05))
+                        .stroke(ringColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                        .frame(width: 64, height: 64)
+                        .rotationEffect(.degrees(-90))
+                        .animation(.easeOut(duration: 0.8), value: progress)
+                }
+                VStack(spacing: 0) {
+                    Text("\(store.currentStreak)")
+                        .font(.system(size: store.currentStreak >= 100 ? 16 : 20,
+                                      weight: .bold, design: .rounded))
+                    if store.currentStreak > 0 {
+                        Text("🔥").font(.system(size: 10))
+                    }
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(store.currentStreak > 0
+                     ? t("\(store.currentStreak)-day streak 🔥",
+                         "\(store.currentStreak) μέρες σερί 🔥",
+                         "\(store.currentStreak)-Tage-Serie 🔥")
+                     : t("Start your streak!", "Ξεκίνα το σερί σου!", "Starte deine Serie!"))
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+
+                Text(t("Under \(dailyGoal) pickups per day",
+                        "Κάτω από \(dailyGoal) σηκώματα/μέρα",
+                        "Unter \(dailyGoal) Griffen/Tag"))
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+
+                if let next = nextMilestone {
+                    let daysLeft = next - store.currentStreak
+                    Text(t("Next milestone: \(next) days (\(daysLeft) to go)",
+                            "Επόμενο: \(next) μέρες (\(daysLeft) ακόμα)",
+                            "Nächstes: \(next) Tage (noch \(daysLeft))"))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
+                } else {
+                    Text(t("Legendary! 🏆", "Θρυλικό! 🏆", "Legendär! 🏆"))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.purple)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemGray6)))
+    }
+
+    // MARK: - Journey Card
+
+    @ViewBuilder
+    private var journeyCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 6) {
+                Image(systemName: "map.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Text(t("Your journey", "Η πορεία σου", "Dein Weg"))
+                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("\(store.totalPickups)")
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                Text(t("pickups tracked", "σηκώματα καταγεγραμμένα", "Griffe aufgezeichnet"))
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+
+            if store.totalPickups > 0 && store.totalDaysTracked > 0 {
+                let estimatedHours = max(1, (store.totalPickups * 2) / 60)
+                Text(t("Roughly \(estimatedHours)h of screen time across \(store.totalDaysTracked) days",
+                        "Περίπου \(estimatedHours)ω χρόνος οθόνης σε \(store.totalDaysTracked) μέρες",
+                        "Ca. \(estimatedHours)h Bildschirmzeit über \(store.totalDaysTracked) Tage"))
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+            }
+
+            Divider()
+
+            HStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(store.averageDailyPickups)")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    Text(t("daily avg", "μέσος/ημέρα", "Ø/Tag"))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(store.totalDaysTracked)")
+                        .font(.system(size: 22, weight: .semibold, design: .rounded))
+                    Text(t("days tracked", "μέρες χρήσης", "Tage erfasst"))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+
+            // Milestone approaching
+            let pickupMilestones = [100, 250, 500, 1000, 2500, 5000]
+            if let next = pickupMilestones.first(where: { $0 > store.totalPickups }) {
+                let remaining = next - store.totalPickups
+                HStack(spacing: 6) {
+                    Image(systemName: "trophy.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(.yellow)
+                    Text(t("\(remaining) pickups to the \(next) milestone 🏆",
+                            "\(remaining) σηκώματα μέχρι το milestone των \(next) 🏆",
+                            "Noch \(remaining) Griffe bis zum \(next)-Meilenstein 🏆"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+            }
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemGray6)))
     }
 
     // MARK: - Heatmap Section (NEW)
@@ -327,10 +644,13 @@ struct DashboardView: View {
         }
     }
 
+    // Static formatter — was allocating on every moodSection render (triggered by every pickup).
+    private static let todayFormatter: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f
+    }()
+
     private func todayString() -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        return Self.todayFormatter.string(from: Date())
     }
 
     // MARK: - Share
@@ -505,32 +825,31 @@ struct WeeklyChart: View {
     private var maxValue: Int { max(data.max() ?? 1, 1) }
 
     var body: some View {
+        // Compute once per render — was calling Calendar.current.component 7× per ForEach cell.
+        let today = (Calendar.current.component(.weekday, from: Date()) + 5) % 7
+        let maxH   = maxValue
         HStack(alignment: .bottom, spacing: 8) {
             ForEach(0..<7, id: \.self) { index in
+                let isToday = index == today
                 VStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(index == currentDayIndex() ? Color.blue : Color.blue.opacity(0.4))
-                        .frame(height: barHeight(for: data[index]))
+                        .fill(isToday ? Color.blue : Color.blue.opacity(0.4))
+                        .frame(height: barHeight(for: data[index], max: maxH))
 
                     Text(dayNames[index])
                         .font(.system(size: 11,
-                            weight: index == currentDayIndex() ? .medium : .regular,
+                            weight: isToday ? .medium : .regular,
                             design: .rounded))
-                        .foregroundColor(index == currentDayIndex() ? .primary : .secondary)
+                        .foregroundColor(isToday ? .primary : .secondary)
                 }
             }
         }
     }
 
-    private func barHeight(for value: Int) -> CGFloat {
+    private func barHeight(for value: Int, max maxValue: Int) -> CGFloat {
         let maxHeight: CGFloat = 80
         guard maxValue > 0 else { return 4 }
         return max((CGFloat(value) / CGFloat(maxValue)) * maxHeight, 4)
-    }
-
-    private func currentDayIndex() -> Int {
-        let weekday = Calendar.current.component(.weekday, from: Date())
-        return (weekday + 5) % 7
     }
 }
 
@@ -541,5 +860,6 @@ struct WeeklyChart: View {
         .environment(WeeklySummaryManager())
         .environment(ProManager.shared)
         .environment(CorrelationStore.shared)
+        .environment(HourlyTracker())
 }
 

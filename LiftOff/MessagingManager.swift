@@ -130,15 +130,25 @@ final class MessagingManager {
             return
         }
 
+        // PATCH updates the public_key on the existing device_tokens row (created earlier
+        // by PushNotificationManager.registerTokenWithSupabase). We use return=representation
+        // so we can detect if 0 rows were matched and log a warning.
         let body: [String: Any] = ["public_key": publicKey]
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
 
         var request = makeRequest(url: url, method: "PATCH")
+        request.setValue("return=representation", forHTTPHeaderField: "Prefer")
         request.httpBody = jsonData
 
-        if let (_, resp) = try? await URLSession.shared.data(for: request),
+        if let (data, resp) = try? await URLSession.shared.data(for: request),
            let http = resp as? HTTPURLResponse {
-            print("[Messaging] 📤 Public key uploaded — HTTP \(http.statusCode)")
+            let rowsUpdated = (try? JSONSerialization.jsonObject(with: data) as? [[String: Any]])?.count ?? 0
+            if rowsUpdated > 0 {
+                print("[Messaging] 📤 Public key updated — HTTP \(http.statusCode)")
+            } else {
+                // Row doesn't exist yet (push token not registered) — will retry on next foreground.
+                print("[Messaging] ⚠️ Public key PATCH matched 0 rows — device token row not yet created")
+            }
         }
     }
 
@@ -324,9 +334,11 @@ final class MessagingManager {
                      ?? "A friend"
         let senderName = myName.trimmingCharacters(in: .whitespaces).isEmpty ? "A friend" : myName
 
+        // H12 fix: edge function send-message expects "device_id" (same as DuelManager.sendPush).
+        // "receiver_device_id" was silently dropped, causing no push to be sent.
         let body: [String: Any] = [
-            "receiver_device_id": pair.deviceID,
-            "sender_name":        senderName
+            "device_id":   pair.deviceID,
+            "sender_name": senderName
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }

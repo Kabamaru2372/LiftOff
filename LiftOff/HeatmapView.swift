@@ -91,7 +91,7 @@ struct HeatmapView: View {
                         .foregroundColor(.secondary)
                         .frame(width: 56, alignment: .trailing)
 
-                    // 24 cells με μεγαλύτερο μέγεθος
+                    // 24 cells — color intensity only, no numbers (cleaner)
                     ForEach(0..<24, id: \.self) { hour in
                         let count = tracker.hourlyData[dayIndex][hour]
                         let intensity = cellIntensity(count: count)
@@ -100,15 +100,6 @@ struct HeatmapView: View {
                             .fill(cellColor(intensity: intensity))
                             .frame(maxWidth: .infinity)
                             .frame(height: 28)
-                            .overlay(
-                                Group {
-                                    if count > 0 {
-                                        Text("\(count)")
-                                            .font(.system(size: 9, weight: .semibold, design: .rounded))
-                                            .foregroundColor(intensity > 0.5 ? .white : .secondary)
-                                    }
-                                }
-                            )
                     }
 
                     // Mood emoji στα δεξιά
@@ -252,62 +243,127 @@ struct HeatmapView: View {
         .padding(.horizontal, 4)
     }
 
-    // MARK: - Worst Hours
+    // MARK: - Worst Hours (redesigned)
 
     @ViewBuilder
     private var worstHoursSection: some View {
-        if !tracker.worstHours.isEmpty && tracker.worstHours[0].avgPickups > 0 {
+        let topHours = tracker.worstHours.filter { $0.avgPickups > 0 }.prefix(2)
+        if !topHours.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text(t("Your worst hours", "Οι χειρότερες ώρες σου", "Deine schlechtesten Stunden"))
+                Text(t("Your peak hours", "Οι ώρες αιχμής σου", "Deine Peak-Stunden"))
                     .font(.system(size: 16, weight: .medium, design: .rounded))
 
-                VStack(spacing: 10) {
-                    ForEach(tracker.worstHours.indices, id: \.self) { index in
-                        let worst = tracker.worstHours[index]
-                        if worst.avgPickups > 0 {
-                            HStack(spacing: 12) {
-                                Text(formatHour(worst.hour))
-                                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                                    .frame(width: 90, alignment: .leading)
+                VStack(spacing: 8) {
+                    ForEach(Array(topHours.enumerated()), id: \.offset) { index, worst in
+                        HStack(spacing: 12) {
+                            // Time emoji
+                            Text(hourEmoji(worst.hour))
+                                .font(.system(size: 20))
+                                .frame(width: 28)
 
-                                GeometryReader { geo in
-                                    let maxAvg = tracker.worstHours[0].avgPickups
-                                    let width = maxAvg > 0
-                                        ? CGFloat(worst.avgPickups / maxAvg) * geo.size.width
-                                        : 0
-
-                                    RoundedRectangle(cornerRadius: 5)
-                                        .fill(barColor(index: index))
-                                        .frame(width: max(width, 4), height: 24)
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(naturalHour(worst.hour))
+                                        .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    if tracker.hasImproved(hour: worst.hour) {
+                                        HStack(spacing: 2) {
+                                            Image(systemName: "arrow.down.circle.fill")
+                                                .font(.system(size: 11))
+                                                .foregroundColor(.green)
+                                            Text(t("improving", "βελτίωση", "verbessert"))
+                                                .font(.system(size: 11, design: .rounded))
+                                                .foregroundColor(.green)
+                                        }
+                                    }
                                 }
-                                .frame(height: 24)
-
-                                Text(String(format: "%.1f", worst.avgPickups))
-                                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                                Text(t("avg \(Int(worst.avgPickups.rounded())) pickups",
+                                        "μέσος \(Int(worst.avgPickups.rounded())) σηκώματα",
+                                        "Ø \(Int(worst.avgPickups.rounded())) Griffe"))
+                                    .font(.system(size: 12, design: .rounded))
                                     .foregroundColor(.secondary)
-                                    .frame(width: 36, alignment: .trailing)
+                            }
 
-                                if tracker.hasImproved(hour: worst.hour) {
-                                    Image(systemName: "arrow.down.circle.fill")
-                                        .font(.system(size: 14))
-                                        .foregroundColor(.green)
+                            Spacer()
+
+                            // Mini bar
+                            let maxAvg = topHours.first!.avgPickups
+                            let fraction = maxAvg > 0 ? CGFloat(worst.avgPickups / maxAvg) : 0
+                            GeometryReader { geo in
+                                ZStack(alignment: .leading) {
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color(.systemGray5))
+                                        .frame(height: 8)
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(index == 0 ? Color.red.opacity(0.6) : Color.orange.opacity(0.6))
+                                        .frame(width: max(geo.size.width * fraction, 4), height: 8)
                                 }
                             }
+                            .frame(width: 72, height: 8)
                         }
                     }
                 }
-                .padding(16)
+                .padding(14)
                 .background(RoundedRectangle(cornerRadius: 14).fill(Color(.systemGray6)))
 
-                Text(t(
-                    "Improve during these hours for 2 days to unlock a reward!",
-                    "Βελτιώσου σε αυτές τις ώρες για 2 μέρες και ξεκλείδωσε reward!",
-                    "Verbessere dich 2 Tage lang in diesen Stunden und schalte eine Belohnung frei!"
-                ))
-                .font(.system(size: 12, weight: .regular, design: .rounded))
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 4)
+                // Actionable tip based on peak hour
+                if let top = topHours.first {
+                    let tip = peakTip(hour: top.hour)
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.system(size: 11))
+                            .foregroundColor(.yellow)
+                            .padding(.top, 1)
+                        Text(tip)
+                            .font(.system(size: 12, weight: .regular, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.horizontal, 4)
+                }
+
             }
+        }
+    }
+
+    private func hourEmoji(_ hour: Int) -> String {
+        switch hour {
+        case 0..<6:   return "🌙"
+        case 6..<10:  return "🌅"
+        case 10..<14: return "☀️"
+        case 14..<18: return "🌤️"
+        case 18..<21: return "🌆"
+        default:      return "🌙"
+        }
+    }
+
+    private func naturalHour(_ hour: Int) -> String {
+        if hour == 0  { return "12am" }
+        if hour < 12  { return "\(hour)am" }
+        if hour == 12 { return "12pm" }
+        return "\(hour - 12)pm"
+    }
+
+    private func peakTip(hour: Int) -> String {
+        switch hour {
+        case 0..<6:
+            return t("Try charging your phone before midnight to break the late-night habit.",
+                     "Δοκίμασε να βάλεις το κινητό στη φόρτιση πριν τα μεσάνυχτα.",
+                     "Versuche, dein Handy vor Mitternacht aufzuladen.")
+        case 6..<10:
+            return t("A screen-free morning routine can set the tone for the whole day.",
+                     "Μια πρωινή ρουτίνα χωρίς οθόνη θέτει τον τόνο για όλη την ημέρα.",
+                     "Eine bildschirmfreie Morgenroutine gibt den Ton für den ganzen Tag an.")
+        case 10..<14:
+            return t("Lunchtime scrolling? Try a short walk instead.",
+                     "Μεσημεριανό scrolling; Δοκίμασε μια σύντομη βόλτα.",
+                     "Mittags scrollen? Versuch stattdessen einen kurzen Spaziergang.")
+        case 14..<18:
+            return t("Afternoon dip? Put your phone in another room for 30 minutes.",
+                     "Απογευματινή κατάρρευση; Βάλε το κινητό σε άλλο δωμάτιο για 30 λεπτά.",
+                     "Nachmittags müde? Leg dein Handy für 30 Minuten in ein anderes Zimmer.")
+        default:
+            return t("Wind down without your phone — your sleep will thank you.",
+                     "Ξεκουράσου χωρίς το κινητό — ο ύπνος σου θα σε ευχαριστήσει.",
+                     "Entspann dich ohne Handy — dein Schlaf wird es dir danken.")
         }
     }
 
@@ -323,18 +379,8 @@ struct HeatmapView: View {
         return Color.blue.opacity(0.2 + intensity * 0.7)
     }
 
-    private func barColor(index: Int) -> Color {
-        switch index {
-        case 0: return .red.opacity(0.7)
-        case 1: return .orange.opacity(0.7)
-        default: return .yellow.opacity(0.7)
-        }
-    }
+    // barColor(index:) removed — dead code (never called; widget uses cellColor(intensity:) and barColor(count:max:))
 
-    private func formatHour(_ hour: Int) -> String {
-        let endHour = (hour + 1) % 24
-        return String(format: "%02d:00–%02d:00", hour, endHour)
-    }
 }
 
 #Preview {

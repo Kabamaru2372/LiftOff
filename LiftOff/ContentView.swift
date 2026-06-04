@@ -69,6 +69,13 @@ struct ContentView: View {
                     .tag(4)
             }
 
+            // ── Floating taunt / nudge bubble ────────────────────
+            VStack {
+                TauntBubbleOverlay()
+                Spacer()
+            }
+            .ignoresSafeArea(edges: .top)
+
             // ── Reward popup ─────────────────────────────────────
             if proManager.isPro, let reward = rewardManager.pendingReward {
                 Color.black.opacity(0.3)

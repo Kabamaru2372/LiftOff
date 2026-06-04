@@ -6,8 +6,10 @@
 // v1.6 UPDATE: Silent push via Supabase για background tracking
 // v1.7 FIX: Αφαιρέθηκε BGTask (Supabase silent push το αντικαθιστά)
 
+import BackgroundTasks
 import SwiftUI
 import UserNotifications
+import WidgetKit
 
 // MARK: - App Delegate
 
@@ -18,6 +20,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
         print("[AppDelegate] ✅ App launched")
+
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "fotiospongas.picksy.refresh",
+            using: nil
+        ) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            LiftOffApp.handleBackgroundRefresh(refreshTask)
+        }
+
         return true
     }
 
@@ -91,8 +105,19 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         } else if categoryId == "PICKSY_USAGE_THRESHOLD" {
             handleUsageNotificationTap(userInfo: userInfo)
         } else if categoryId == "PICKSY_MESSAGE" || categoryId == "PICKSY_DUEL" {
+            // Show in-app floating bubble with the notification content
+            let title = response.notification.request.content.title
+            let body  = response.notification.request.content.body
+            if !title.isEmpty || !body.isEmpty {
+                TauntBubbleManager.shared.show(title: title, body: body)
+            }
             DispatchQueue.main.async {
                 self.tabSelection?.selectedTab = 3  // Friends tab
+                // Tell FriendsView to re-poll and check for a new duel result.
+                // Using async so it fires AFTER the foreground observer has already run
+                // (willEnterForegroundNotification fires before didReceive, so the
+                // foreground observer may have already reset the tab — this corrects it).
+                NotificationCenter.default.post(name: .picksyDuelNotifTapped, object: nil)
             }
         } else if categoryId == "PICKSY_SCREEN_TIME_MILESTONE" {
             let minutes = userInfo["milestoneMinutes"] as? Int ?? 60
@@ -109,10 +134,17 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
                     name: Self.milestoneDetailNotification, object: data
                 )
             }
+        } else if categoryId == "PICKSY_FRIEND_OVERUSING"
+               || identifier.hasPrefix("picksy.friend.overusing.") {
+            // Friend accountability notification — show NudgeView (tab 0) which hosts
+            // friend insights. Handles both local (identifier-based) and any future
+            // remote push that carries the PICKSY_FRIEND_OVERUSING category.
+            DispatchQueue.main.async {
+                self.tabSelection?.selectedTab = 0
+            }
         } else if identifier == "liftoff.midday"
                || identifier == "picksy.summary.afternoon"
-               || identifier == "picksy.morning.wakeup"
-               || identifier.hasPrefix("picksy.friend.overusing.") {
+               || identifier == "picksy.morning.wakeup" {
             DispatchQueue.main.async {
                 self.tabSelection?.selectedTab = 0  // NudgeView
             }
@@ -132,7 +164,20 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
-        completionHandler([.banner, .sound])
+        let categoryId = notification.request.content.categoryIdentifier
+
+        if categoryId == "PICKSY_MESSAGE" || categoryId == "PICKSY_DUEL" {
+            // Show in-app floating bubble instead of system banner
+            let title = notification.request.content.title
+            let body  = notification.request.content.body
+            if !title.isEmpty || !body.isEmpty {
+                TauntBubbleManager.shared.show(title: title, body: body)
+            }
+            // Still play sound, but suppress banner (we handle the UI ourselves)
+            completionHandler([.sound])
+        } else {
+            completionHandler([.banner, .sound])
+        }
     }
 
     private func handleZoneNotificationTap(userInfo: [AnyHashable: Any]) {
@@ -158,6 +203,7 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         guard let level = userInfo["level"] as? Int else { return }
         let data = UsageInsightData(level: level)
         DispatchQueue.main.async {
+            self.tabSelection?.selectedTab = 0  // NudgeView — consistent with other insight handlers
             self.pendingUsageInsight = data
             NotificationCenter.default.post(
                 name: Self.usageInsightRequestedNotification,
@@ -183,9 +229,19 @@ struct LiftOffApp: App {
 
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
-    @State private var store = DataStore()
+    // Fix #4: Initialize sharedStore/sharedLiveActivity at @State creation time,
+    // before any silent push can arrive (which happens before .onAppear).
+    @State private var store: DataStore = {
+        let s = DataStore()
+        LiftOffApp.sharedStore = s
+        return s
+    }()
     @State private var detector = PickupDetector()
-    @State private var liveActivity = LiveActivityManager()
+    @State private var liveActivity: LiveActivityManager = {
+        let la = LiveActivityManager()
+        LiftOffApp.sharedLiveActivity = la
+        return la
+    }()
     @State private var focusSessionManager = FocusSessionManager()
     @State private var hourlyTracker = HourlyTracker()
     @State private var rewardManager = RewardManager()
@@ -195,6 +251,8 @@ struct LiftOffApp: App {
     @State private var tabSelection = TabSelection()
     @State private var weatherManager = WeatherManager()
     @State private var activityPrefs = ActivityPreferences()
+    @State private var forceUpdateManager = ForceUpdateManager.shared
+    @State private var showSoftUpdateBanner = false
 
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding: Bool = false
     @State private var foregroundObserver: NSObjectProtocol? = nil
@@ -230,6 +288,29 @@ struct LiftOffApp: App {
                     .environment(activityPrefs)
                     .environment(AchievementManager.shared)
                     .environment(CorrelationStore.shared)
+                    // Soft update banner — slides in from top, user can dismiss
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if showSoftUpdateBanner && forceUpdateManager.isSoftUpdateAvailable {
+                            SoftUpdateBanner(
+                                onUpdate:  { forceUpdateManager.openAppStore() },
+                                onDismiss: { withAnimation(.spring(response: 0.4)) { showSoftUpdateBanner = false } }
+                            )
+                            .padding(.top, 8)
+                        }
+                    }
+                    // Force update overlay — blocks ALL interaction, cannot be dismissed
+                    .fullScreenCover(isPresented: .constant(forceUpdateManager.isForceUpdateRequired)) {
+                        ForceUpdateView(onUpdate: { forceUpdateManager.openAppStore() })
+                    }
+                    // Run the version check on launch and every foreground
+                    .task {
+                        await forceUpdateManager.check()
+                        if forceUpdateManager.isSoftUpdateAvailable {
+                            withAnimation(.spring(response: 0.5).delay(1.5)) {
+                                showSoftUpdateBanner = true
+                            }
+                        }
+                    }
                     .onOpenURL { url in
                         if let payload = ChallengeManager.parse(url: url) {
                             pendingChallenge = payload
@@ -246,9 +327,27 @@ struct LiftOffApp: App {
                         )
                     }
                     .onAppear {
-                        LiftOffApp.sharedStore = store
-                        LiftOffApp.sharedLiveActivity = liveActivity
+                        // sharedStore/sharedLiveActivity already set at @State init time (fix #4)
                         onAppLaunch()
+                    }
+                    // Fix #5: Mirror active duel state to App Group so the
+                    // DeviceActivity extension can include it in APNs pushes.
+                    // Also refresh the Dynamic Island whenever the duel set changes
+                    // (e.g. one duel cancelled while another is still running — the DI
+                    // must switch to show the remaining duel, not freeze or go blank).
+                    .onChange(of: DuelManager.shared.activeDuels) { _, duels in
+                        LiftOffApp.syncDuelStateToAppGroup(duels: duels)
+                        guard !focusSessionManager.isActive else { return }
+                        if let duel = duels.first(where: { $0.status == .active }) {
+                            liveActivity.updateForDuel(
+                                pickupCount: store.todayPickups,
+                                opponentName: duel.theirName,
+                                myPickups: duel.myPickups,
+                                theirPickups: duel.theirPickups
+                            )
+                        } else {
+                            liveActivity.update(pickupCount: store.todayPickups)
+                        }
                     }
                     // Όταν το focus session τελειώσει (αυτόματα ή manually),
                     // επαναφέρουμε το Live Activity σε normal pickup mode
@@ -273,13 +372,234 @@ struct LiftOffApp: App {
         }
     }
 
+    // MARK: - Background Refresh
+
+    /// Handles a BGAppRefreshTask fired by iOS (typically 2–4× per hour based on usage patterns).
+    /// Reads the current pickup count from shared UserDefaults, refreshes widgets,
+    /// and sends an APNs push to update the Live Activity without the user opening the app.
+    static func handleBackgroundRefresh(_ task: BGAppRefreshTask) {
+        task.expirationHandler = { task.setTaskCompleted(success: false) }
+
+        Task {
+            // Fix #10: Don't fall back to UserDefaults.standard — it has no pickups data.
+            guard let sharedDefaults = UserDefaults(suiteName: "group.fotiospongas.picksy") else {
+                task.setTaskCompleted(success: false)
+                scheduleBackgroundRefresh()
+                return
+            }
+
+            let pickups = sharedDefaults.integer(forKey: "todayPickups")
+
+            // Widgets
+            WidgetCenter.shared.reloadAllTimelines()
+
+            // Fix #2/#9: Reschedule time-sensitive notifications with fresh count
+            // so midday/evening messages reflect real pickup data even if app wasn't opened.
+            rescheduleTimeBasedNotifications(pickupCount: pickups)
+
+            // Live Activity via APNs push — include duel state if active (fix #5 partial)
+            let isDuelActive = sharedDefaults.bool(forKey: "picksy_duel_active")
+            let opponentName = sharedDefaults.string(forKey: "picksy_duel_opponent")
+            let theirPickups = sharedDefaults.integer(forKey: "picksy_duel_their_pickups")
+
+            await PushNotificationManager.shared.pushLiveActivityUpdate(
+                pickupCount: pickups,
+                duelOpponentName: isDuelActive ? opponentName : nil,
+                duelMyPickups:    isDuelActive ? pickups : 0,
+                duelTheirPickups: isDuelActive ? theirPickups : 0
+            )
+
+            task.setTaskCompleted(success: true)
+            print("[BGRefresh] ✅ Completed — pickups: \(pickups), duel: \(isDuelActive)")
+
+            // Schedule next
+            scheduleBackgroundRefresh()
+        }
+    }
+
+    /// Fix #2/#3/#9: Reschedules midday + evening notifications with fresh pickup count.
+    /// Called from BGAppRefreshTask and from foreground/launch paths (via scheduleAllNotifications).
+    /// Static so it's callable without a LiftOffApp instance.
+    static func rescheduleTimeBasedNotifications(pickupCount: Int) {
+        let center = UNUserNotificationCenter.current()
+        let hour   = Calendar.current.component(.hour, from: Date())
+        let lang   = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+        let g      = UserDefaults.standard.integer(forKey: "dailyGoal")
+        let goal   = g > 0 ? g : 50
+
+        // Midday (12:00) — only reschedule if not yet fired today
+        if hour < 12 {
+            center.removePendingNotificationRequests(withIdentifiers: ["liftoff.midday"])
+            let content = UNMutableNotificationContent()
+            content.sound = .default
+            switch lang {
+            case "Ελληνικά":
+                content.title = "Πώς πας μέχρι τώρα;"
+                content.body  = middayMessageGR(pickupCount: pickupCount)
+            case "Deutsch":
+                content.title = "Wie läuft es bisher?"
+                content.body  = middayMessageDE(pickupCount: pickupCount)
+            default:
+                content.title = "How's it going so far?"
+                content.body  = middayMessageEN(pickupCount: pickupCount)
+            }
+            var dc = DateComponents(); dc.hour = 12; dc.minute = 0
+            center.add(UNNotificationRequest(
+                identifier: "liftoff.midday", content: content,
+                trigger: UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
+            ))
+        }
+
+        // Evening (21:00) — reschedule whenever not yet fired today
+        if hour < 21 {
+            center.removePendingNotificationRequests(withIdentifiers: ["liftoff.evening", "picksy.summary.evening"])
+            let (title, body) = eveningMessageStatic(pickupCount: pickupCount, dailyGoal: goal, language: lang)
+            let content = UNMutableNotificationContent()
+            content.sound = .default
+            content.title = title
+            content.body  = body
+            var dc = DateComponents(); dc.hour = 21; dc.minute = 0
+            center.add(UNNotificationRequest(
+                identifier: "liftoff.evening", content: content,
+                trigger: UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
+            ))
+
+            let sum = UNMutableNotificationContent()
+            sum.sound = .default
+            switch lang {
+            case "Ελληνικά":
+                sum.title = "Βραδινό σύνολο 🌙"
+                sum.body  = "Δες πόσες φορές σήκωσες το κινητό σήμερα. Άνοιξε το Picksy."
+            case "Deutsch":
+                sum.title = "Abend-Zusammenfassung 🌙"
+                sum.body  = "Sieh, wie oft du heute zum Handy gegriffen hast. Öffne Picksy."
+            default:
+                sum.title = "Evening summary 🌙"
+                sum.body  = "See how many times you picked up your phone today. Open Picksy."
+            }
+            var dc2 = DateComponents(); dc2.hour = 20; dc2.minute = 0
+            center.add(UNNotificationRequest(
+                identifier: "picksy.summary.evening", content: sum,
+                trigger: UNCalendarNotificationTrigger(dateMatching: dc2, repeats: true)
+            ))
+        }
+    }
+
+    // MARK: - Static message helpers (used by rescheduleTimeBasedNotifications)
+
+    private static func middayMessageEN(pickupCount: Int) -> String {
+        switch pickupCount {
+        case 0...5:  return "Excellent morning! You're barely touching your phone. Keep it up! 💪"
+        case 6...10: return "Good start! You're doing well. Stay focused this afternoon."
+        case 11...20: return "You've picked up your phone \(pickupCount) times. The afternoon is yours to improve."
+        case 21...30: return "\(pickupCount) pickups already. Take a breath. You've got this afternoon to turn it around."
+        default:     return "\(pickupCount) pickups before noon. The afternoon is a fresh start. You can do better."
+        }
+    }
+    private static func middayMessageGR(pickupCount: Int) -> String {
+        switch pickupCount {
+        case 0...5:  return "Εξαιρετικό πρωινό! Μόλις αγγίζεις το κινητό. Συνέχισε έτσι! 💪"
+        case 6...10: return "Καλή αρχή! Τα πας καλά. Μείνε συγκεντρωμένος το απόγευμα."
+        case 11...20: return "Έχεις πιάσει το κινητό \(pickupCount) φορές. Το απόγευμα είναι δικό σου για βελτίωση."
+        case 21...30: return "\(pickupCount) φορές ήδη. Πάρε μια ανάσα. Έχεις το απόγευμα να το αλλάξεις."
+        default:     return "\(pickupCount) φορές πριν το μεσημέρι. Το απόγευμα ξεκινάει από μηδέν."
+        }
+    }
+    private static func middayMessageDE(pickupCount: Int) -> String {
+        switch pickupCount {
+        case 0...5:  return "Ausgezeichneter Morgen! Du greifst kaum zum Handy. Weiter so! 💪"
+        case 6...10: return "Guter Start! Du machst das gut. Bleib heute Nachmittag fokussiert."
+        case 11...20: return "Du hast dein Handy \(pickupCount) Mal aufgehoben. Der Nachmittag gehört dir."
+        case 21...30: return "\(pickupCount) Griffe bereits. Tief durchatmen. Du kannst es am Nachmittag noch drehen."
+        default:     return "\(pickupCount) Griffe vor dem Mittag. Der Nachmittag ist ein Neustart."
+        }
+    }
+    private static func eveningMessageStatic(pickupCount: Int, dailyGoal: Int, language: String) -> (String, String) {
+        let excellent  = Int(Double(dailyGoal) * 0.4)
+        let good       = dailyGoal
+        let slightOver = Int(Double(dailyGoal) * 1.5)
+        switch language {
+        case "Ελληνικά":
+            if pickupCount <= excellent { return ("Ήσουν παρών σήμερα 🌿", "Μόνο \(pickupCount) σηκώματα — από τις καλύτερές σου μέρες!") }
+            else if pickupCount <= good { return ("Κάτω από τον στόχο 🎯", "\(pickupCount) σηκώματα — \(dailyGoal - pickupCount) λιγότερα από τον στόχο σου (\(dailyGoal)).") }
+            else if pickupCount <= slightOver { return ("Κοντά στον στόχο 💪", "\(pickupCount) σηκώματα — \(pickupCount - dailyGoal) πάνω από τον στόχο.") }
+            else { return ("Πολύ κινητό σήμερα 📱", "\(pickupCount) σηκώματα — βάλε το κινητό κάτω και χαλάρωσε 🌙") }
+        case "Deutsch":
+            if pickupCount <= excellent { return ("Du warst heute präsent 🌿", "Nur \(pickupCount) Griffe — einer deiner besten Tage!") }
+            else if pickupCount <= good { return ("Unter deinem Ziel 🎯", "\(pickupCount) Griffe — \(dailyGoal - pickupCount) weniger als dein Ziel (\(dailyGoal)).") }
+            else if pickupCount <= slightOver { return ("Knapp über dem Ziel 💪", "\(pickupCount) Griffe — \(pickupCount - dailyGoal) über deinem Ziel.") }
+            else { return ("Viel Handy heute 📱", "\(pickupCount) Griffe — leg es weg und entspann dich 🌙") }
+        default:
+            if pickupCount <= excellent { return ("You were present today 🌿", "Only \(pickupCount) pickups — one of your best days!") }
+            else if pickupCount <= good { return ("Under your goal! 🎯", "\(pickupCount) pickups — \(dailyGoal - pickupCount) under your \(dailyGoal) goal.") }
+            else if pickupCount <= slightOver { return ("Almost there 💪", "\(pickupCount) pickups — \(pickupCount - dailyGoal) over your goal.") }
+            else { return ("Busy phone day 📱", "\(pickupCount) pickups — put it down and unwind 🌙") }
+        }
+    }
+
+    /// Fix #5: Writes active duel state to App Group so the DeviceActivity extension
+    /// can include it in APNs pushes (extension runs in separate process, no DuelManager access).
+    static func syncDuelStateToAppGroup(duels: [DuelRecord]) {
+        guard let shared = UserDefaults(suiteName: "group.fotiospongas.picksy") else { return }
+        let active = duels.filter { $0.status == .active }
+        if let first = active.first {
+            shared.set(true,                forKey: "picksy_duel_active")
+            shared.set(first.theirName,     forKey: "picksy_duel_opponent")
+            shared.set(first.theirPickups,  forKey: "picksy_duel_their_pickups")
+        } else {
+            shared.set(false, forKey: "picksy_duel_active")
+            shared.removeObject(forKey: "picksy_duel_opponent")
+            shared.removeObject(forKey: "picksy_duel_their_pickups")
+        }
+
+        // Also store duel IDs + role so the DeviceActivity extension can PATCH
+        // pickup counts directly to Supabase even when the app is closed.
+        let meta: [[String: String]] = active.map { duel in
+            ["id": duel.id, "challenger": duel.amChallenger ? "1" : "0"]
+        }
+        if let json = try? JSONSerialization.data(withJSONObject: meta) {
+            shared.set(json, forKey: "picksy_active_duel_meta")
+        } else {
+            shared.removeObject(forKey: "picksy_active_duel_meta")
+        }
+
+        // Stamp the cache with today's date so the DeviceActivity extension
+        // can detect day rollover and discard stale meta from yesterday's duel.
+        let todayStr: String = {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"; return f.string(from: Date())
+        }()
+        shared.set(todayStr, forKey: "picksy_duel_meta_cache_date")
+    }
+
+    static func scheduleBackgroundRefresh() {
+        let request = BGAppRefreshTaskRequest(identifier: "fotiospongas.picksy.refresh")
+        // earliestBeginDate = earliest iOS can fire this; actual timing is iOS's decision
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            print("[BGRefresh] 📅 Next refresh scheduled (≥15 min)")
+        } catch {
+            print("[BGRefresh] ❌ Schedule failed: \(error)")
+        }
+    }
+
     // MARK: - App Launch
 
     private func onAppLaunch() {
         let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
         let dailyGoal = goal > 0 ? goal : 50
 
+        // Mirror device ID to shared App Group so the DeviceActivityMonitor extension
+        // can include it in APNs push calls (extension can't access UserDefaults.standard).
+        if let shared = UserDefaults(suiteName: "group.fotiospongas.picksy") {
+            shared.set(FriendSyncManager.shared.deviceID, forKey: "picksy_device_id")
+        }
+
         store.syncWithDeviceActivity()
+
+        // Apple Watch: start the connectivity session and push the first snapshot.
+        PhoneWatchSync.shared.activate()
+        syncWatch()
 
         if liveActivity.isRunning {
             liveActivity.update(pickupCount: store.todayPickups)
@@ -293,12 +613,6 @@ struct LiftOffApp: App {
 
         Task {
             await weatherManager.fetchWeather()
-            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-            ScreenTimeMilestoneNotifier.shared.scheduleUpcoming(
-                totalSeconds: store.todayTotalSeconds,
-                weather: weatherManager.activeCondition,
-                language: lang
-            )
         }
 
         // Show MilestoneDetailView when user taps a milestone notification
@@ -315,7 +629,7 @@ struct LiftOffApp: App {
         // Poll duel state on launch, sync pickup count, then refresh DI immediately
         Task {
             await DuelManager.shared.poll()
-            await DuelManager.shared.updateMyPickups(store.todayPickups)
+            await DuelManager.shared.updateMyPickups(store.todayPickups, screenTimeSeconds: store.todayTotalSeconds)
             guard !focusSessionManager.isActive else { return }
             if let duel = DuelManager.shared.activeDuel, duel.status == .active {
                 // Active duel found after poll — update DI with correct scores
@@ -347,78 +661,108 @@ struct LiftOffApp: App {
         }
 
         ScreenUnlockDetector.shared.onPickupDetected = {
-            // Request background execution time so that Activity.update() (which is async)
-            // has time to reach the Dynamic Island before iOS suspends the app.
-            // Without this, the DI only updates when the user next opens the app.
+            // Request background execution time BEFORE any async work.
+            // The expiry handler is the safety net if iOS reclaims resources early.
             var bgTaskID = UIBackgroundTaskIdentifier.invalid
             bgTaskID = UIApplication.shared.beginBackgroundTask(withName: "picksy.pickup") {
                 UIApplication.shared.endBackgroundTask(bgTaskID)
             }
 
+            // Synchronous bookkeeping (instant, no I/O)
             store.recordPickup()
             hourlyTracker.recordPickup()
             focusSessionManager.onPickup(currentPickups: store.todayPickups)
 
-            // Upload updated status to Supabase on every pickup (rate-limited by hasPairs guard)
-            Task {
-                let g = UserDefaults.standard.integer(forKey: "dailyGoal")
-                let goal = g > 0 ? g : 50
-                await FriendSyncManager.shared.uploadStatus(
-                    pickups: store.todayPickups,
-                    dailyGoal: goal,
-                    pickupsLast2h: pickupsLast2h(),
-                    screenTimeLast2hSecs: store.screenTimeLastTwoHours
-                )
-                // Update duel pickup count on every pickup
-                await DuelManager.shared.updateMyPickups(store.todayPickups)
+            // Apple Watch: push the new pickup count immediately.
+            syncWatch()
 
-                // Push Live Activity update via APNs — updates the Dynamic Island
-                // directly from the server, so it works even if the app is suspended.
-                // This is how live-score apps keep their DI current without the app open.
-                let activeDuel = DuelManager.shared.activeDuel
-                let isDuelActive = activeDuel?.status == .active
-                await PushNotificationManager.shared.pushLiveActivityUpdate(
-                    pickupCount: store.todayPickups,
-                    duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
-                    duelMyPickups:    isDuelActive ? (activeDuel?.myPickups ?? 0) : 0,
-                    duelTheirPickups: isDuelActive ? (activeDuel?.theirPickups ?? 0) : 0
-                )
-            }
+            // Schedule upcoming milestone notifications from the moment of unlock
+            // so they fire WHILE the user is actively on their phone — not after locking.
+            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+            ScreenTimeMilestoneNotifier.shared.scheduleUpcoming(
+                totalSeconds: store.todayTotalSeconds,
+                weather: weatherManager.activeCondition,
+                language: lang
+            )
+
+            let pickups = store.todayPickups
             let g2 = UserDefaults.standard.integer(forKey: "dailyGoal")
             let goal2 = g2 > 0 ? g2 : 50
 
-            // If iOS killed the Live Activity overnight, restart it on the first pickup
+            // Restart Live Activity if iOS killed it overnight (sync path, no await needed)
             if !liveActivity.isRunning {
-                liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal2)
-            } else if focusSessionManager.isActive {
-                // Focus takes priority over duel in the Dynamic Island
-                liveActivity.updateForFocus(
-                    pickupCount: store.todayPickups,
-                    focusEndTime: focusSessionManager.endTime,
-                    focusPickupCount: focusSessionManager.pickupsDuringSession
-                )
-            } else if let duel = DuelManager.shared.activeDuel, duel.status == .active {
-                // Active duel — show score in Dynamic Island
-                liveActivity.updateForDuel(
-                    pickupCount: store.todayPickups,
-                    opponentName: duel.theirName,
-                    myPickups: duel.myPickups,
-                    theirPickups: duel.theirPickups
-                )
-            } else {
-                liveActivity.update(pickupCount: store.todayPickups)
+                liveActivity.start(pickupCount: pickups, dailyGoal: goal2)
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+                return
             }
 
-            // Release background time after 3 s — enough for Activity.update() to propagate
-            // to the Dynamic Island. The expiry handler above covers the edge case where
-            // iOS needs to reclaim resources earlier.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            Task {
+                // ── 1. Local Activity.update() — fast attempt, awaited properly ───────
+                // iOS may still ignore a local update from a suspended background process,
+                // but we try it first because it's instant and free.
+                if focusSessionManager.isActive {
+                    await liveActivity.updateForFocusAsync(
+                        pickupCount: pickups,
+                        focusEndTime: focusSessionManager.endTime,
+                        focusPickupCount: focusSessionManager.pickupsDuringSession
+                    )
+                } else {
+                    // updateAsync handles the duel-vs-normal priority internally
+                    await liveActivity.updateAsync(pickupCount: pickups)
+                }
+
+                // ── 2. ALL network calls run concurrently INSIDE the background task ──
+                // pushLiveActivityUpdate sends an APNs push to the Live Activity token —
+                // this is the RELIABLE path Apple recommends (server push, not local call).
+                // It MUST complete before endBackgroundTask or iOS suspends us mid-request.
+                //
+                // Capture values on the current actor before entering @Sendable closures.
+                let activeDuel       = DuelManager.shared.activeDuel
+                let isDuelActive     = activeDuel?.status == .active
+                let last2hPickups    = pickupsLast2h()
+                let last2hScreenTime = store.screenTimeLastTwoHours
+
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask {
+                        await FriendSyncManager.shared.uploadStatus(
+                            pickups: pickups,
+                            dailyGoal: goal2,
+                            pickupsLast2h: last2hPickups,
+                            screenTimeLast2hSecs: last2hScreenTime
+                        )
+                    }
+                    group.addTask {
+                        await DuelManager.shared.updateMyPickups(pickups, screenTimeSeconds: store.todayTotalSeconds)
+                    }
+                    group.addTask {
+                        // APNs push → Supabase edge fn → Live Activity token update.
+                        // More reliable than local Activity.update() from background.
+                        await PushNotificationManager.shared.pushLiveActivityUpdate(
+                            pickupCount: pickups,
+                            duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
+                            duelMyPickups:    isDuelActive ? pickups : 0,   // fix #8: live count, not stale Supabase value
+                            duelTheirPickups: isDuelActive ? (activeDuel?.theirPickups ?? 0) : 0
+                        )
+                    }
+                }
+
+                // ── 3. End background task ONLY after APNs push has been sent ─────────
                 UIApplication.shared.endBackgroundTask(bgTaskID)
             }
         }
         ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in
             store.addUsageTime(seconds: seconds)
+            // Apple Watch: screen time changed → refresh the score on the wrist.
+            syncWatch()
             let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+
+            // Cancel any pending milestone notifications — they'll be rescheduled
+            // on the next unlock so they fire WHILE the user is using the phone,
+            // not from the lock screen after they put it down.
+            ScreenTimeMilestoneNotifier.shared.cancelPending()
+
+            // Fallback: fire immediately if a milestone was crossed during this session
+            // (covers the case where scheduleUpcoming wasn't called, e.g. app was closed)
             ScreenTimeMilestoneNotifier.shared.checkAndFire(
                 totalSeconds: store.todayTotalSeconds,
                 weather: weatherManager.activeCondition,
@@ -428,6 +772,10 @@ struct LiftOffApp: App {
         }
         ScreenUnlockDetector.shared.startMonitoring()
         detector.startMonitoring()
+
+        // Ensure a BGAppRefreshTask is always scheduled so iOS can wake us periodically
+        // to sync pickup counts and update the Live Activity when the app is suspended.
+        LiftOffApp.scheduleBackgroundRefresh()
 
         // Single immediate load. The 20 s safety net only fires if the extension
         // failed to render on first attempt; by then the process is warm so the
@@ -441,6 +789,9 @@ struct LiftOffApp: App {
 
         // Friend sync — upload status on launch too
         Task {
+            // Sync first so any pending friend acceptances appear immediately
+            await FriendSyncManager.shared.syncFriendsFromSupabase()
+
             let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
             let last2hPickups = pickupsLast2h()
             await FriendSyncManager.shared.uploadStatus(
@@ -503,6 +854,40 @@ struct LiftOffApp: App {
             print("[LiftOffApp] 🏁 Duel finalized — cleared DI duel state")
         }
 
+        // ── Background survival window ──────────────────────────────────────────
+        // When the app goes to background, request ~30s of execution time from iOS.
+        // As long as we hold this background task, ScreenUnlockDetector's
+        // protectedDataDidBecomeAvailable observer can still fire when the user
+        // unlocks the phone — letting us count the pickup and push the Live Activity
+        // update BEFORE the user opens the app.
+        //
+        // Covers the most common pattern: user puts phone down, picks it up again
+        // within ~30 seconds (quick peek, checking notification, etc.).
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            var bgTaskID = UIBackgroundTaskIdentifier.invalid
+            bgTaskID = UIApplication.shared.beginBackgroundTask(
+                withName: "picksy.bgMonitor"
+            ) {
+                // Expiry handler — iOS is about to suspend us, clean up now
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+            }
+            // End explicitly after 28 seconds (just under the ~30s iOS limit).
+            // The expiry handler above is the safety net if iOS cuts us short.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 28) {
+                UIApplication.shared.endBackgroundTask(bgTaskID)
+            }
+            print("[LiftOffApp] 🔲 Background monitor started (~28s window)")
+
+            // Schedule BGAppRefreshTask — iOS will fire this periodically
+            // (typically 2–4× per hour) to sync the pickup count & update the DI
+            // even when the app has been suspended beyond the 28s window.
+            LiftOffApp.scheduleBackgroundRefresh()
+        }
+
         foregroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification,
             object: nil,
@@ -510,13 +895,10 @@ struct LiftOffApp: App {
         ) { _ in
             print("[LiftOffApp] 🔆 App came to foreground")
 
-            // Navigate on foreground — notification taps win, then duel if active, else home
+            // Navigate on foreground — notification taps win, else always home
             DispatchQueue.main.async {
                 if NotificationDelegate.shared.didNavigateViaNotification {
                     NotificationDelegate.shared.didNavigateViaNotification = false
-                } else if DuelManager.shared.activeDuel?.status == .active {
-                    // Active duel → user may have tapped DI score
-                    tabSelection.selectedTab = 3
                 } else {
                     tabSelection.selectedTab = 0
                 }
@@ -560,6 +942,13 @@ struct LiftOffApp: App {
             AppsViewRefreshTrigger.shared.refreshAfter(seconds: 3.0)
 
             Task {
+                // Re-check version on every foreground — catches newly published force updates
+                // even if the user keeps the app backgrounded for days.
+                await forceUpdateManager.check()
+                if forceUpdateManager.isSoftUpdateAvailable {
+                    withAnimation(.spring(response: 0.5).delay(1.0)) { showSoftUpdateBanner = true }
+                }
+
                 if let token = liveActivity.pushToken {
                     await PushNotificationManager.shared.registerLiveActivityToken(token)
                 }
@@ -570,7 +959,7 @@ struct LiftOffApp: App {
                 // updateMyPickups() ensures that whoever brings the app to foreground
                 // immediately uploads their real count — important right after a duel starts.
                 await DuelManager.shared.poll()
-                await DuelManager.shared.updateMyPickups(store.todayPickups)
+                await DuelManager.shared.updateMyPickups(store.todayPickups, screenTimeSeconds: store.todayTotalSeconds)
                 if let duel = DuelManager.shared.activeDuel, duel.status == .active,
                    !focusSessionManager.isActive {
                     liveActivity.updateForDuel(
@@ -580,18 +969,15 @@ struct LiftOffApp: App {
                         theirPickups: duel.theirPickups
                     )
                 }
-                // Re-schedule upcoming milestones on every foreground event
-                // (ensures correct timing after the phone was idle / locked)
-                let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-                ScreenTimeMilestoneNotifier.shared.scheduleUpcoming(
-                    totalSeconds: store.todayTotalSeconds,
-                    weather: weatherManager.activeCondition,
-                    language: lang
-                )
+                // Milestone notifications fire via checkAndFire in onScreenSessionEnded —
+                // no pre-scheduling needed (pre-scheduling caused false dawn notifications).
             }
 
             // Friend sync — upload own status & check if any pair is also overusing
             Task {
+                // Sync friends first — discovers anyone who accepted our invite
+                await FriendSyncManager.shared.syncFriendsFromSupabase()
+
                 let g2 = UserDefaults.standard.integer(forKey: "dailyGoal")
                 let goal2 = g2 > 0 ? g2 : 50
                 let pickups = store.todayPickups
@@ -625,11 +1011,27 @@ struct LiftOffApp: App {
 
     // MARK: - Friend Sync Helpers
 
-    /// Pickups in the current + previous hour from HourlyTracker
+    /// Pickups in the current + previous hour from HourlyTracker.
+    /// Wraps to hour 23 at midnight to avoid double-counting hour 0.
     private func pickupsLast2h() -> Int {
         let hour = Calendar.current.component(.hour, from: Date())
-        let prev = hour > 0 ? hour - 1 : 0
+        let prev = hour > 0 ? hour - 1 : 23
         return hourlyTracker.hourlyData[0][hour] + hourlyTracker.hourlyData[0][prev]
+    }
+
+    // MARK: - Apple Watch Sync
+
+    /// Pushes the current pickup / screen-time snapshot to the paired Watch.
+    private func syncWatch() {
+        let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
+        let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+        PhoneWatchSync.shared.send(
+            pickups:      store.todayPickups,
+            totalSeconds: store.todayTotalSeconds,
+            goal:         goal > 0 ? goal : 50,
+            streak:       store.currentStreak,
+            language:     lang
+        )
     }
 
     // MARK: - Friend Overusing Notification
@@ -667,29 +1069,34 @@ struct LiftOffApp: App {
 
     private func startAutoTrialIfNeeded() {
         guard !proManager.hasUsedTrial else { return }
-        KeychainHelper.save("picksyProTrialStartDate",
-                            date: Date().addingTimeInterval(-4 * 24 * 3600))
+        KeychainHelper.save("picksyProTrialStartDate", date: Date())
         proManager.checkTrial()
     }
 
     // MARK: - Notifications
 
+    // Last time static (non-personalized) notifications were scheduled.
+    // Prevents redundant churn on every foreground event.
+    // @State so we can mutate it from scheduleAllNotifications (App is a struct).
+    @State private var lastStaticNotificationSchedule: Date = .distantPast
+
     private func scheduleAllNotifications(pickupCount: Int) {
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: [
-            "liftoff.midday", "liftoff.evening", "liftoff.weekly",
-            "liftoff.background.warning",
-            "picksy.summary.afternoon", "picksy.summary.evening",
-            "picksy.morning.wakeup"
-        ])
+        // Always reschedule personalized time-based notifications (midday + 21:00 evening)
+        // so they reflect the current pickup count.
+        LiftOffApp.rescheduleTimeBasedNotifications(pickupCount: pickupCount)
 
+        // Throttle static notifications (content never changes) to at most once per 6 hours.
+        // Without this, every foreground event removed and re-added all pending notifications.
+        let now = Date()
+        guard now.timeIntervalSince(lastStaticNotificationSchedule) > 6 * 3600 else { return }
+        lastStaticNotificationSchedule = now
+
+        let center   = UNUserNotificationCenter.current()
         let language = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-        let g = UserDefaults.standard.integer(forKey: "dailyGoal")
-        let dailyGoal = g > 0 ? g : 50
-
+        center.removePendingNotificationRequests(withIdentifiers: [
+            "liftoff.weekly", "picksy.summary.afternoon", "picksy.morning.wakeup"
+        ])
         scheduleMorningWakeupNotification(center: center, language: language)
-        scheduleMiddayNotification(center: center, pickupCount: pickupCount, language: language)
-        scheduleEveningNotification(center: center, pickupCount: pickupCount, dailyGoal: dailyGoal, language: language)
         scheduleWeeklyNotification(center: center, language: language)
         scheduleSummaryNotifications(center: center, language: language)
     }
@@ -799,23 +1206,9 @@ struct LiftOffApp: App {
             content: afternoonContent,
             trigger: UNCalendarNotificationTrigger(dateMatching: ac, repeats: true)))
 
-        let eveningContent = UNMutableNotificationContent()
-        eveningContent.sound = .default
-        switch language {
-        case "Ελληνικά":
-            eveningContent.title = "Βραδινό σύνολο 🌙"
-            eveningContent.body = "Δες πόσες φορές σήκωσες το κινητό σήμερα. Άνοιξε το Picksy."
-        case "Deutsch":
-            eveningContent.title = "Abend-Zusammenfassung 🌙"
-            eveningContent.body = "Sieh, wie oft du heute zum Handy gegriffen hast. Öffne Picksy."
-        default:
-            eveningContent.title = "Evening summary 🌙"
-            eveningContent.body = "See how many times you picked up your phone today. Open Picksy."
-        }
-        var ec = DateComponents(); ec.hour = 20; ec.minute = 0
-        center.add(UNNotificationRequest(identifier: "picksy.summary.evening",
-            content: eveningContent,
-            trigger: UNCalendarNotificationTrigger(dateMatching: ec, repeats: true)))
+        // Note: picksy.summary.evening (20:00) is already scheduled by
+        // rescheduleTimeBasedNotifications — removing duplicate here to avoid
+        // two evening notifications firing within one hour of each other.
     }
 
     // MARK: - Midday Messages

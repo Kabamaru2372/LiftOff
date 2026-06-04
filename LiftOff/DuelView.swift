@@ -20,11 +20,9 @@ struct DuelView: View {
 
     private var duelManager: DuelManager { DuelManager.shared }
 
-    // Countdown timer — fires every second for live countdown
+    // H2 fix: was Timer.publish.autoconnect() — leaked polls after sheet dismissed.
+    // Replaced with .task modifiers that auto-cancel on view disappear.
     @State private var tick: Date = Date()
-    let timer     = Timer.publish(every: 1,  on: .main, in: .common).autoconnect()
-    // Score poll — fires every 15s to refresh opponent's pickup count
-    let pollTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -56,15 +54,6 @@ struct DuelView: View {
                             } else if duel.status == .completed {
                                 completedDuelCard(duel)
                             }
-
-                        } else if let invite = duelManager.pendingInvite,
-                                  invite.challengerId == pair.deviceID {
-                            incomingInviteCard(invite)
-
-                        } else if let sent = duelManager.sentPendingDuel,
-                                  sent.opponentId == pair.deviceID {
-                            sentPendingCard(sent)
-
                         } else {
                             idleCard
                         }
@@ -82,11 +71,22 @@ struct DuelView: View {
                         .font(.system(size: 15, design: .rounded))
                 }
             }
-            .onReceive(timer) { _ in tick = Date() }
-            .onReceive(pollTimer) { _ in
-                Task { await duelManager.poll() }
-            }
             .task { await duelManager.poll() }
+            .task {
+                // 1-second tick for live countdown — auto-cancelled on dismiss
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .milliseconds(1000))
+                    tick = Date()
+                }
+            }
+            .task {
+                // Poll opponent score every 15 s — auto-cancelled on dismiss
+                try? await Task.sleep(for: .seconds(5))
+                while !Task.isCancelled {
+                    await duelManager.poll()
+                    try? await Task.sleep(for: .seconds(15))
+                }
+            }
         }
     }
 
@@ -153,90 +153,12 @@ struct DuelView: View {
         .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
     }
 
-    // MARK: - Sent Pending
-
-    private func sentPendingCard(_ duel: DuelRecord) -> some View {
-        VStack(spacing: 20) {
-            Text("⏳")
-                .font(.system(size: 56))
-
-            VStack(spacing: 6) {
-                Text(t("Waiting for \(firstName)…",
-                       "Αναμένεται ο \(firstName)…",
-                       "Warten auf \(firstName)…"))
-                    .font(.system(size: 19, weight: .semibold, design: .rounded))
-                    .multilineTextAlignment(.center)
-
-                Text(t(
-                    "Your duel invite has been sent.",
-                    "Η πρόκλησή σου έχει σταλεί.",
-                    "Deine Duell-Einladung wurde gesendet."
-                ))
-                .font(.system(size: 14, design: .rounded))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            }
-
-            Button(action: { Task { await duelManager.cancelSentDuel(duel) } }) {
-                Text(t("Cancel invite", "Ακύρωση πρόσκλησης", "Einladung absagen"))
-                    .font(.system(size: 14, design: .rounded))
-                    .foregroundColor(.red.opacity(0.8))
-            }
-        }
-        .padding(24)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
-    }
-
-    // MARK: - Incoming Invite
-
-    private func incomingInviteCard(_ duel: DuelRecord) -> some View {
-        VStack(spacing: 20) {
-            Text("🔔")
-                .font(.system(size: 56))
-
-            VStack(spacing: 6) {
-                Text(t("\(firstName) challenges you!",
-                       "Ο \(firstName) σε προκαλεί!",
-                       "\(firstName) fordert dich heraus!"))
-                    .font(.system(size: 20, weight: .semibold, design: .rounded))
-                    .multilineTextAlignment(.center)
-
-                Text(t(
-                    "Whoever picks up less by midnight wins.",
-                    "Όποιος σηκώσει λιγότερο μέχρι τα μεσάνυχτα κερδίζει.",
-                    "Wer bis Mitternacht seltener greift, gewinnt."
-                ))
-                .font(.system(size: 14, design: .rounded))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            }
-
-            VStack(spacing: 12) {
-                Button(action: { Task { await duelManager.acceptDuel(duel, myName: myDisplayName) }}) {
-                    Text(t("Accept Duel ⚔️", "Αποδοχή ⚔️", "Annehmen ⚔️"))
-                        .font(.system(size: 16, weight: .medium, design: .rounded))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(RoundedRectangle(cornerRadius: 14).fill(Color.blue))
-                }
-
-                Button(action: { Task { await duelManager.declineDuel(duel) }}) {
-                    Text(t("Decline", "Απόρριψη", "Ablehnen"))
-                        .font(.system(size: 14, design: .rounded))
-                        .foregroundColor(.secondary)
-                }
-            }
-        }
-        .padding(24)
-        .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
-    }
-
     // MARK: - Active Duel
 
     private func activeDuelCard(_ duel: DuelRecord) -> some View {
-        // Use local store.todayPickups for "You" — always accurate, no sync delay.
-        let myCount = store.todayPickups
+        // Use local store values for "You" — always accurate, no sync delay.
+        // Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
+        let myCount = store.todayPickups + (store.todayTotalSeconds / 60) * 5
 
         // Compute remaining seconds using `tick` so the view re-renders every second
         let secsRemaining: TimeInterval = {
@@ -263,13 +185,13 @@ struct DuelView: View {
                 // Me — local count is always correct
                 scoreColumn(
                     label: t("You", "Εσύ", "Du"),
-                    pickups: myCount,
-                    numberColor: myCount < duel.theirPickups
+                    score: myCount,
+                    numberColor: myCount < duel.theirScore
                         ? Color(red: 0.2, green: 0.8, blue: 0.4)
-                        : myCount > duel.theirPickups
+                        : myCount > duel.theirScore
                             ? Color(red: 1.0, green: 0.3, blue: 0.3)
                             : .primary,
-                    isLeading: myCount < duel.theirPickups,
+                    isLeading: myCount < duel.theirScore,
                     highlight: true
                 )
 
@@ -284,22 +206,22 @@ struct DuelView: View {
                 // Opponent
                 scoreColumn(
                     label: firstName,
-                    pickups: duel.theirPickups,
-                    numberColor: duel.theirPickups < myCount
+                    score: duel.theirScore,
+                    numberColor: duel.theirScore < myCount
                         ? Color(red: 0.2, green: 0.8, blue: 0.4)
-                        : duel.theirPickups > myCount
+                        : duel.theirScore > myCount
                             ? Color(red: 1.0, green: 0.3, blue: 0.3)
                             : .primary,
-                    isLeading: duel.theirPickups < myCount,
+                    isLeading: duel.theirScore < myCount,
                     highlight: false
                 )
             }
             .padding(.vertical, 8)
 
             Text(t(
-                "Fewer pickups = winner 🏆",
-                "Λιγότερα σηκώματα = νίκη 🏆",
-                "Weniger Griffe = Sieg 🏆"
+                "Lower Picksy Score = winner 🏆",
+                "Χαμηλότερο Picksy Score = νίκη 🏆",
+                "Niedrigerer Picksy Score = Sieg 🏆"
             ))
             .font(.system(size: 13, design: .rounded))
             .foregroundColor(.secondary)
@@ -345,7 +267,7 @@ struct DuelView: View {
             HStack(spacing: 0) {
                 scoreColumn(
                     label: t("You", "Εσύ", "Du"),
-                    pickups: duel.myPickups,
+                    score: duel.myScore,
                     numberColor: duel.iWon
                         ? Color(red: 0.2, green: 0.8, blue: 0.4)
                         : duel.iLost
@@ -357,7 +279,7 @@ struct DuelView: View {
                 Text("VS").font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundColor(.secondary).frame(width: 40)
                 scoreColumn(
                     label: firstName,
-                    pickups: duel.theirPickups,
+                    score: duel.theirScore,
                     numberColor: duel.iLost
                         ? Color(red: 0.2, green: 0.8, blue: 0.4)
                         : duel.iWon
@@ -384,7 +306,7 @@ struct DuelView: View {
 
     // MARK: - Helpers
 
-    private func scoreColumn(label: String, pickups: Int, numberColor: Color, isLeading: Bool, highlight: Bool) -> some View {
+    private func scoreColumn(label: String, score: Int, numberColor: Color, isLeading: Bool, highlight: Bool) -> some View {
         VStack(spacing: 6) {
             Text(label)
                 .font(.system(size: 13, design: .rounded))
@@ -392,15 +314,15 @@ struct DuelView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
 
-            Text("\(pickups)")
+            Text("\(score)")
                 .font(.system(size: 44, weight: .medium, design: .rounded))
                 .foregroundColor(numberColor)
 
-            Text(t("pickups", "σηκώματα", "Griffe"))
+            Text("Picksy Score")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundColor(.secondary)
 
-            if isLeading && pickups >= 0 {
+            if isLeading && score >= 0 {
                 Image(systemName: "trophy.fill")
                     .font(.system(size: 12))
                     .foregroundColor(.yellow)

@@ -82,23 +82,50 @@ class PushNotificationManager {
         store?.syncWithDeviceActivity()
         ScreenUnlockDetector.shared.startMonitoring()
 
-        // Poll duel state FIRST so activeDuel is populated before updating the Live Activity.
-        // Without this, a background wake (e.g. during a phone call) would find activeDuel=nil
-        // and overwrite the duel Dynamic Island with the plain pickup count.
+        // H14 fix: guarantee completionHandler is called within iOS's ~30s deadline.
+        // The original code only called it inside a Task, which iOS could kill before
+        // completion, and also only when store AND liveActivity were both non-nil.
+        // The timeout item fires at 25s as a safety net; the Task cancels it on success.
+        let timeoutItem = DispatchWorkItem { completionHandler(.newData) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 25, execute: timeoutItem)
+
         Task {
             await DuelManager.shared.forcePoll()
 
             if let store = store, let liveActivity = liveActivity {
                 let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
                 let dailyGoal = goal > 0 ? goal : 50
+                let pickups = store.todayPickups
+
                 if liveActivity.isRunning {
-                    liveActivity.update(pickupCount: store.todayPickups)
-                    print("[PushManager] ✅ Live Activity updated. Pickups: \(store.todayPickups)")
+                    liveActivity.update(pickupCount: pickups)
                 } else {
-                    liveActivity.start(pickupCount: store.todayPickups, dailyGoal: dailyGoal)
-                    print("[PushManager] 🔄 Live Activity restarted via silent push. Pickups: \(store.todayPickups)")
+                    liveActivity.start(pickupCount: pickups, dailyGoal: dailyGoal)
                 }
+
+                let activeDuel    = DuelManager.shared.activeDuel
+                let isDuelActive  = activeDuel?.status == .active
+                await self.pushLiveActivityUpdate(
+                    pickupCount:      pickups,
+                    duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
+                    duelMyPickups:    isDuelActive ? (activeDuel?.myPickups    ?? 0) : 0,
+                    duelTheirPickups: isDuelActive ? (activeDuel?.theirPickups ?? 0) : 0
+                )
+
+                // If we're in an active duel, upload our pickup count immediately
+                // so the challenger can see it without waiting for us to open the app.
+                // The DeviceActivity extension keeps todayPickups current in the App Group
+                // even when the app is closed, so this background upload is accurate.
+                if isDuelActive {
+                    await DuelManager.shared.updateMyPickups(pickups, screenTimeSeconds: store.todayTotalSeconds)
+                    print("[PushManager] 📤 Duel stats synced in background: pickups=\(pickups) screenTime=\(store.todayTotalSeconds)s")
+                }
+
+                print("[PushManager] ✅ Live Activity refreshed via silent push. Pickups: \(pickups)")
             }
+            // Cancel timeout before calling — prevents a rare double-call if Task
+            // finishes just as the timeout fires.
+            timeoutItem.cancel()
             completionHandler(.newData)
         }
     }
@@ -149,6 +176,8 @@ class PushNotificationManager {
     // MARK: - Supabase Registration
 
     private func registerTokenWithSupabase(token: String, type: String) async {
+        // `on_conflict=token` tells PostgREST which column to use for conflict detection.
+        // The Prefer header alone is not enough — PostgREST needs the column name to upsert.
         guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/device_tokens?on_conflict=token") else {
             return
         }

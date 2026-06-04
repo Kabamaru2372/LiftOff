@@ -27,28 +27,54 @@ enum RainIntensity {
     }
 }
 
+// C6 fix: random values pre-generated once and stored in @State.
+// Without this, 100-180 Double.random() calls fired on every body evaluation.
+private struct RainConfig {
+    let xFrac: Double        // 0…1.15 of screen width
+    let duration: Double
+    let delay: Double
+    let length: Double
+    let opacity: Double
+    let thickness: Double
+}
+
 struct RainLayer: View {
     let intensity: RainIntensity
     let speed: Double
+    @State private var configs: [RainConfig] = []
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                ForEach(0..<intensity.dropCount, id: \.self) { i in
+                ForEach(configs.indices, id: \.self) { i in
+                    let c = configs[i]
                     RainDrop(
-                        startX: Double.random(in: -50...geo.size.width),
+                        startX: c.xFrac * geo.size.width - 50,
                         screenHeight: geo.size.height,
-                        duration: Double.random(in: 0.5...1.0) / speed,
-                        delay: Double.random(in: 0...2),
-                        length: Double.random(in: 12...28),
-                        opacity: Double.random(in: 0.3...0.75),
-                        thickness: Double.random(in: 1.0...2.0)
+                        duration: c.duration,
+                        delay: c.delay,
+                        length: c.length,
+                        opacity: c.opacity,
+                        thickness: c.thickness
                     )
                 }
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .onAppear {
+            guard configs.isEmpty else { return }
+            configs = (0..<intensity.dropCount).map { _ in
+                RainConfig(
+                    xFrac: Double.random(in: 0...1.15),
+                    duration: Double.random(in: 0.5...1.0) / speed,
+                    delay: Double.random(in: 0...2),
+                    length: Double.random(in: 12...28),
+                    opacity: Double.random(in: 0.3...0.75),
+                    thickness: Double.random(in: 1.0...2.0)
+                )
+            }
+        }
     }
 }
 
@@ -93,30 +119,56 @@ struct RainDrop: View {
 
 // MARK: - Snow Layer
 
+private struct SnowConfig {
+    let xFrac: Double      // 0…1.05 of screen width
+    let size: Double
+    let duration: Double
+    let delay: Double
+    let opacity: Double
+    let swayAmount: Double
+    let flakeStyle: Int
+}
+
 struct SnowLayer: View {
     let speed: Double
     private let flakeCount = 70
+    @State private var configs: [SnowConfig] = []
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                ForEach(0..<flakeCount, id: \.self) { i in
+                ForEach(configs.indices, id: \.self) { i in
+                    let c = configs[i]
                     Snowflake(
-                        startX: Double.random(in: -20...geo.size.width),
+                        startX: c.xFrac * geo.size.width - 20,
                         screenWidth: geo.size.width,
                         screenHeight: geo.size.height,
-                        size: Double.random(in: 3...11),
-                        duration: Double.random(in: 7...14) / speed,
-                        delay: Double.random(in: 0...6),
-                        opacity: Double.random(in: 0.55...0.95),
-                        swayAmount: Double.random(in: 25...50),
-                        flakeStyle: i % 4
+                        size: c.size,
+                        duration: c.duration,
+                        delay: c.delay,
+                        opacity: c.opacity,
+                        swayAmount: c.swayAmount,
+                        flakeStyle: c.flakeStyle
                     )
                 }
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .onAppear {
+            guard configs.isEmpty else { return }
+            configs = (0..<flakeCount).map { i in
+                SnowConfig(
+                    xFrac: Double.random(in: 0...1.05),
+                    size: Double.random(in: 3...11),
+                    duration: Double.random(in: 7...14) / speed,
+                    delay: Double.random(in: 0...6),
+                    opacity: Double.random(in: 0.55...0.95),
+                    swayAmount: Double.random(in: 25...50),
+                    flakeStyle: i % 4
+                )
+            }
+        }
     }
 }
 
@@ -177,35 +229,56 @@ struct Snowflake: View {
 
 // MARK: - Stars Layer
 
+private struct StarConfig {
+    let xFrac: Double    // 0…1 of screen width
+    let yFrac: Double    // 0…0.65 of screen height
+    let size: Double
+    let twinkleDuration: Double
+    let initialDelay: Double
+    let bright: Bool
+}
+
 struct StarsLayer: View {
     let speed: Double
     private let starCount = 120
+    @State private var configs: [StarConfig] = []
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                ForEach(0..<starCount, id: \.self) { i in
+                ForEach(configs.indices, id: \.self) { i in
+                    let c = configs[i]
                     Star(
-                        x: Double.random(in: 0...geo.size.width),
-                        y: Double.random(in: 0...(geo.size.height * 0.65)),
-                        size: starSize(for: i),
-                        twinkleDuration: Double.random(in: 1.5...4.5) / speed,
-                        initialDelay: Double.random(in: 0...4),
-                        bright: i % 7 == 0
+                        x: c.xFrac * geo.size.width,
+                        y: c.yFrac * geo.size.height,
+                        size: c.size,
+                        twinkleDuration: c.twinkleDuration,
+                        initialDelay: c.initialDelay,
+                        bright: c.bright
                     )
                 }
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
-    }
-
-    private func starSize(for index: Int) -> Double {
-        // Mix sizes — more small, fewer large
-        switch index % 10 {
-        case 0:    return Double.random(in: 2.5...3.5)  // bright
-        case 1, 2: return Double.random(in: 1.8...2.4)  // medium
-        default:   return Double.random(in: 0.8...1.6)  // small
+        .onAppear {
+            guard configs.isEmpty else { return }
+            configs = (0..<starCount).map { i in
+                let size: Double
+                switch i % 10 {
+                case 0:    size = Double.random(in: 2.5...3.5)
+                case 1, 2: size = Double.random(in: 1.8...2.4)
+                default:   size = Double.random(in: 0.8...1.6)
+                }
+                return StarConfig(
+                    xFrac: Double.random(in: 0...1),
+                    yFrac: Double.random(in: 0...0.65),
+                    size: size,
+                    twinkleDuration: Double.random(in: 1.5...4.5) / speed,
+                    initialDelay: Double.random(in: 0...4),
+                    bright: i % 7 == 0
+                )
+            }
         }
     }
 }
@@ -283,17 +356,20 @@ struct CloudsLayer: View {
         }
     }
 
+    @State private var cloudConfigs: [(xFrac: Double, yFrac: Double, scale: Double, duration: Double, delay: Double)] = []
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                ForEach(0..<density, id: \.self) { i in
+                ForEach(cloudConfigs.indices, id: \.self) { i in
+                    let c = cloudConfigs[i]
                     RealisticCloud(
-                        startX: Double.random(in: -300...geo.size.width),
-                        y: Double.random(in: geo.size.height * 0.02...geo.size.height * 0.45),
-                        scale: Double.random(in: 0.7...1.5),
+                        startX: c.xFrac * (geo.size.width + 300) - 300,
+                        y: c.yFrac * geo.size.height,
+                        scale: c.scale,
                         screenWidth: geo.size.width,
-                        duration: Double.random(in: 25...45) / speed,
-                        delay: Double(i) * 3,
+                        duration: c.duration,
+                        delay: c.delay,
                         highlight: cloudHighlight,
                         shadow: cloudShadow
                     )
@@ -302,6 +378,16 @@ struct CloudsLayer: View {
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .onAppear {
+            guard cloudConfigs.isEmpty else { return }
+            cloudConfigs = (0..<density).map { i in
+                (xFrac: Double.random(in: 0...1.15),
+                 yFrac: Double.random(in: 0.02...0.45),
+                 scale: Double.random(in: 0.7...1.5),
+                 duration: Double.random(in: 25...45) / speed,
+                 delay: Double(i) * 3)
+            }
+        }
     }
 }
 
@@ -405,25 +491,50 @@ struct VolumetricCloudShape: View {
 
 // MARK: - Wind Layer
 
+private struct WindConfig {
+    let yFrac: Double      // 0…0.75 of screen height
+    let length: Double
+    let thickness: Double
+    let opacity: Double
+    let duration: Double
+    let delay: Double
+}
+
 struct WindLayer: View {
+    @State private var configs: [WindConfig] = []
+
     var body: some View {
         GeometryReader { geo in
             ZStack {
-                ForEach(0..<35, id: \.self) { i in
+                ForEach(configs.indices, id: \.self) { i in
+                    let c = configs[i]
                     WindStreak(
-                        y: Double.random(in: 0...geo.size.height * 0.75),
+                        y: c.yFrac * geo.size.height,
                         screenWidth: geo.size.width,
-                        length: Double.random(in: 50...160),
-                        thickness: Double.random(in: 1.0...2.5),
-                        opacity: Double.random(in: 0.12...0.40),
-                        duration: Double.random(in: 0.3...0.7),
-                        delay: Double.random(in: 0...1.5)
+                        length: c.length,
+                        thickness: c.thickness,
+                        opacity: c.opacity,
+                        duration: c.duration,
+                        delay: c.delay
                     )
                 }
             }
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
+        .onAppear {
+            guard configs.isEmpty else { return }
+            configs = (0..<35).map { _ in
+                WindConfig(
+                    yFrac: Double.random(in: 0...0.75),
+                    length: Double.random(in: 50...160),
+                    thickness: Double.random(in: 1.0...2.5),
+                    opacity: Double.random(in: 0.12...0.40),
+                    duration: Double.random(in: 0.3...0.7),
+                    delay: Double.random(in: 0...1.5)
+                )
+            }
+        }
     }
 }
 
@@ -473,6 +584,9 @@ struct LightningLayer: View {
     @State private var flashOpacity: Double = 0
     @State private var boltOpacity: Double = 0
     @State private var boltSeed: Int = 0
+    // C6 fix: single cancellable Task replaces the recursive DispatchQueue.asyncAfter chain.
+    // Without this, lightning kept striking forever even after the view was removed.
+    @State private var lightningTask: Task<Void, Never>? = nil
 
     var body: some View {
         ZStack {
@@ -502,44 +616,46 @@ struct LightningLayer: View {
             .allowsHitTesting(false)
         }
         .onAppear {
-            scheduleNextStrike()
+            guard lightningTask == nil else { return }
+            lightningTask = Task { @MainActor in
+                while !Task.isCancelled {
+                    let delayMs = Int.random(in: 7000...18000)
+                    do {
+                        try await Task.sleep(for: .milliseconds(delayMs))
+                    } catch {
+                        break  // Cancelled — stop the loop
+                    }
+                    guard !Task.isCancelled else { break }
+                    await performStrike()
+                }
+            }
+        }
+        .onDisappear {
+            lightningTask?.cancel()
+            lightningTask = nil
+            flashOpacity = 0
+            boltOpacity = 0
         }
     }
 
-    private func scheduleNextStrike() {
-        let nextDelay = Double.random(in: 7...18)
-        DispatchQueue.main.asyncAfter(deadline: .now() + nextDelay) {
-            performStrike()
-        }
-    }
-
-    private func performStrike() {
+    @MainActor
+    private func performStrike() async {
         boltSeed = Int.random(in: 0...1000)
 
-        // Quick bolt visible
         withAnimation(.easeOut(duration: 0.06)) {
             boltOpacity = 1.0
             flashOpacity = 0.5
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
-            withAnimation(.easeIn(duration: 0.25)) {
-                boltOpacity = 0
-                flashOpacity = 0
-            }
+        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+        withAnimation(.easeIn(duration: 0.25)) {
+            boltOpacity = 0
+            flashOpacity = 0
         }
         // Aftershock flash
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-            withAnimation(.easeOut(duration: 0.05)) {
-                flashOpacity = 0.3
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                withAnimation(.easeIn(duration: 0.35)) {
-                    flashOpacity = 0
-                }
-            }
-        }
-
-        scheduleNextStrike()
+        do { try await Task.sleep(for: .milliseconds(350)) } catch { return }
+        withAnimation(.easeOut(duration: 0.05)) { flashOpacity = 0.3 }
+        do { try await Task.sleep(for: .milliseconds(80)) } catch { return }
+        withAnimation(.easeIn(duration: 0.35)) { flashOpacity = 0 }
     }
 }
 

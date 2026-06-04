@@ -18,7 +18,7 @@ enum DuelStatus: String, Codable {
     case declined  = "declined"
 }
 
-struct DuelRecord: Codable, Identifiable {
+struct DuelRecord: Codable, Identifiable, Equatable {
     let id: String
     let challengerId: String
     let opponentId: String
@@ -29,6 +29,8 @@ struct DuelRecord: Codable, Identifiable {
     var endsAt: Date?
     var challengerPickups: Int
     var opponentPickups: Int
+    var challengerScreenTime: Int   // seconds
+    var opponentScreenTime: Int     // seconds
     var winnerId: String?
     let createdAt: Date
 
@@ -41,8 +43,10 @@ struct DuelRecord: Codable, Identifiable {
         case status
         case startedAt       = "started_at"
         case endsAt          = "ends_at"
-        case challengerPickups = "challenger_pickups"
-        case opponentPickups   = "opponent_pickups"
+        case challengerPickups    = "challenger_pickups"
+        case opponentPickups      = "opponent_pickups"
+        case challengerScreenTime = "challenger_screen_time"
+        case opponentScreenTime   = "opponent_screen_time"
         case winnerId        = "winner_id"
         case createdAt       = "created_at"
     }
@@ -55,8 +59,17 @@ struct DuelRecord: Codable, Identifiable {
     var myPickups:    Int  { amChallenger ? challengerPickups : opponentPickups }
     var theirPickups: Int  { amChallenger ? opponentPickups   : challengerPickups }
 
-    var myName:    String  { amChallenger ? challengerName : opponentName }
-    var theirName: String  { amChallenger ? opponentName   : challengerName }
+    var myScreenTime:    Int { amChallenger ? challengerScreenTime : opponentScreenTime }
+    var theirScreenTime: Int { amChallenger ? opponentScreenTime   : challengerScreenTime }
+
+    // Picksy Score: lower = better. pickups + screen_time_minutes × 5
+    // Screen time weighted 5× because prolonged use is the real problem.
+    var myScore:    Int { myPickups + (myScreenTime / 60) * 5 }
+    var theirScore: Int { theirPickups + (theirScreenTime / 60) * 5 }
+
+    var myName:       String { amChallenger ? challengerName : opponentName }
+    var theirName:    String { amChallenger ? opponentName   : challengerName }
+    var theirDeviceID: String { amChallenger ? opponentId    : challengerId }
 
     var iWon: Bool {
         guard status == .completed, let winner = winnerId else { return false }
@@ -89,10 +102,6 @@ class DuelManager {
     var activeDuels: [DuelRecord]     = []
     /// Convenience: the first active duel, for backward-compat with DI / LiftOffApp code.
     var activeDuel: DuelRecord?       { activeDuels.first }
-    /// An incoming pending invite (I am the opponent).
-    var pendingInvite: DuelRecord?    = nil
-    /// A duel I sent that is still waiting for acceptance.
-    var sentPendingDuel: DuelRecord?  = nil
     /// Completed duels from the last 7 days, newest first.
     var duelHistory: [DuelRecord]     = []
 
@@ -106,6 +115,10 @@ class DuelManager {
     private var lastPollDate: Date = .distantPast
     /// Last pickup count successfully pushed to Supabase (avoids redundant PATCHes)
     private var lastSyncedPickups: Int = -1
+
+    /// Duel IDs currently being finalized — prevents duplicate push notifications
+    /// when multiple concurrent polls both see the same expired duel.
+    private var finalizingDuelIDs: Set<String> = []
 
     // MARK: Private
     private static let supabaseURL     = "https://igbtosqmtdrxzmoblvpp.supabase.co"
@@ -136,22 +149,30 @@ class DuelManager {
 
     // MARK: - Public API
 
-    /// Creates a new pending duel and sends the opponent a push notification.
+    /// Creates a new duel, starts it immediately, and notifies the opponent.
     func createDuel(
         opponent: RegisteredPair,
         myName: String,
         myCurrentPickups: Int
     ) async {
+        let now      = Date()
+        let cal      = Calendar.current
+        let endOfDay = cal.date(bySettingHour: 23, minute: 59, second: 59, of: now)
+                       ?? now.addingTimeInterval(86_399)
+
+        let isoFrac = ISO8601DateFormatter()
+        isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
         let url = URL(string: "\(Self.supabaseURL)/rest/v1/duels")!
         let body: [String: Any] = [
-            "challenger_id":        myDeviceID,
-            "opponent_id":          opponent.deviceID,
-            "challenger_name":      myName.isEmpty ? "A friend" : myName,
-            "opponent_name":        opponent.name.isEmpty ? "A friend" : opponent.name,
-            "status":               "pending",
-            // Persist the challenger's current count so the opponent sees a real
-            // score the moment they view the invite — before any pickup event fires.
-            "challenger_pickups":   myCurrentPickups
+            "challenger_id":      myDeviceID,
+            "opponent_id":        opponent.deviceID,
+            "challenger_name":    myName.isEmpty ? "A friend" : myName,
+            "opponent_name":      opponent.name.isEmpty ? "A friend" : opponent.name,
+            "status":             "active",
+            "started_at":         isoFrac.string(from: now),
+            "ends_at":            isoFrac.string(from: endOfDay),
+            "challenger_pickups": myCurrentPickups
         ]
 
         var req = makeRequest(url: url, method: "POST")
@@ -167,99 +188,28 @@ class DuelManager {
             return
         }
 
-        await MainActor.run { sentPendingDuel = created }
-        print("[Duel] ✅ Duel created: \(created.id.prefix(8))…")
-
-        // Push notification to opponent
-        await sendPush(
-            toDeviceID: opponent.deviceID,
-            title: "⚔️ \(myName.isEmpty ? "A friend" : myName) challenges you!",
-            body: "Open Picksy to accept the duel — whoever uses their phone less wins."
-        )
-    }
-
-    /// Accepts an incoming pending duel. Sets status → active, starts the timer.
-    func acceptDuel(_ duel: DuelRecord, myName: String) async {
-        let now    = Date()
-        let cal    = Calendar.current
-        // ends_at = 23:59:59 local time today
-        let endOfDay = cal.date(
-            bySettingHour: 23, minute: 59, second: 59, of: now
-        ) ?? now.addingTimeInterval(86_399)
-
-        let isoFrac = ISO8601DateFormatter()
-        isoFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-
-        let body: [String: Any] = [
-            "status":        "active",
-            "started_at":    isoFrac.string(from: now),
-            "ends_at":       isoFrac.string(from: endOfDay),
-            "opponent_name": myName.isEmpty ? "A friend" : myName
-        ]
-
-        let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
-        var req = makeRequest(url: URL(string: urlStr)!, method: "PATCH")
-        req.setValue("return=representation", forHTTPHeaderField: "Prefer")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-
-        guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, http.statusCode == 200,
-              let records = try? decoder.decode([DuelRecord].self, from: data),
-              let updated = records.first
-        else {
-            print("[Duel] ❌ Failed to accept duel")
-            return
-        }
-
         await MainActor.run {
-            if !activeDuels.contains(where: { $0.id == updated.id }) {
-                activeDuels.append(updated)
-            } else {
-                activeDuels = activeDuels.map { $0.id == updated.id ? updated : $0 }
+            if !activeDuels.contains(where: { $0.id == created.id }) {
+                activeDuels.append(created)
             }
-            pendingInvite = nil
-            // Reset so the guard in updateMyPickups() doesn't skip the upload
-            // even if this count matches a previous duel's lastSyncedPickups value.
             lastSyncedPickups = -1
         }
-        print("[Duel] ✅ Duel accepted, ends \(isoFrac.string(from: endOfDay))")
+        print("[Duel] ✅ Duel started: \(created.id.prefix(8))…")
 
-        // Immediately sync the opponent's current pickup count to Supabase.
-        // poll() won't trigger updateMyPickups() automatically here because
-        // activeDuels is already populated (previouslyHadActiveDuel = true in
-        // every subsequent poll), so the normal "first discovery" path never fires.
-        let currentPickups = UserDefaults.standard.integer(forKey: "todayPickups")
-        await updateMyPickups(currentPickups)
+        // Sync pickup count immediately since we're now active
+        await updateMyPickups(myCurrentPickups)
 
+        // Push notification to opponent
+        let name = myName.isEmpty ? "A friend" : myName
         await sendPush(
-            toDeviceID: duel.challengerId,
-            title: "✅ \(myName.isEmpty ? "Your friend" : myName) accepted the duel!",
-            body: "The Pickup Duel has started — whoever uses their phone less today wins."
+            toDeviceID: opponent.deviceID,
+            title: "⚔️ \(name) started a duel with you!",
+            body: "You're in — fewer pickups by midnight wins 🏆 Open Picksy to see the score."
         )
-    }
 
-    /// Declines an incoming pending duel.
-    func declineDuel(_ duel: DuelRecord) async {
-        let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
-        var req = makeRequest(url: URL(string: urlStr)!, method: "PATCH")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "declined"])
-
-        _ = try? await URLSession.shared.data(for: req)
-
-        await MainActor.run { pendingInvite = nil }
-        print("[Duel] 🚫 Duel declined: \(duel.id.prefix(8))…")
-    }
-
-    /// Cancels a pending duel that I sent (before the opponent accepts).
-    func cancelSentDuel(_ duel: DuelRecord) async {
-        let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
-        var req = makeRequest(url: URL(string: urlStr)!, method: "PATCH")
-        req.httpBody = try? JSONSerialization.data(withJSONObject: ["status": "declined"])
-
-        _ = try? await URLSession.shared.data(for: req)
-
-        await MainActor.run { sentPendingDuel = nil }
-        print("[Duel] ❌ Sent duel cancelled: \(duel.id.prefix(8))…")
+        // Silent push so the opponent's app wakes up immediately in the background
+        // and uploads their current pickup count — otherwise we'd see 0 until they open the app.
+        await sendPush(toDeviceID: opponent.deviceID, title: "", body: "", silent: true)
     }
 
     /// Cancels a specific active duel. Sets status → "declined" so it disappears from both players' polls.
@@ -280,19 +230,26 @@ class DuelManager {
         print("[Duel] 🚫 Active duel cancelled: \(duel.id.prefix(8))…")
     }
 
-    /// Updates my pickup count across ALL active duels. Called on every pickup event.
-    func updateMyPickups(_ pickups: Int) async {
+    /// Updates my pickup count + screen time across ALL active duels.
+    // H8 fix: @MainActor ensures lastSyncedPickups and activeDuels are read/written
+    // on the correct actor, preventing data races between concurrent callers.
+    @MainActor
+    func updateMyPickups(_ pickups: Int, screenTimeSeconds: Int = 0) async {
         guard !activeDuels.isEmpty else { return }
         // Skip if nothing changed — avoids hammering Supabase on every timer tick
         guard pickups != lastSyncedPickups else { return }
         lastSyncedPickups = pickups
 
         for duel in activeDuels where duel.status == .active {
-            let field = duel.amChallenger ? "challenger_pickups" : "opponent_pickups"
+            let pickupsField    = duel.amChallenger ? "challenger_pickups"     : "opponent_pickups"
+            let screenTimeField = duel.amChallenger ? "challenger_screen_time" : "opponent_screen_time"
             let urlStr = "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(duel.id)"
             var req = makeRequest(url: URL(string: urlStr)!, method: "PATCH")
             req.setValue("return=representation", forHTTPHeaderField: "Prefer")
-            req.httpBody = try? JSONSerialization.data(withJSONObject: [field: pickups])
+            req.httpBody = try? JSONSerialization.data(withJSONObject: [
+                pickupsField:    pickups,
+                screenTimeField: screenTimeSeconds
+            ])
 
             if let (data, resp) = try? await URLSession.shared.data(for: req),
                let http = resp as? HTTPURLResponse, http.statusCode == 200,
@@ -372,16 +329,6 @@ class DuelManager {
         await MainActor.run {
             activeDuels = myActiveDuels
 
-            // Incoming pending invite (I am the opponent, first pending found)
-            pendingInvite = freshDuels.first {
-                $0.status == .pending && $0.opponentId == myID
-            }
-
-            // My sent pending duel (I am the challenger)
-            sentPendingDuel = freshDuels.first {
-                $0.status == .pending && $0.challengerId == myID
-            }
-
             // History: all completed duels, newest first
             duelHistory = freshDuels
                 .filter { $0.status == .completed }
@@ -390,8 +337,10 @@ class DuelManager {
 
         // If we just discovered active duels for the first time, sync our pickup count.
         // The lastSyncedPickups guard in updateMyPickups prevents redundant PATCHes.
+        // Must use the app-group suite — DataStore writes there, not to UserDefaults.standard.
         if !myActiveDuels.isEmpty, !previouslyHadActiveDuel {
-            let pickups = UserDefaults.standard.integer(forKey: "todayPickups")
+            let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
+            let pickups = suite.integer(forKey: "todayPickups")
             await updateMyPickups(pickups)
         }
     }
@@ -407,10 +356,26 @@ class DuelManager {
     // MARK: - Private
 
     private func finalizeDuel(_ duel: DuelRecord) async {
+        // Guard against concurrent finalization of the same duel.
+        // Without this, two polls arriving within milliseconds of midnight both see
+        // status=active+expired and both call finalizeDuel → duplicate notifications.
+        let alreadyFinalizing = await MainActor.run {
+            if finalizingDuelIDs.contains(duel.id) { return true }
+            finalizingDuelIDs.insert(duel.id)
+            return false
+        }
+        guard !alreadyFinalizing else {
+            print("[Duel] ⏭ Already finalizing \(duel.id.prefix(8))… — skipping duplicate")
+            return
+        }
+
+        // Use Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
+        let challengerScore = duel.challengerPickups + (duel.challengerScreenTime / 60) * 5
+        let opponentScore   = duel.opponentPickups   + (duel.opponentScreenTime   / 60) * 5
         let winner: String
-        if duel.challengerPickups < duel.opponentPickups {
+        if challengerScore < opponentScore {
             winner = duel.challengerId
-        } else if duel.opponentPickups < duel.challengerPickups {
+        } else if opponentScore < challengerScore {
             winner = duel.opponentId
         } else {
             winner = "tie"
@@ -432,6 +397,13 @@ class DuelManager {
             NotificationCenter.default.post(name: .picksyDuelFinalized, object: nil)
         }
 
+        // Only the challenger sends push notifications — prevents both devices from
+        // independently calling finalizeDuel at midnight and sending duplicate pushes.
+        guard duel.amChallenger else {
+            print("[Duel] ⏭ Opponent side — skipping push (challenger will notify)")
+            return
+        }
+
         // Notify both players
         if winner == "tie" {
             await sendPush(toDeviceID: duel.challengerId, title: "🤝 It's a tie!", body: "You and \(duel.opponentName) are equally disciplined today.")
@@ -443,19 +415,35 @@ class DuelManager {
             await sendPush(toDeviceID: winner,  title: "🏆 You won the duel!", body: "You picked up less than \(loserName) today. Nice discipline!")
             await sendPush(toDeviceID: loserId, title: "📱 Duel over",          body: "\(winnerName) used their phone less than you today. Try again tomorrow!")
         }
+
+        // Remove from in-progress set — finalization complete
+        await MainActor.run { finalizingDuelIDs.remove(duel.id) }
     }
 
-    private func sendPush(toDeviceID: String, title: String, body: String) async {
+    func sendTaunt(to duel: DuelRecord, tauntText: String, myName: String) async {
+        let name = myName.isEmpty ? "A friend" : myName
+        await sendPush(toDeviceID: duel.theirDeviceID, title: "\(name) 😤", body: tauntText)
+        print("[Duel] 😤 Taunt sent to \(duel.theirName)")
+    }
+
+    func sendNudge(toDeviceID: String, text: String, senderName: String) async {
+        let name = senderName.isEmpty ? "A friend" : senderName
+        await sendPush(toDeviceID: toDeviceID, title: "\(name) 👋", body: text)
+        print("[Duel] 👋 Nudge sent to \(toDeviceID.prefix(8))…")
+    }
+
+    private func sendPush(toDeviceID: String, title: String, body: String, silent: Bool = false) async {
         guard let fnURL = URL(string: "\(Self.supabaseURL)/functions/v1/send-message") else { return }
-        let payload: [String: Any] = [
+        var payload: [String: Any] = [
             "device_id": toDeviceID,
             "title":     title,
             "body":      body
         ]
+        if silent { payload["silent"] = true }
         var req = makeRequest(url: fnURL, method: "POST")
         req.httpBody = try? JSONSerialization.data(withJSONObject: payload)
         _ = try? await URLSession.shared.data(for: req)
-        print("[Duel] 📤 Push sent to \(toDeviceID.prefix(8))…")
+        print("[Duel] 📤 \(silent ? "Silent" : "Alert") push sent to \(toDeviceID.prefix(8))…")
     }
 
     private func makeRequest(url: URL, method: String) -> URLRequest {

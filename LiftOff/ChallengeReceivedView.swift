@@ -105,6 +105,7 @@ struct ChallengeReceivedView: View {
         }
         .onAppear {
             // Register anonymous pair if sender included their device ID.
+            // The connection happens automatically — no button press needed.
             // Free tier: max 1 friend. Pro: unlimited.
             if let senderID = payload.senderDeviceID, !senderID.isEmpty {
                 Task {
@@ -120,7 +121,11 @@ struct ChallengeReceivedView: View {
                             theirName: payload.name
                         )
                     }
-                    await MainActor.run { pairingRegistered = true }
+                    // Auto-advance to "You're connected!" — no button press required.
+                    await MainActor.run {
+                        pairingRegistered = true
+                        withAnimation { sentBack = true }
+                    }
                 }
             }
         }
@@ -270,16 +275,17 @@ struct ChallengeReceivedView: View {
                         .font(.system(size: 40))
 
                     Text(t(
-                        "You're connected!",
-                        "Είστε συνδεδεμένοι!",
-                        "Ihr seid verbunden!"
+                        "You're connected with \(payload.name)!",
+                        "Συνδεθήκατε με τον \(payload.name)!",
+                        "Verbunden mit \(payload.name)!"
                     ))
                     .font(.system(size: 18, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.center)
 
                     Text(t(
-                        "Picksy will nudge both of you when you're both reaching for your phone a lot. No accounts, no data shared.",
-                        "Το Picksy θα σας ειδοποιεί και τους δύο όταν σηκώνετε πολύ το κινητό. Χωρίς λογαριασμούς, χωρίς κοινά δεδομένα.",
-                        "Picksy benachrichtigt euch beide, wenn ihr oft zum Handy greift. Keine Konten, keine geteilten Daten."
+                        "Done! No extra steps needed. Picksy will nudge you both when you're reaching for your phone a lot.",
+                        "Έγινε! Δεν χρειάζεται τίποτα άλλο. Το Picksy θα σας ειδοποιεί και τους δύο όταν σηκώνετε πολύ το κινητό.",
+                        "Erledigt! Picksy benachrichtigt euch beide, wenn ihr oft zum Handy greift."
                     ))
                     .font(.system(size: 14, weight: .regular, design: .rounded))
                     .foregroundColor(.secondary)

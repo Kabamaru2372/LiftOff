@@ -29,22 +29,24 @@ final class ScreenTimeMilestoneNotifier {
     private let firedKey     = "picksy.screenTimeMilestones.fired"
     private let scheduledKey = "picksy.screenTimeMilestones.scheduled"
 
-    // MARK: - Debug
-
-    /// TEMP: resets today's milestone state and schedules a test notification in 20s.
-    /// Switch to TikTok immediately after calling. Remove after confirming delivery.
-    func scheduleDebugNotification(language: String) {
-        UserDefaults.standard.removeObject(forKey: firedKey)
-        UserDefaults.standard.removeObject(forKey: scheduledKey)
-        UNUserNotificationCenter.current()
-            .removePendingNotificationRequests(withIdentifiers: milestones.map { "picksy.milestone.\($0)" })
-
-        let activity = MilestoneActivityBank.activities.first(where: { $0.durationMinutes == 60 })!
-        deliver(milestone: 60, activity: activity, language: language, delay: 20)
-        print("[Milestone] 🧪 Debug notification scheduled — switch to another app NOW, fires in 20s")
-    }
-
     // MARK: - Public
+
+    /// Cancels any pending (not yet fired) milestone notifications and clears
+    /// the scheduledToday map so they will be re-scheduled on the next unlock.
+    /// Call this when the screen locks so the notification fires while the
+    /// user is actively using the phone, not minutes later from the lock screen.
+    func cancelPending() {
+        let identifiers = milestones.map { "picksy.milestone.\($0)" }
+        UNUserNotificationCenter.current()
+            .removePendingNotificationRequests(withIdentifiers: identifiers)
+
+        // Clear scheduledToday so scheduleUpcoming() will re-schedule on next unlock
+        let todayStr = todayKey()
+        var scheduledMap = UserDefaults.standard.dictionary(forKey: scheduledKey) as? [String: [Int]] ?? [:]
+        scheduledMap[todayStr] = []
+        UserDefaults.standard.set(scheduledMap, forKey: scheduledKey)
+        print("[Milestone] 🗑 Cancelled pending milestone notifications (screen locked)")
+    }
 
     /// Call on app launch and every time the app returns to foreground.
     /// Pre-schedules milestone notifications using UNTimeIntervalNotificationTrigger
@@ -103,26 +105,18 @@ final class ScreenTimeMilestoneNotifier {
         for milestone in milestones {
             guard totalMin >= milestone, !firedToday.contains(milestone) else { continue }
 
-            if scheduledToday.contains(milestone) {
-                // Pre-scheduled notification was (or will be) delivered — just confirm it
-                scheduledToday.removeAll { $0 == milestone }
-                firedToday.append(milestone)
-                scheduledMap[todayStr] = scheduledToday
-                firedMap[todayStr]     = firedToday
-                UserDefaults.standard.set(scheduledMap, forKey: scheduledKey)
-                UserDefaults.standard.set(firedMap,     forKey: firedKey)
-                // Cancel the pending request to avoid a duplicate right at session-end
-                UNUserNotificationCenter.current()
-                    .removePendingNotificationRequests(withIdentifiers: ["picksy.milestone.\(milestone)"])
-                print("[Milestone] ✅ \(milestone)min confirmed at session end (was pre-scheduled)")
-            } else {
-                // Fallback: was never pre-scheduled — fire immediately
-                firedToday.append(milestone)
-                firedMap[todayStr] = firedToday
-                UserDefaults.standard.set(firedMap, forKey: firedKey)
-                let activity = pickActivity(minutes: milestone, weather: weather)
-                deliver(milestone: milestone, activity: activity, language: language, delay: 5)
-            }
+            // Mark as fired and deliver immediately (cancel any stale pre-scheduled request first)
+            firedToday.append(milestone)
+            firedMap[todayStr] = firedToday
+            scheduledToday.removeAll { $0 == milestone }
+            scheduledMap[todayStr] = scheduledToday
+            UserDefaults.standard.set(firedMap,     forKey: firedKey)
+            UserDefaults.standard.set(scheduledMap, forKey: scheduledKey)
+            UNUserNotificationCenter.current()
+                .removePendingNotificationRequests(withIdentifiers: ["picksy.milestone.\(milestone)"])
+            let activity = pickActivity(minutes: milestone, weather: weather)
+            deliver(milestone: milestone, activity: activity, language: language, delay: 2)
+            print("[Milestone] 🔔 \(milestone)min milestone fired at session end")
         }
     }
 
@@ -245,83 +239,83 @@ enum MilestoneActivityBank {
 
         .init(60,
             en: "baked a batch of banana bread from scratch 🍌",
-            gr: "φτιάξει μπανανόψωμο από την αρχή 🍌",
+            gr: "φτιάξεις μπανανόψωμο από την αρχή 🍌",
             de: "einen Bananenkuchen von Grund auf gebacken 🍌",
-            link: "https://www.allrecipes.com/recipe/20144/banana-banana-bread/"),
+            link: "https://www.allrecipes.com/"),
 
         .init(60,
             en: "called 3 friends you've been meaning to catch up with ☎️",
-            gr: "πάρει 3 φίλους που δεν μιλάτε καιρό ☎️",
+            gr: "πάρεις 3 φίλους που δεν μιλάτε καιρό ☎️",
             de: "3 Freunde angerufen, bei denen du dich längst melden wolltest ☎️"),
 
         .init(60,
             en: "read 50 pages of a book you've been ignoring 📖",
-            gr: "διαβάσει 50 σελίδες από το βιβλίο που περιμένει 📖",
+            gr: "διαβάσεις 50 σελίδες από το βιβλίο που περιμένει 📖",
             de: "50 Seiten in einem Buch gelesen, das du ignoriert hast 📖",
-            link: "https://www.goodreads.com/list/show/1.Best_Books_Ever"),
+            link: "https://www.goodreads.com/"),
 
         .init(60,
             en: "done a full yoga or stretch session at home 🧘",
-            gr: "κάνει μια ολοκληρωμένη yoga ή stretching session 🧘",
+            gr: "κάνεις μια ολοκληρωμένη yoga ή stretching session 🧘",
             de: "eine vollständige Yoga- oder Dehnsession zu Hause gemacht 🧘",
             link: "https://www.youtube.com/results?search_query=1+hour+yoga+for+beginners"),
 
         .init(60,
             en: "cooked a proper meal completely from scratch 🍳",
-            gr: "μαγειρέψει ένα σωστό γεύμα από την αρχή 🍳",
+            gr: "μαγειρέψεις ένα σωστό γεύμα από την αρχή 🍳",
             de: "eine richtige Mahlzeit von Grund auf gekocht 🍳",
             link: "https://www.allrecipes.com/recipes/"),
 
         .init(60,
             en: "written 500 words of that thing you keep putting off ✍️",
-            gr: "γράψει 500 λέξεις για αυτό που αναβάλλεις ✍️",
+            gr: "γράψεις 500 λέξεις για αυτό που αναβάλλεις ✍️",
             de: "500 Wörter von dem geschrieben, das du immer aufziehst ✍️",
             link: "https://750words.com"),
 
         .init(60,
             en: "cleared and reorganised your entire bedroom ✨",
-            gr: "καθαρίσει και οργανώσει ολόκληρη την κρεβατοκάμαρά σου ✨",
+            gr: "καθαρίσεις και οργανώσεις ολόκληρη την κρεβατοκάμαρά σου ✨",
             de: "dein gesamtes Schlafzimmer aufgeräumt und neu organisiert ✨"),
 
         .init(60,
             en: "learned a new recipe and actually cooked it 👨‍🍳",
-            gr: "μάθει μια νέα συνταγή και να την φτιάξεις αμέσως 👨‍🍳",
+            gr: "μάθεις μια νέα συνταγή και να την φτιάξεις αμέσως 👨‍🍳",
             de: "ein neues Rezept gelernt und es sofort gekocht 👨‍🍳",
             link: "https://www.allrecipes.com/"),
 
         .init(60,
             en: "meditated and journalled for a full hour 🌿",
-            gr: "διαλογιστεί και γράψει στο ημερολόγιό σου 🌿",
+            gr: "διαλογιστείς και γράψεις στο ημερολόγιό σου 🌿",
             de: "meditiert und ein Stunde in dein Tagebuch geschrieben 🌿",
             link: "https://www.youtube.com/results?search_query=guided+meditation+1+hour"),
 
         // Outdoor — good weather
         .init(60,
             en: "gone for a solid 6 km run in the fresh air 🏃",
-            gr: "τρέξει 6 χιλιόμετρα στον φρέσκο αέρα 🏃",
+            gr: "τρέξεις 6 χιλιόμετρα στον φρέσκο αέρα 🏃",
             de: "6 km an der frischen Luft gelaufen 🏃",
             outdoorOnly: true, hours: 6...21,
             link: "https://www.alltrails.com/"),
 
         .init(60,
             en: "explored a new street in your city on foot 🗺️",
-            gr: "εξερευνήσει έναν νέο δρόμο της πόλης σου με τα πόδια 🗺️",
+            gr: "εξερευνήσεις έναν νέο δρόμο της πόλης σου με τα πόδια 🗺️",
             de: "eine neue Straße deiner Stadt zu Fuß erkundet 🗺️",
             outdoorOnly: true, hours: 8...20),
 
         .init(60,
             en: "sat in the park with a coffee and watched the world go by ☕",
-            gr: "πιει τον καφέ σου στο πάρκο χωρίς βιασύνη ☕",
+            gr: "πιεις τον καφέ σου στο πάρκο χωρίς βιασύνη ☕",
             de: "in Ruhe einen Kaffee im Park getrunken ☕",
             outdoorOnly: true, hours: 8...19),
 
         // Evening
         .init(60,
             en: "cooked a proper dinner and set the table with candles 🕯️",
-            gr: "φτιάξει ένα σωστό βραδινό και στρώσει το τραπέζι με κεριά 🕯️",
+            gr: "φτιάξεις ένα σωστό βραδινό και στρώσεις το τραπέζι με κεριά 🕯️",
             de: "ein richtiges Abendessen gekocht und den Tisch mit Kerzen gedeckt 🕯️",
             hours: 17...23,
-            link: "https://www.allrecipes.com/recipes/17562/dinner/"),
+            link: "https://www.allrecipes.com/"),
 
         // ─────────────────────────────────────
         // 2 HOURS  (120 min)
@@ -329,54 +323,54 @@ enum MilestoneActivityBank {
 
         .init(120,
             en: "watched a full movie with zero distractions 🎬",
-            gr: "δει μια ολόκληρη ταινία χωρίς καμία διακοπή 🎬",
+            gr: "δεις μια ολόκληρη ταινία χωρίς καμία διακοπή 🎬",
             de: "einen kompletten Film ohne jegliche Ablenkung gesehen 🎬",
             link: "https://www.justwatch.com/"),
 
         .init(120,
             en: "deep-cleaned your whole kitchen until it sparkled ✨",
-            gr: "καθαρίσει σχολαστικά ολόκληρη την κουζίνα σου ✨",
+            gr: "καθαρίσεις σχολαστικά ολόκληρη την κουζίνα σου ✨",
             de: "deine gesamte Küche gründlich gereinigt, bis sie glänzt ✨"),
 
         .init(120,
             en: "almost finished an entire novel 📚",
-            gr: "σχεδόν τελειώσει ένα ολόκληρο μυθιστόρημα 📚",
+            gr: "σχεδόν τελειώσεις ένα ολόκληρο μυθιστόρημα 📚",
             de: "fast ein ganzes Buch ausgelesen 📚",
             link: "https://www.goodreads.com/"),
 
         .init(120,
             en: "visited a parent or close friend for a real, unhurried conversation ❤️",
-            gr: "επισκεφτεί έναν γονιό ή φίλο για μια αληθινή, αβίαστη κουβέντα ❤️",
+            gr: "επισκεφτείς έναν γονιό ή φίλο για μια αληθινή, αβίαστη κουβέντα ❤️",
             de: "einen Elternteil oder engen Freund für ein echtes, ungehetztes Gespräch besucht ❤️"),
 
         .init(120,
             en: "made homemade pizza from scratch — dough included 🍕",
-            gr: "φτιάξει σπιτική πίτσα από την αρχή — ζύμη και όλα 🍕",
+            gr: "φτιάξεις σπιτική πίτσα από την αρχή — ζύμη και όλα 🍕",
             de: "selbstgemachte Pizza von Grund auf gemacht — inklusive Teig 🍕",
-            link: "https://www.allrecipes.com/recipe/256012/"),
+            link: "https://www.allrecipes.com/"),
 
         .init(120,
             en: "worked on a creative project you keep delaying 🎨",
-            gr: "ασχοληθεί με ένα δημιουργικό project που αναβάλλεις 🎨",
+            gr: "ασχοληθείς με ένα δημιουργικό project που αναβάλλεις 🎨",
             de: "an einem kreativen Projekt gearbeitet, das du immer hinausschiebst 🎨"),
 
         .init(120,
             en: "given your bike a proper service and gone for a ride 🚲",
-            gr: "φτιάξει το ποδήλατό σου και κάνει μια βόλτα 🚲",
+            gr: "φτιάξεις το ποδήλατό σου και κάνεις μια βόλτα 🚲",
             de: "dein Fahrrad gewartet und eine Runde gedreht 🚲",
             link: "https://www.alltrails.com/"),
 
         // Outdoor — good weather
         .init(120,
             en: "gone on a proper hike and breathed some real mountain air 🏔️",
-            gr: "κάνει μια σωστή πεζοπορία και αναπνεύσει ορεινό αέρα 🏔️",
+            gr: "κάνεις μια σωστή πεζοπορία και αναπνεύσεις ορεινό αέρα 🏔️",
             de: "eine richtige Wanderung gemacht und frische Bergluft geatmet 🏔️",
             outdoorOnly: true, hours: 7...18,
             link: "https://www.alltrails.com/"),
 
         .init(120,
             en: "cycled to a nearby town, grabbed a coffee, and cycled back 🚲",
-            gr: "πάει με ποδήλατο σε μια κοντινή πόλη, πιει καφέ και γυρίσει 🚲",
+            gr: "πας με ποδήλατο σε μια κοντινή πόλη, πιεις καφέ και γυρίσεις 🚲",
             de: "mit dem Fahrrad in eine nahe Stadt gefahren, Kaffee getrunken und zurückgeradelt 🚲",
             outdoorOnly: true, hours: 8...18,
             link: "https://www.alltrails.com/"),
@@ -387,38 +381,38 @@ enum MilestoneActivityBank {
 
         .init(180,
             en: "visited a museum and a gallery 🏛️",
-            gr: "επισκεφτεί ένα μουσείο ΚΑΙ μια γκαλερί 🏛️",
+            gr: "επισκεφτείς ένα μουσείο ΚΑΙ μια γκαλερί 🏛️",
             de: "ein Museum UND eine Galerie besucht 🏛️",
             hours: 9...18,
             link: "https://artsandculture.google.com/"),
 
         .init(180,
             en: "cooked a full Sunday feast for people you love 🍲",
-            gr: "μαγειρέψει ένα ολόκληρο Κυριακάτικο τραπέζι για αγαπημένους 🍲",
+            gr: "μαγειρέψεις ένα ολόκληρο Κυριακάτικο τραπέζι για αγαπημένους 🍲",
             de: "ein vollständiges Sonntagsessen für geliebte Menschen gekocht 🍲",
             hours: 10...16,
-            link: "https://www.allrecipes.com/recipes/80/main-dish/"),
+            link: "https://www.allrecipes.com/"),
 
         .init(180,
             en: "read almost an entire book, cover to cover 📖",
-            gr: "διαβάσει σχεδόν ολόκληρο ένα βιβλίο 📖",
+            gr: "διαβάσεις σχεδόν ολόκληρο ένα βιβλίο 📖",
             de: "fast ein ganzes Buch von Anfang bis Ende gelesen 📖",
             link: "https://www.goodreads.com/"),
 
         .init(180,
             en: "finished something you've been procrastinating on for weeks 🎯",
-            gr: "ολοκληρώσει κάτι που αναβάλλεις εδώ και εβδομάδες 🎯",
+            gr: "ολοκληρώσεις κάτι που αναβάλλεις εδώ και εβδομάδες 🎯",
             de: "etwas fertiggestellt, das du seit Wochen aufgeschoben hast 🎯"),
 
         .init(180,
             en: "taught yourself something new from a YouTube tutorial 💡",
-            gr: "μάθει κάτι καινούργιο από ένα YouTube tutorial 💡",
+            gr: "μάθεις κάτι καινούργιο από ένα YouTube tutorial 💡",
             de: "sich durch ein YouTube-Tutorial etwas Neues beigebracht 💡",
             link: "https://www.youtube.com/"),
 
         .init(180,
             en: "taken a day trip to a nearby town and back 🚂",
-            gr: "κάνει μια ημερήσια εκδρομή σε κοντινή πόλη 🚂",
+            gr: "κάνεις μια ημερήσια εκδρομή σε κοντινή πόλη 🚂",
             de: "einen Tagesausflug in eine nahe Stadt und zurück gemacht 🚂",
             outdoorOnly: true, hours: 8...15,
             link: "https://www.alltrails.com/"),
