@@ -336,9 +336,6 @@ struct NudgeView: View {
             pickupRingCard
 
             // ── Screen Time + Picksy Score pill ──────────────────────
-            // Score: untouched — keeps the existing formula/source.
-            let scoreMins  = store.bestScreenTimeSecs / 60
-            let score      = PicksyScore.value(pickups: store.todayPickups, screenTimeMinutes: scoreMins)
             HStack(spacing: 0) {
                 // Screen time — the WHOLE-DEVICE total, rendered by the report
                 // extension (it can't pass the number back to the app, so the
@@ -359,14 +356,15 @@ struct NudgeView: View {
                     .fill(Color.white.opacity(0.2))
                     .frame(width: 1, height: 22)
 
-                // Score
+                // Score — computed and rendered by the report extension from the
+                // same whole-device total (the app can't read that number back).
                 HStack(spacing: 5) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.55))
-                    Text("\(score)")
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundColor(.white)
+                    DeviceActivityReport(.nudgeScore, filter: todayFilter)
+                        .id(refreshTrigger.reportIdentity)
+                        .frame(width: 38, height: 20)
                     Text(t("lower = better", "χαμηλότερο = καλύτερο", "niedriger = besser"))
                         .font(.system(size: 10, design: .rounded))
                         .foregroundColor(.white.opacity(0.45))

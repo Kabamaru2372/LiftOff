@@ -31,6 +31,16 @@ struct PicksyDeviceReport: DeviceActivityReportExtension {
         StatsTotalTimeReport { activityReport in
             StatsTotalTimeView(report: activityReport)
         }
+
+        // Picksy Score (computed from the total) — Nudge pill (white)
+        NudgeScoreReport { activityReport in
+            NudgeScoreView(report: activityReport)
+        }
+
+        // Picksy Score (computed from the total) — Stats card (large, accent)
+        StatsScoreReport { activityReport in
+            StatsScoreView(report: activityReport)
+        }
     }
 }
 

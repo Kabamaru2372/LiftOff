@@ -20,6 +20,10 @@ extension DeviceActivityReport.Context {
     static let nudgeTotalTime = Self("Nudge Total Time")
     /// Compact whole-device total for the Stats card (rendered by the extension).
     static let statsTotalTime = Self("Stats Total Time")
+    /// Picksy Score for the Nudge pill (computed + rendered by the extension).
+    static let nudgeScore = Self("Nudge Score")
+    /// Picksy Score for the Stats card (computed + rendered by the extension).
+    static let statsScore = Self("Stats Score")
 }
 
 // MARK: - Apps View

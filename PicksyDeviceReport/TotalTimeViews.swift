@@ -61,3 +61,55 @@ struct StatsTotalTimeView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
+
+// MARK: - Picksy Score (computed here, where we have the real total)
+
+/// App Group key the main app writes today's pickup count to (DataStore.saveData).
+private let appGroupID = "group.fotiospongas.picksy"
+
+/// Picksy Score from the rendered whole-device total. Score = (pickups +
+/// minutes×5) ÷ 20 — identical to PicksyScore in the main app. Pickups are read
+/// best-effort from the App Group; even if unavailable, the screen-time term
+/// dominates (it's ×5), so the score stays essentially correct.
+private func picksyScore(_ seconds: TimeInterval) -> Int {
+    let minutes = Int(seconds) / 60
+    let pickups = UserDefaults(suiteName: appGroupID)?.integer(forKey: "todayPickups") ?? 0
+    let raw = pickups + minutes * 5
+    return (raw + 10) / 20
+}
+
+/// Score color — mirrors the Stats card's scoreAccentColor on the ÷20 scale.
+private func scoreAccentColor(_ score: Int) -> Color {
+    if score == 0  { return .blue }
+    if score < 5   { return .green }
+    if score < 15  { return .blue }
+    if score < 30  { return .orange }
+    return .red
+}
+
+/// Nudge pill score (white, small) — replaces the old in-app Text.
+struct NudgeScoreView: View {
+    let report: ActivityReport
+
+    var body: some View {
+        Text("\(picksyScore(report.totalDuration))")
+            .font(.system(size: 13, weight: .bold, design: .rounded))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+    }
+}
+
+/// Stats card score (large, accent-colored by score).
+struct StatsScoreView: View {
+    let report: ActivityReport
+
+    var body: some View {
+        let score = picksyScore(report.totalDuration)
+        Text("\(score)")
+            .font(.system(size: 32, weight: .bold, design: .rounded))
+            .foregroundColor(scoreAccentColor(score))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+    }
+}

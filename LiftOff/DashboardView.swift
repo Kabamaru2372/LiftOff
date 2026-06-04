@@ -287,13 +287,15 @@ struct DashboardView: View {
             .frame(height: 112)
 
             // ── Row 2: Picksy Score ───────────────────────────────────
-            let score = PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
+            // Computed + rendered by the report extension from the same
+            // whole-device total (the app can't read that number back). The card
+            // chrome uses a fixed accent; the number itself is color-coded inside.
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
                         Image(systemName: "star.fill")
                             .font(.system(size: 11))
-                            .foregroundColor(scoreAccentColor(score))
+                            .foregroundColor(.indigo)
                         Text("Picksy Score")
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .foregroundColor(.secondary)
@@ -305,9 +307,8 @@ struct DashboardView: View {
 
                 Spacer()
 
-                Text("\(score)")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundColor(scoreAccentColor(score))
+                DeviceActivityReport(.statsScore, filter: deviceTotalFilter)
+                    .frame(width: 86, height: 38)
 
                 Spacer()
 
@@ -324,8 +325,8 @@ struct DashboardView: View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 14)
-                    .fill(scoreAccentColor(score).opacity(0.07))
-                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(scoreAccentColor(score).opacity(0.18), lineWidth: 1))
+                    .fill(Color.indigo.opacity(0.07))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.indigo.opacity(0.18), lineWidth: 1))
             )
         }
     }
@@ -346,16 +347,6 @@ struct DashboardView: View {
     /// duration-colored inside the hosted report; the app no longer knows the
     /// value, so the card frame uses a stable accent.
     private var screenTimeAccentColor: Color { .indigo }
-
-    private func scoreAccentColor(_ score: Int) -> Color {
-        // Thresholds are the old 100/300/600 cutoffs rescaled by the ÷20 in
-        // PicksyScore, so the color behavior is unchanged on the new scale.
-        if score == 0   { return .blue }
-        if score < 5    { return .green }
-        if score < 15   { return .blue }
-        if score < 30   { return .orange }
-        return .red
-    }
 
     // MARK: - Streak Card
 

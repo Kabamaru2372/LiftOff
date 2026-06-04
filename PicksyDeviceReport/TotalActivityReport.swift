@@ -21,6 +21,10 @@ extension DeviceActivityReport.Context {
     static let nudgeTotalTime = Self("Nudge Total Time")
     /// Compact whole-device total, styled large/accent for the Stats card.
     static let statsTotalTime = Self("Stats Total Time")
+    /// Picksy Score (computed from the total), white for the Nudge pill.
+    static let nudgeScore = Self("Nudge Score")
+    /// Picksy Score (computed from the total), large/accent for the Stats card.
+    static let statsScore = Self("Stats Score")
 }
 
 // MARK: - Data Model
@@ -125,6 +129,24 @@ struct NudgeTotalTimeReport: DeviceActivityReportScene {
 struct StatsTotalTimeReport: DeviceActivityReportScene {
     let context: DeviceActivityReport.Context = .statsTotalTime
     let content: (ActivityReport) -> StatsTotalTimeView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct NudgeScoreReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .nudgeScore
+    let content: (ActivityReport) -> NudgeScoreView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct StatsScoreReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .statsScore
+    let content: (ActivityReport) -> StatsScoreView
 
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
         await extractReport(from: data)
