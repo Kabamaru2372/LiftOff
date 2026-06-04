@@ -126,6 +126,13 @@ class UsageThresholdManager {
 
     static let isTestMode = false
     static let activityName = DeviceActivityName("picksy.usageThresholds")
+    /// Separate activity for the score's hourly confirmed-time ladder, isolated
+    /// from the notification thresholds above.
+    static let scoreActivityName = DeviceActivityName("picksy.scoreLadder")
+
+    /// How many hourly confirmed-time events the score ladder registers (1h…Nh).
+    /// Kept modest to stay well under DeviceActivity's per-activity event limit.
+    static let scoreLadderMaxHours = 10
 
     enum ThresholdLevel: String, CaseIterable {
         case level1 = "picksy.threshold.level1"
@@ -208,10 +215,40 @@ class UsageThresholdManager {
         } catch {
             log("❌ Failed to start monitoring: \(error.localizedDescription)")
         }
+
+        // Hourly confirmed-time ladder for the Picksy Score, in a SEPARATE
+        // activity so that if it ever hits an event limit, the notification
+        // thresholds above are unaffected. Each event fires as cumulative usage
+        // of the selected apps crosses an hour mark; the monitor extension just
+        // records it (no notification), letting the in-app score reflect heavy
+        // usage beyond the 3h cap (the app can't read the report's device total
+        // directly — Apple sandboxes that extension).
+        var ladderEvents: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        for hour in 1...Self.scoreLadderMaxHours {
+            let name = DeviceActivityEvent.Name("picksy.usagehour.\(hour)")
+            ladderEvents[name] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                threshold: DateComponents(hour: hour)
+            )
+        }
+
+        center.stopMonitoring([Self.scoreActivityName])
+
+        do {
+            try center.startMonitoring(
+                Self.scoreActivityName,
+                during: schedule,
+                events: ladderEvents
+            )
+            log("✅ Started score ladder monitoring (1…\(Self.scoreLadderMaxHours)h)")
+        } catch {
+            log("❌ Failed to start score ladder: \(error.localizedDescription)")
+        }
     }
 
     func stopMonitoring() {
-        center.stopMonitoring([Self.activityName])
+        center.stopMonitoring([Self.activityName, Self.scoreActivityName])
         log("🛑 Stopped threshold monitoring")
     }
 

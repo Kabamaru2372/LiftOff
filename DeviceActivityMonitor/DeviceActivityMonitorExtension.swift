@@ -86,6 +86,18 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
 
+        // Hourly confirmed-time ladder (picksy.usagehour.N → N hours). These fire
+        // as cumulative usage of the selected apps crosses each hour mark, so the
+        // in-app Picksy Score can reflect heavy usage beyond the 3h notification
+        // cap. They do NOT post notifications — they only record confirmed time.
+        if event.rawValue.hasPrefix("picksy.usagehour.") {
+            let suffix = event.rawValue.dropFirst("picksy.usagehour.".count)
+            if let hours = Int(suffix), hours > 0 {
+                recordConfirmedSeconds(hours * 3600, source: event.rawValue)
+            }
+            return
+        }
+
         // Otherwise it's a pickup detection event.
         incrementPickupCounter()
     }
@@ -480,22 +492,26 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
         let t = thresholds[levelIndex]
         let confirmedSecs = t.h * 3600 + t.m * 60
-        guard confirmedSecs > 0 else { return }
+        recordConfirmedSeconds(confirmedSecs, source: "\(eventName) preset:\(presetRaw)")
+    }
 
-        // Only ever increase — never lower the confirmed value within a day.
+    /// Writes an Apple-confirmed screen-time lower bound to the App Group,
+    /// only ever increasing it within the day, and pokes the main app to refresh.
+    /// Used by both the notification thresholds and the hourly score ladder.
+    private func recordConfirmedSeconds(_ secs: Int, source: String) {
+        guard secs > 0, let defaults = sharedDefaults else { return }
         let current = defaults.integer(forKey: "picksy_apple_screen_time_secs")
-        if confirmedSecs > current {
-            defaults.set(confirmedSecs, forKey: "picksy_apple_screen_time_secs")
-            log("📊 Apple screen time confirmed: ≥\(confirmedSecs / 60)min (\(eventName), preset: \(presetRaw))")
+        guard secs > current else { return }
 
-            // Tell the main app to re-read the confirmed value so any on-screen
-            // total (Nudge, Stats) refreshes immediately if the app is alive.
-            CFNotificationCenterPostNotification(
-                CFNotificationCenterGetDarwinNotifyCenter(),
-                CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
-                nil, nil, true
-            )
-        }
+        defaults.set(secs, forKey: "picksy_apple_screen_time_secs")
+        log("📊 Apple screen time confirmed: ≥\(secs / 60)min (\(source))")
+
+        // Tell the main app to re-read so the Nudge/Stats score refreshes live.
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
+            nil, nil, true
+        )
     }
 
     /// Logging με prefix για ευκολία debugging
