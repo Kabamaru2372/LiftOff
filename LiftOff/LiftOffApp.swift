@@ -656,6 +656,14 @@ struct LiftOffApp: App {
                 if FamilyControlsManager.shared.isAuthorized {
                     UsageThresholdManager.shared.startMonitoring()
                     PickupScheduler.shared.startMonitoring()
+                    // Seed the App Group with milestone messages so the extension
+                    // can fire accurate screen-time alerts even if the user never
+                    // interacts with the app today.
+                    let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+                    ScreenTimeMilestoneNotifier.shared.syncMilestonesToAppGroup(
+                        weather: weatherManager.activeCondition,
+                        language: lang
+                    )
                 }
             }
         }
@@ -676,11 +684,12 @@ struct LiftOffApp: App {
             // Apple Watch: push the new pickup count immediately.
             syncWatch()
 
-            // Schedule upcoming milestone notifications from the moment of unlock
-            // so they fire WHILE the user is actively on their phone — not after locking.
+            // Refresh the smart milestone messages in the App Group so the
+            // DeviceActivityMonitor extension can fire the ACCURATE screen-time
+            // notification at the real moment Apple reports 1h/2h/3h of usage
+            // (background, no wall-clock guessing). See ScreenTimeMilestoneNotifier.
             let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-            ScreenTimeMilestoneNotifier.shared.scheduleUpcoming(
-                totalSeconds: store.todayTotalSeconds,
+            ScreenTimeMilestoneNotifier.shared.syncMilestonesToAppGroup(
                 weather: weatherManager.activeCondition,
                 language: lang
             )
@@ -754,17 +763,14 @@ struct LiftOffApp: App {
             store.addUsageTime(seconds: seconds)
             // Apple Watch: screen time changed → refresh the score on the wrist.
             syncWatch()
+
+            // Screen-time milestone notifications are now fired by the
+            // DeviceActivityMonitor extension from REAL Apple usage thresholds
+            // (1h/2h/3h), in the background — not from the inaccurate unlock→lock
+            // duration measured here. We only keep the message pool fresh so the
+            // extension always has a smart, weather/time-aware line to deliver.
             let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-
-            // Cancel any pending milestone notifications — they'll be rescheduled
-            // on the next unlock so they fire WHILE the user is using the phone,
-            // not from the lock screen after they put it down.
-            ScreenTimeMilestoneNotifier.shared.cancelPending()
-
-            // Fallback: fire immediately if a milestone was crossed during this session
-            // (covers the case where scheduleUpcoming wasn't called, e.g. app was closed)
-            ScreenTimeMilestoneNotifier.shared.checkAndFire(
-                totalSeconds: store.todayTotalSeconds,
+            ScreenTimeMilestoneNotifier.shared.syncMilestonesToAppGroup(
                 weather: weatherManager.activeCondition,
                 language: lang
             )

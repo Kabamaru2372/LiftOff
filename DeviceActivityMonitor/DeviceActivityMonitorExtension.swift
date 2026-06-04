@@ -11,6 +11,7 @@
 import DeviceActivity
 import Foundation
 import WidgetKit
+import UserNotifications
 
 class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
@@ -64,14 +65,93 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     // MARK: - Event Handling
 
-    /// Καλείται όταν ένα event φτάνει το threshold (π.χ. 1 pickup)
-    /// Για κάθε pickup, αυξάνουμε τον counter στο shared storage
+    /// Καλείται όταν ένα event φτάνει το threshold.
+    ///
+    /// Δύο είδη events φτάνουν εδώ:
+    ///   • "app_<i>_t<n>"            → pickup detection (PickupScheduler)   → +1 σήκωμα
+    ///   • "picksy.threshold.levelN" → ΧΡΗΣΗ 1h/2h/3h (UsageThresholdManager)
+    ///                                  → ΑΚΡΙΒΗΣ screen-time ειδοποίηση (Apple data,
+    ///                                    background). ΔΕΝ είναι σήκωμα.
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         super.eventDidReachThreshold(event, activity: activity)
         log("🎯 Event threshold reached: \(event.rawValue)")
 
-        // Increment pickup counter
+        // Usage milestone (screen-time) — accurate, background, NOT a pickup.
+        if event.rawValue.hasPrefix("picksy.threshold.level") {
+            let level = Int(String(event.rawValue.suffix(1))) ?? 0
+            fireScreenTimeMilestone(level: level)
+            return
+        }
+
+        // Otherwise it's a pickup detection event.
         incrementPickupCounter()
+    }
+
+    // MARK: - Screen-time milestone (accurate, background)
+
+    /// Delivers the screen-time milestone notification using the smart message the
+    /// main app pre-computed in the App Group (weather/time-aware, localized).
+    /// Fires at most once per level per calendar day.
+    private func fireScreenTimeMilestone(level: Int) {
+        guard level >= 1, level <= 3, let defaults = sharedDefaults else { return }
+
+        // ── Per-day dedup ──────────────────────────────────────────────────────
+        let firedKey = "picksy_milestone_fired_\(milestoneTodayKey())"
+        var firedToday = defaults.array(forKey: firedKey) as? [Int] ?? []
+        guard !firedToday.contains(level) else {
+            log("⏭️ Screen-time milestone L\(level) already fired today")
+            return
+        }
+        firedToday.append(level)
+        defaults.set(firedToday, forKey: firedKey)
+
+        // ── Read pre-computed message (fallback to a generic line) ─────────────
+        let p = "picksy_milestone_\(level)_"
+        let language = defaults.string(forKey: "picksy.appLanguage") ?? "English"
+        let minutes  = defaults.integer(forKey: p + "minutes")
+        let title = defaults.string(forKey: p + "title") ?? fallbackTitle(minutes: minutes, language: language)
+        let body  = defaults.string(forKey: p + "body")  ?? ""
+
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body  = body
+        content.sound = .default
+        content.categoryIdentifier = "PICKSY_SCREEN_TIME_MILESTONE"
+
+        // userInfo so tapping opens MilestoneDetailView (same shape as the app path).
+        var info: [AnyHashable: Any] = ["milestoneMinutes": minutes]
+        if let en = defaults.string(forKey: p + "bodyEN") { info["milestoneBodyEN"] = en }
+        if let gr = defaults.string(forKey: p + "bodyGR") { info["milestoneBodyGR"] = gr }
+        if let de = defaults.string(forKey: p + "bodyDE") { info["milestoneBodyDE"] = de }
+        if let link = defaults.string(forKey: p + "link") { info["milestoneLink"] = link }
+        content.userInfo = info
+
+        let request = UNNotificationRequest(
+            identifier: "picksy.milestone.\(level).\(milestoneTodayKey())",
+            content: content,
+            trigger: UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        )
+        UNUserNotificationCenter.current().add(request) { [weak self] err in
+            if let err { self?.log("❌ Milestone L\(level) notify failed: \(err.localizedDescription)") }
+            else       { self?.log("🔔 Screen-time milestone L\(level) fired (\(minutes)min, accurate)") }
+        }
+    }
+
+    private func fallbackTitle(minutes: Int, language: String) -> String {
+        let hours = minutes / 60
+        switch language {
+        case "Ελληνικά":
+            return hours > 0 ? "\(hours) \(hours == 1 ? "ώρα" : "ώρες") στις apps σου 📱" : "\(minutes) λεπτά στις apps σου 📱"
+        case "Deutsch":
+            return hours > 0 ? "\(hours) \(hours == 1 ? "Stunde" : "Stunden") in deinen Apps 📱" : "\(minutes) Minuten in deinen Apps 📱"
+        default:
+            return hours == 1 ? "1 hour on your apps today 📱" : hours > 1 ? "\(hours) hours on your apps today 📱" : "\(minutes) min on your apps today 📱"
+        }
+    }
+
+    private func milestoneTodayKey() -> String {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
     }
 
     // MARK: - Warnings (optional, για future use)

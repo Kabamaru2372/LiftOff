@@ -29,6 +29,12 @@ final class ScreenTimeMilestoneNotifier {
     private let firedKey     = "picksy.screenTimeMilestones.fired"
     private let scheduledKey = "picksy.screenTimeMilestones.scheduled"
 
+    // App Group shared with DeviceActivityMonitor extension.
+    // The extension fires the *accurate* notification (real Apple usage), but we
+    // pre-compute the smart, weather/time-aware message here and hand it over.
+    static let appGroupID = "group.fotiospongas.picksy"
+    private var sharedDefaults: UserDefaults? { UserDefaults(suiteName: Self.appGroupID) }
+
     // MARK: - Public
 
     /// Cancels any pending (not yet fired) milestone notifications and clears
@@ -120,6 +126,80 @@ final class ScreenTimeMilestoneNotifier {
         }
     }
 
+    // MARK: - App Group bridge (accurate, background firing)
+
+    /// Pre-computes the smart, weather/time-aware milestone message for each of
+    /// the three usage-threshold levels and writes it to the App Group, so the
+    /// DeviceActivityMonitor extension can deliver it at the *real* moment Apple
+    /// reports the usage threshold was crossed — in the background, with no
+    /// wall-clock guessing and no app foregrounding required.
+    ///
+    /// Call on app launch and on every foreground (we have weather + language then).
+    /// The level → displayed minutes mapping follows the user's chosen preset
+    /// (light/moderate/strict); the message bucket uses the nearest bank tier
+    /// (level 1 → 1h pool, level 2 → 2h pool, level 3 → 3h pool).
+    func syncMilestonesToAppGroup(weather: WeatherCondition, language: String) {
+        guard let defaults = sharedDefaults else { return }
+
+        // Decoupled from ThresholdPreset (which lives in a target this file does
+        // not belong to) — read the raw preset and map to minutes locally. Must
+        // stay in sync with ThresholdPreset.thresholds in UsageThresholdManager.
+        let presetMinutes: (Int, Int, Int)
+        switch UserDefaults.standard.string(forKey: "picksyThresholdPreset") ?? "light" {
+        case "moderate": presetMinutes = (45, 90, 120)
+        case "strict":   presetMinutes = (30, 60, 90)
+        default:         presetMinutes = (60, 120, 180)   // light (research-backed)
+        }
+        let levels: [(level: Int, minutes: Int, bucket: Int)] = [
+            (1, presetMinutes.0, 60),
+            (2, presetMinutes.1, 120),
+            (3, presetMinutes.2, 180),
+        ]
+
+        defaults.set(language, forKey: "picksy.appLanguage")
+
+        for entry in levels {
+            let activity = pickActivity(minutes: entry.bucket, weather: weather)
+            let (title, body) = milestoneStrings(minutes: entry.minutes,
+                                                 activity: activity,
+                                                 language: language)
+            let p = "picksy_milestone_\(entry.level)_"
+            defaults.set(entry.minutes, forKey: p + "minutes")
+            defaults.set(title,         forKey: p + "title")
+            defaults.set(body,          forKey: p + "body")
+            defaults.set(activity.bodyEN, forKey: p + "bodyEN")
+            defaults.set(activity.bodyGR, forKey: p + "bodyGR")
+            defaults.set(activity.bodyDE, forKey: p + "bodyDE")
+            if let link = activity.link {
+                defaults.set(link.absoluteString, forKey: p + "link")
+            } else {
+                defaults.removeObject(forKey: p + "link")
+            }
+        }
+    }
+
+    /// Builds the localized (title, body) pair — single source of truth shared by
+    /// both the local `deliver()` path and the App Group bridge.
+    private func milestoneStrings(minutes: Int, activity: MilestoneActivity, language: String) -> (String, String) {
+        let hours = minutes / 60
+        let mins  = minutes % 60
+        switch language {
+        case "Ελληνικά":
+            let title = hours > 0 && mins == 0
+                ? "\(hours) \(hours == 1 ? "ώρα" : "ώρες") στις apps σου 📱"
+                : "\(minutes) λεπτά στις apps σου 📱"
+            return (title, "Σε αυτόν τον χρόνο μπορούσες να \(activity.bodyGR).")
+        case "Deutsch":
+            let title = hours > 0 && mins == 0
+                ? "\(hours) \(hours == 1 ? "Stunde" : "Stunden") in deinen Apps 📱"
+                : "\(minutes) Minuten in deinen Apps 📱"
+            return (title, "In dieser Zeit hättest du \(activity.bodyDE) können.")
+        default:
+            let label = hours == 1 ? "1 hour" : hours > 1 ? "\(hours) hours" : "\(minutes) min"
+            return ("\(label) on your apps today 📱", "In that time you could have \(activity.bodyEN).")
+        }
+    }
+
     // MARK: - Private
 
     private func todayKey() -> String {
@@ -138,19 +218,19 @@ final class ScreenTimeMilestoneNotifier {
         switch language {
         case "Ελληνικά":
             content.title = hours > 0 && mins == 0
-                ? "\(hours) \(hours == 1 ? "ώρα" : "ώρες") στο κινητό 📱"
-                : "\(milestone) λεπτά στο κινητό 📱"
+                ? "\(hours) \(hours == 1 ? "ώρα" : "ώρες") στις apps σου 📱"
+                : "\(milestone) λεπτά στις apps σου 📱"
             content.body = "Σε αυτόν τον χρόνο μπορούσες να \(activity.bodyGR)."
 
         case "Deutsch":
             content.title = hours > 0 && mins == 0
-                ? "\(hours) \(hours == 1 ? "Stunde" : "Stunden") am Handy 📱"
-                : "\(milestone) Minuten am Handy 📱"
+                ? "\(hours) \(hours == 1 ? "Stunde" : "Stunden") in deinen Apps 📱"
+                : "\(milestone) Minuten in deinen Apps 📱"
             content.body = "In dieser Zeit hättest du \(activity.bodyDE) können."
 
         default:
             let label = hours == 1 ? "1 hour" : hours > 1 ? "\(hours) hours" : "\(milestone) min"
-            content.title = "\(label) on your phone today 📱"
+            content.title = "\(label) on your apps today 📱"
             content.body  = "In that time you could have \(activity.bodyEN)."
         }
 
