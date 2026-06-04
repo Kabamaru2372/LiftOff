@@ -21,7 +21,10 @@ private func formatTotal(_ seconds: TimeInterval) -> String {
 }
 
 /// Accent color by total duration — mirrors the Stats card thresholds.
-private func accentColor(_ seconds: TimeInterval) -> Color {
+/// NB: named `durationAccentColor` (not `accentColor`) to avoid colliding with
+/// SwiftUI's deprecated `View.accentColor(_:)` modifier, which would otherwise
+/// win name resolution inside a View body and return `some View`.
+private func durationAccentColor(_ seconds: TimeInterval) -> Color {
     let mins = Int(seconds) / 60
     if mins == 0   { return .secondary }
     if mins < 60   { return .green }
@@ -52,7 +55,7 @@ struct StatsTotalTimeView: View {
     var body: some View {
         Text(formatTotal(report.totalDuration))
             .font(.system(size: 30, weight: .bold, design: .rounded))
-            .foregroundColor(accentColor(report.totalDuration))
+            .foregroundColor(durationAccentColor(report.totalDuration))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .frame(maxWidth: .infinity, alignment: .leading)
