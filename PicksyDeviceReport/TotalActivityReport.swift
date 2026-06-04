@@ -17,6 +17,10 @@ import SwiftUI
 extension DeviceActivityReport.Context {
     static let totalActivity = Self("Total Activity")
     static let top3Activity = Self("Top 3 Activity")
+    /// Compact whole-device total, styled white for the Nudge pill.
+    static let nudgeTotalTime = Self("Nudge Total Time")
+    /// Compact whole-device total, styled large/accent for the Stats card.
+    static let statsTotalTime = Self("Stats Total Time")
 }
 
 // MARK: - Data Model
@@ -68,64 +72,17 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
 
     apps.sort { $0.duration > $1.duration }
 
-    // Persist the WHOLE-DEVICE total to the App Group so the main app (Stats
-    // tab, Nudge screen, Watch, Friends/Duel scores) shows the total screen
-    // time across all apps — what users understand as "screen time".
-    //
-    // IMPORTANT: `segment.totalActivityDuration` is the whole-device total for
-    // the day regardless of the report's app/category filter (the filter only
-    // scopes the per-app list, not the segment total). So BOTH report contexts
-    // — the Apps tab's filtered report and the Nudge's all-apps report —
-    // produce the same device total here, and both persist it. This is what
-    // lets the Apps tab show the correct total independent of which apps are
-    // selected, and we mirror that exact number to the App Group.
-    persistTotalToAppGroup(totalDuration)
+    // NOTE: We do NOT write this total to the App Group. The DeviceActivityReport
+    // extension is heavily sandboxed by Apple and cannot share data back to the
+    // main app (UserDefaults/App Group writes are silently discarded on device).
+    // The total can only be DISPLAYED via a hosted DeviceActivityReport view —
+    // which is exactly how the Nudge and Stats screen-time figures now render.
 
     if let limit = limit {
         apps = Array(apps.prefix(limit))
     }
 
     return ActivityReport(totalDuration: totalDuration, apps: apps)
-}
-
-/// Writes today's whole-device screen-time total (seconds) to the shared App
-/// Group, stamped with today's date. The main app reads it back as the
-/// canonical "screen time" value shown on the Nudge and Stats screens.
-private func persistTotalToAppGroup(_ totalDuration: TimeInterval) {
-    guard let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") else { return }
-
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd"
-    let today = formatter.string(from: Date())
-
-    let totalSecs = Int(totalDuration)
-    let storedDate = defaults.string(forKey: "picksy_report_screen_time_date")
-
-    // On a new day the stored value belongs to yesterday — start fresh.
-    let baseline = (storedDate == today)
-        ? defaults.integer(forKey: "picksy_report_screen_time_secs")
-        : 0
-
-    // Screen time only grows during a day; never let a transient smaller read
-    // (e.g. a partial extension load) shrink the displayed total.
-    let changed = (totalSecs > baseline) || (storedDate != today)
-    if totalSecs >= baseline {
-        defaults.set(totalSecs, forKey: "picksy_report_screen_time_secs")
-    }
-    defaults.set(today, forKey: "picksy_report_screen_time_date")
-
-    // Notify the main app (a separate process) that a fresh total is available.
-    // Cross-process UserDefaults writes don't trigger SwiftUI updates on their
-    // own — DataStore observes this Darwin notification and re-reads the value,
-    // so the Stats tab, Nudge screen, Watch and Friends/Duel scores all refresh
-    // to the same whole-device screen-time total.
-    if changed {
-        CFNotificationCenterPostNotification(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
-            nil, nil, true
-        )
-    }
 }
 
 // MARK: - Total Activity Report (full list)
@@ -147,6 +104,30 @@ struct Top3ActivityReport: DeviceActivityReportScene {
 
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
         await extractReport(from: data, limit: 3)
+    }
+}
+
+// MARK: - Compact total-time reports (whole-device screen time)
+//
+// These render ONLY the formatted total duration. Because the report extension
+// can't pass the number back to the app, the Nudge pill and Stats card host
+// these tiny reports to display the same total the Apps tab shows.
+
+struct NudgeTotalTimeReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .nudgeTotalTime
+    let content: (ActivityReport) -> TotalTimeLabelView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct StatsTotalTimeReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .statsTotalTime
+    let content: (ActivityReport) -> StatsTotalTimeView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
     }
 }
 

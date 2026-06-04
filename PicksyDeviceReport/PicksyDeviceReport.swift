@@ -21,6 +21,16 @@ struct PicksyDeviceReport: DeviceActivityReportExtension {
         Top3ActivityReport { activityReport in
             Top3ActivityView(report: activityReport)
         }
+
+        // Compact whole-device total — Nudge pill (white)
+        NudgeTotalTimeReport { activityReport in
+            TotalTimeLabelView(report: activityReport)
+        }
+
+        // Compact whole-device total — Stats card (large, accent)
+        StatsTotalTimeReport { activityReport in
+            StatsTotalTimeView(report: activityReport)
+        }
     }
 }
 

@@ -339,26 +339,17 @@ struct NudgeView: View {
             // Score: untouched — keeps the existing formula/source.
             let scoreMins  = store.bestScreenTimeSecs / 60
             let score      = store.todayPickups + scoreMins * 5
-            // Screen-time label: show EXACTLY the Apps-tab total (the report
-            // extension's selected-apps total), never the notification
-            // threshold. Shows "—" until the report has computed today's value.
-            let stTotalSecs = store.reportConfirmedScreenTimeSecs
-            let stMinsTotal = stTotalSecs / 60
-            let stHours     = stMinsTotal / 60
-            let stMins      = stMinsTotal % 60
-            let screenLabel = stTotalSecs <= 0
-                ? "—"
-                : (stHours > 0 ? "\(stHours)h \(stMins)m" : "\(stMins)m")
-
             HStack(spacing: 0) {
-                // Screen time
+                // Screen time — the WHOLE-DEVICE total, rendered by the report
+                // extension (it can't pass the number back to the app, so the
+                // value is drawn here exactly like the Apps tab).
                 HStack(spacing: 5) {
                     Image(systemName: "hourglass")
                         .font(.system(size: 10))
                         .foregroundColor(.white.opacity(0.55))
-                    Text(screenLabel)
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundColor(.white)
+                    DeviceActivityReport(.nudgeTotalTime, filter: todayFilter)
+                        .id(refreshTrigger.reportIdentity)
+                        .frame(width: 72, height: 20)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)

@@ -4,6 +4,7 @@
 // Created by Fotios Pongas 24.03.2026
 
 import SwiftUI
+import DeviceActivity
 
 struct ShareImageItem: Identifiable {
     let id = UUID()
@@ -263,11 +264,12 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 8)
 
-                    Text(todayScreenTimeLabel)
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundColor(screenTimeAccentColor)
-                        .minimumScaleFactor(0.7)
-                        .lineLimit(1)
+                    // Whole-device total, rendered by the report extension
+                    // (the number can't be passed back to the app, so it's
+                    // drawn here — same value the Apps tab shows, independent
+                    // of which apps are selected).
+                    DeviceActivityReport(.statsTotalTime, filter: deviceTotalFilter)
+                        .frame(height: 36)
 
                     Spacer()
 
@@ -329,26 +331,22 @@ struct DashboardView: View {
         }
     }
 
-    private var todayScreenTimeLabel: String {
-        // Show EXACTLY the Apps-tab total (report extension's selected-apps
-        // total), never the notification threshold. "—" until the report has
-        // computed today's value.
-        let secs = store.reportConfirmedScreenTimeSecs
-        if secs == 0 { return "—" }
-        let h = secs / 3600
-        let m = (secs % 3600) / 60
-        if h > 0 { return "\(h)h \(m)m" }
-        return "\(m)m"
+    /// Whole-device, today filter (no app/category scope) for the hosted
+    /// screen-time total report.
+    private var deviceTotalFilter: DeviceActivityFilter {
+        DeviceActivityFilter(
+            segment: .daily(
+                during: Calendar.current.dateInterval(of: .day, for: Date())!
+            ),
+            users: .all,
+            devices: .init([.iPhone])
+        )
     }
 
-    private var screenTimeAccentColor: Color {
-        let mins = store.reportConfirmedScreenTimeSecs / 60
-        if mins == 0   { return .secondary }
-        if mins < 60   { return .green }
-        if mins < 120  { return .blue }
-        if mins < 240  { return .orange }
-        return .red
-    }
+    /// Fixed chrome color for the Screen Time card. The number itself is
+    /// duration-colored inside the hosted report; the app no longer knows the
+    /// value, so the card frame uses a stable accent.
+    private var screenTimeAccentColor: Color { .indigo }
 
     private func scoreAccentColor(_ score: Int) -> Color {
         if score == 0   { return .blue }

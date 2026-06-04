@@ -16,6 +16,10 @@ import FamilyControls
 extension DeviceActivityReport.Context {
     static let totalActivity = Self("Total Activity")
     static let top3Activity = Self("Top 3 Activity")
+    /// Compact whole-device total for the Nudge pill (rendered by the extension).
+    static let nudgeTotalTime = Self("Nudge Total Time")
+    /// Compact whole-device total for the Stats card (rendered by the extension).
+    static let statsTotalTime = Self("Stats Total Time")
 }
 
 // MARK: - Apps View
