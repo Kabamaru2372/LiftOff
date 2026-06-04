@@ -68,11 +68,47 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
 
     apps.sort { $0.duration > $1.duration }
 
+    // Persist the TRUE total to the App Group so the main app (Stats tab, Nudge
+    // screen, Watch, Friends/Duel scores) can display the exact same number the
+    // Apps tab shows. Without this, those surfaces only had a threshold-based
+    // lower bound (e.g. "1h" while the Apps tab showed "6h").
+    //
+    // Note: totalDuration is the full selected-apps total regardless of the
+    // `limit` (which only trims the per-app list), so both the Total and Top-3
+    // report contexts write a correct value.
+    persistTotalToAppGroup(totalDuration)
+
     if let limit = limit {
         apps = Array(apps.prefix(limit))
     }
 
     return ActivityReport(totalDuration: totalDuration, apps: apps)
+}
+
+/// Writes today's authoritative screen-time total (seconds) to the shared App
+/// Group, stamped with today's date. The main app reads it back as the
+/// highest-priority source for `bestScreenTimeSecs`.
+private func persistTotalToAppGroup(_ totalDuration: TimeInterval) {
+    guard let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") else { return }
+
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    let today = formatter.string(from: Date())
+
+    let totalSecs = Int(totalDuration)
+    let storedDate = defaults.string(forKey: "picksy_report_screen_time_date")
+
+    // On a new day the stored value belongs to yesterday — start fresh.
+    let baseline = (storedDate == today)
+        ? defaults.integer(forKey: "picksy_report_screen_time_secs")
+        : 0
+
+    // Screen time only grows during a day; never let a transient smaller read
+    // (e.g. a partial extension load) shrink the displayed total.
+    if totalSecs >= baseline {
+        defaults.set(totalSecs, forKey: "picksy_report_screen_time_secs")
+    }
+    defaults.set(today, forKey: "picksy_report_screen_time_date")
 }
 
 // MARK: - Total Activity Report (full list)

@@ -117,8 +117,8 @@ class PushNotificationManager {
                 // The DeviceActivity extension keeps todayPickups current in the App Group
                 // even when the app is closed, so this background upload is accurate.
                 if isDuelActive {
-                    await DuelManager.shared.updateMyPickups(pickups, screenTimeSeconds: store.todayTotalSeconds)
-                    print("[PushManager] 📤 Duel stats synced in background: pickups=\(pickups) screenTime=\(store.todayTotalSeconds)s")
+                    await DuelManager.shared.updateMyPickups(pickups, screenTimeSeconds: store.bestScreenTimeSecs)
+                    print("[PushManager] 📤 Duel stats synced in background: pickups=\(pickups) screenTime=\(store.bestScreenTimeSecs)s")
                 }
 
                 print("[PushManager] ✅ Live Activity refreshed via silent push. Pickups: \(pickups)")

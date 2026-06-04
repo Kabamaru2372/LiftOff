@@ -158,7 +158,7 @@ struct DuelView: View {
     private func activeDuelCard(_ duel: DuelRecord) -> some View {
         // Use local store values for "You" — always accurate, no sync delay.
         // Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
-        let myCount = store.todayPickups + (store.todayTotalSeconds / 60) * 5
+        let myCount = store.todayPickups + (store.bestScreenTimeSecs / 60) * 5
 
         // Compute remaining seconds using `tick` so the view re-renders every second
         let secsRemaining: TimeInterval = {

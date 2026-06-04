@@ -41,15 +41,36 @@ class DataStore {
         defaults.integer(forKey: "picksy_apple_screen_time_secs")
     }
 
-    /// Best-estimate total screen time for today.
+    /// The EXACT screen-time total shown on the Apps tab, written to the App
+    /// Group by the DeviceActivityReport extension (`PicksyDeviceReport`).
+    /// This is Apple's authoritative number — the same one the Apps tab renders.
+    ///
+    /// Guarded by today's date so a stale total from yesterday is never shown
+    /// (the report extension stamps the value with the day it was computed).
+    /// Returns 0 until the report has rendered at least once today (i.e. the
+    /// user has opened the Apps tab or the Nudge screen, both of which host a
+    /// DeviceActivityReport).
+    var reportConfirmedScreenTimeSecs: Int {
+        let storedDate = defaults.string(forKey: "picksy_report_screen_time_date")
+        guard storedDate == todayDateString() else { return 0 }
+        return defaults.integer(forKey: "picksy_report_screen_time_secs")
+    }
+
+    /// Best-estimate total screen time for today — the single source of truth
+    /// for EVERY screen-time display in the app (Stats tab, Nudge, Watch,
+    /// Friends/Duel scores), kept consistent with the Apps tab.
+    ///
     /// Takes the maximum of:
-    ///   • todayTotalSeconds (ScreenUnlockDetector — accurate when app is alive)
-    ///   • appleConfirmedScreenTimeSecs (Apple threshold events — accurate always)
+    ///   • reportConfirmedScreenTimeSecs (Apple's exact total — matches Apps tab)
+    ///   • appleConfirmedScreenTimeSecs (Apple threshold events — lower bound,
+    ///     available even before the report has rendered)
+    ///   • todayTotalSeconds (ScreenUnlockDetector — accurate only while alive)
     ///
     /// This fixes the "31 min vs 6 hours" discrepancy where the app was suspended
-    /// during most of the user's phone session.
+    /// during most of the user's phone session, AND guarantees cross-tab
+    /// consistency once the report has rendered.
     var bestScreenTimeSecs: Int {
-        max(todayTotalSeconds, appleConfirmedScreenTimeSecs)
+        max(todayTotalSeconds, max(appleConfirmedScreenTimeSecs, reportConfirmedScreenTimeSecs))
     }
 
     private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
@@ -215,6 +236,10 @@ class DataStore {
         // Reset Apple-confirmed screen time
         defaults.set(0, forKey: "picksy_apple_screen_time_secs")
 
+        // Reset report-confirmed screen time (Apps-tab total mirror)
+        defaults.set(0, forKey: "picksy_report_screen_time_secs")
+        defaults.removeObject(forKey: "picksy_report_screen_time_date")
+
         // v1.6: Clear last pickup timestamp στο NudgeView
         UserDefaults.standard.removeObject(forKey: "lastPickupTimestamp")
 
@@ -353,6 +378,11 @@ class DataStore {
             defaults.removeObject(forKey: todayPickupsKey())
             // Reset Apple-confirmed screen time for the new day.
             defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+            // Reset report-confirmed total for the new day. The date-guard in
+            // reportConfirmedScreenTimeSecs already protects against stale reads,
+            // but clearing keeps the App Group tidy.
+            defaults.set(0, forKey: "picksy_report_screen_time_secs")
+            defaults.removeObject(forKey: "picksy_report_screen_time_date")
             saveData()
             WidgetCenter.shared.reloadAllTimelines()
         } else if lastDate == "" {

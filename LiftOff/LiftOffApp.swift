@@ -629,7 +629,7 @@ struct LiftOffApp: App {
         // Poll duel state on launch, sync pickup count, then refresh DI immediately
         Task {
             await DuelManager.shared.poll()
-            await DuelManager.shared.updateMyPickups(store.todayPickups, screenTimeSeconds: store.todayTotalSeconds)
+            await DuelManager.shared.updateMyPickups(store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
             guard !focusSessionManager.isActive else { return }
             if let duel = DuelManager.shared.activeDuel, duel.status == .active {
                 // Active duel found after poll — update DI with correct scores
@@ -726,7 +726,7 @@ struct LiftOffApp: App {
                         )
                     }
                     group.addTask {
-                        await DuelManager.shared.updateMyPickups(pickups, screenTimeSeconds: store.todayTotalSeconds)
+                        await DuelManager.shared.updateMyPickups(pickups, screenTimeSeconds: store.bestScreenTimeSecs)
                     }
                     group.addTask {
                         // APNs push → Supabase edge fn → Live Activity token update.
@@ -954,7 +954,7 @@ struct LiftOffApp: App {
                 // updateMyPickups() ensures that whoever brings the app to foreground
                 // immediately uploads their real count — important right after a duel starts.
                 await DuelManager.shared.poll()
-                await DuelManager.shared.updateMyPickups(store.todayPickups, screenTimeSeconds: store.todayTotalSeconds)
+                await DuelManager.shared.updateMyPickups(store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
                 if let duel = DuelManager.shared.activeDuel, duel.status == .active,
                    !focusSessionManager.isActive {
                     liveActivity.updateForDuel(
@@ -1022,7 +1022,7 @@ struct LiftOffApp: App {
         let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
         PhoneWatchSync.shared.send(
             pickups:      store.todayPickups,
-            totalSeconds: store.todayTotalSeconds,
+            totalSeconds: store.bestScreenTimeSecs,
             goal:         goal > 0 ? goal : 50,
             streak:       store.currentStreak,
             language:     lang
