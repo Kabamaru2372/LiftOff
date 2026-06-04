@@ -34,6 +34,24 @@ class DataStore {
         return hourlyScreenTimeSecs[hour] + hourlyScreenTimeSecs[prev]
     }
 
+    /// Screen time confirmed by Apple's DeviceActivity threshold events.
+    /// These fire in the background even when Picksy is suspended — unlike
+    /// ScreenUnlockDetector which only works while the app is alive.
+    var appleConfirmedScreenTimeSecs: Int {
+        defaults.integer(forKey: "picksy_apple_screen_time_secs")
+    }
+
+    /// Best-estimate total screen time for today.
+    /// Takes the maximum of:
+    ///   • todayTotalSeconds (ScreenUnlockDetector — accurate when app is alive)
+    ///   • appleConfirmedScreenTimeSecs (Apple threshold events — accurate always)
+    ///
+    /// This fixes the "31 min vs 6 hours" discrepancy where the app was suspended
+    /// during most of the user's phone session.
+    var bestScreenTimeSecs: Int {
+        max(todayTotalSeconds, appleConfirmedScreenTimeSecs)
+    }
+
     private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
     private var midnightTimer: Timer?
     // H5 fix: store the observer opaque pointer so deinit can remove it and prevent UAF crashes.
@@ -194,6 +212,9 @@ class DataStore {
         // Clear shared cooldown key (used by both ScreenUnlockDetector + extension, fix #1)
         defaults.removeObject(forKey: "picksy_last_pickup_timestamp")
 
+        // Reset Apple-confirmed screen time
+        defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+
         // v1.6: Clear last pickup timestamp στο NudgeView
         UserDefaults.standard.removeObject(forKey: "lastPickupTimestamp")
 
@@ -330,6 +351,8 @@ class DataStore {
             hourlyScreenTimeSecs = Array(repeating: 0, count: 24)
             weeklyPickups[currentDayIndex()] = 0
             defaults.removeObject(forKey: todayPickupsKey())
+            // Reset Apple-confirmed screen time for the new day.
+            defaults.set(0, forKey: "picksy_apple_screen_time_secs")
             saveData()
             WidgetCenter.shared.reloadAllTimelines()
         } else if lastDate == "" {

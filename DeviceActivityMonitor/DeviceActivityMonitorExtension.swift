@@ -77,13 +77,12 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         log("🎯 Event threshold reached: \(event.rawValue)")
 
         // Cumulative usage thresholds (picksy.threshold.levelN) are NO LONGER used
-        // for notifications. Screen-time alerts moved to a CONTINUOUS-use model
-        // (scheduled in-app from each unlock, cancelled on lock) because the
-        // cumulative daily total does not match user intent ("1 hour straight",
-        // not "1 hour total across the day"). We still must NOT count these as
-        // pickups — that was the old inflation bug.
+        // for notifications. Screen-time alerts moved to a CONTINUOUS-use model.
+        // BUT: we still record the confirmed Apple screen time so the Nudge screen
+        // can show an accurate value even when the main app was suspended.
         if event.rawValue.hasPrefix("picksy.threshold.level") {
-            log("ℹ️ Ignoring cumulative usage threshold \(event.rawValue) (continuous-session model)")
+            recordAppleConfirmedScreenTime(for: event.rawValue)
+            log("ℹ️ Usage threshold \(event.rawValue) fired — recorded as Apple-confirmed screen time")
             return
         }
 
@@ -445,6 +444,50 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             nil,
             true
         )
+    }
+
+    /// Records the Apple-confirmed minimum screen time to the App Group so the
+    /// Nudge screen can show an accurate value even when Picksy was suspended.
+    ///
+    /// Apple fires these threshold events from its own background process,
+    /// so they are accurate regardless of whether Picksy is alive in memory.
+    ///
+    /// ThresholdPreset is in the main app target so we read the preset name
+    /// from the shared App Group and map it to seconds inline.
+    private func recordAppleConfirmedScreenTime(for eventName: String) {
+        guard let defaults = sharedDefaults else { return }
+
+        // Read preset name that the main app saved to the shared group.
+        // Falls back to "light" (1h/2h/3h) if not found.
+        let presetRaw = defaults.string(forKey: "picksyThresholdPreset_shared") ?? "light"
+
+        // (hour, minute) tuples for (level1, level2, level3) per preset.
+        // Must stay in sync with ThresholdPreset in UsageThresholdManager.swift.
+        let thresholds: [(h: Int, m: Int)]
+        switch presetRaw {
+        case "moderate": thresholds = [(0, 45), (1, 30), (2, 0)]
+        case "strict":   thresholds = [(0, 30), (1,  0), (1, 30)]
+        default:         thresholds = [(1,  0), (2,  0), (3,  0)] // light
+        }
+
+        let levelIndex: Int
+        switch eventName {
+        case "picksy.threshold.level1": levelIndex = 0
+        case "picksy.threshold.level2": levelIndex = 1
+        case "picksy.threshold.level3": levelIndex = 2
+        default: return
+        }
+
+        let t = thresholds[levelIndex]
+        let confirmedSecs = t.h * 3600 + t.m * 60
+        guard confirmedSecs > 0 else { return }
+
+        // Only ever increase — never lower the confirmed value within a day.
+        let current = defaults.integer(forKey: "picksy_apple_screen_time_secs")
+        if confirmedSecs > current {
+            defaults.set(confirmedSecs, forKey: "picksy_apple_screen_time_secs")
+            log("📊 Apple screen time confirmed: ≥\(confirmedSecs / 60)min (\(eventName), preset: \(presetRaw))")
+        }
     }
 
     /// Logging με prefix για ευκολία debugging

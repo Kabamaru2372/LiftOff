@@ -323,7 +323,7 @@ struct NudgeView: View {
             pickupRingCard
 
             // ── Screen Time + Picksy Score pill ──────────────────────
-            let scoreMins  = store.todayTotalSeconds / 60
+            let scoreMins  = store.bestScreenTimeSecs / 60
             let score      = store.todayPickups + scoreMins * 5
             let stHours    = scoreMins / 60
             let stMins     = scoreMins % 60

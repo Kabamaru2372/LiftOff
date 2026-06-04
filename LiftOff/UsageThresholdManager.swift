@@ -32,6 +32,10 @@ enum ThresholdPreset: String, CaseIterable {
 
     static func save(_ preset: ThresholdPreset) {
         UserDefaults.standard.set(preset.rawValue, forKey: storageKey)
+        // Mirror to the shared App Group so the DeviceActivityMonitor extension
+        // can read the preset when recording Apple-confirmed screen time.
+        let shared = UserDefaults(suiteName: "group.fotiospongas.picksy")
+        shared?.set(preset.rawValue, forKey: "picksyThresholdPreset_shared")
     }
 
     func displayName(language: String) -> String {
@@ -168,6 +172,10 @@ class UsageThresholdManager {
         }
 
         let preset = ThresholdPreset.current
+
+        // Always mirror preset to App Group so the extension has the current value.
+        let sharedDefaults = UserDefaults(suiteName: "group.fotiospongas.picksy")
+        sharedDefaults?.set(preset.rawValue, forKey: "picksyThresholdPreset_shared")
 
         let schedule = DeviceActivitySchedule(
             intervalStart: DateComponents(hour: 0, minute: 0),
