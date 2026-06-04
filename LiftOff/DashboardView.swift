@@ -6,10 +6,9 @@
 import SwiftUI
 import DeviceActivity
 
-struct ShareImageItem: Identifiable {
-    let id = UUID()
-    let image: UIImage
-}
+// ShareImageItem moved to ShareImageItem.swift so it stays available to the
+// Live Activity extension (which compiles WeeklySummaryView) after DashboardView
+// was excluded from that target.
 
 // Wrapper για να χρησιμοποιήσουμε fullScreenCover(item:) αντί για boolean
 struct WeeklySummaryItem: Identifiable {
