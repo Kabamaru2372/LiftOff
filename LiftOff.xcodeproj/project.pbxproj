@@ -145,6 +145,7 @@
 				AppSelectionStore.swift,
 				AppsView.swift,
 				ContentView.swift,
+				DashboardView.swift,
 				LiftOffApp.swift,
 				LiveActivityManager.swift,
 				NudgeView.swift,
