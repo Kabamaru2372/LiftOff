@@ -655,9 +655,6 @@ struct LiftOffApp: App {
             }
         }
 
-        // Upload our public key so friends can send us encrypted messages
-        Task { await MessagingManager.shared.uploadPublicKey() }
-
         Task {
             await FamilyControlsManager.shared.refreshAuthorizationStatusOnLaunch()
             await MainActor.run {
@@ -952,9 +949,6 @@ struct LiftOffApp: App {
                 if let token = liveActivity.pushToken {
                     await PushNotificationManager.shared.registerLiveActivityToken(token)
                 }
-                // Ensure our public key is always up-to-date in Supabase
-                // so friends can send us encrypted messages
-                await MessagingManager.shared.uploadPublicKey()
                 // Poll duel state on foreground, sync our pickup count, then refresh DI.
                 // updateMyPickups() ensures that whoever brings the app to foreground
                 // immediately uploads their real count — important right after a duel starts.
