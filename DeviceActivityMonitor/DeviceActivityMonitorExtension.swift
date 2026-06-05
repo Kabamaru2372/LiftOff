@@ -101,6 +101,17 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         // as cumulative usage of the selected apps crosses each hour mark, so the
         // in-app Picksy Score can reflect heavy usage beyond the 3h notification
         // cap. They do NOT post notifications — they only record confirmed time.
+        // Fine-grained confirmed-time ladder (picksy.usagemin.N → N minutes).
+        if event.rawValue.hasPrefix("picksy.usagemin.") {
+            let suffix = event.rawValue.dropFirst("picksy.usagemin.".count)
+            if let mins = Int(suffix), mins > 0 {
+                recordConfirmedSeconds(mins * 60, source: event.rawValue)
+            }
+            return
+        }
+
+        // Legacy hourly ladder (kept for any monitoring still registered from a
+        // previous install until it restarts).
         if event.rawValue.hasPrefix("picksy.usagehour.") {
             let suffix = event.rawValue.dropFirst("picksy.usagehour.".count)
             if let hours = Int(suffix), hours > 0 {

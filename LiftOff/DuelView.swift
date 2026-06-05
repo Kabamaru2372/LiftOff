@@ -6,7 +6,6 @@
 
 import SwiftUI
 import Combine
-import DeviceActivity
 
 struct DuelView: View {
 
@@ -31,18 +30,6 @@ struct DuelView: View {
         case "Deutsch":  return de
         default:         return en
         }
-    }
-
-    /// Whole-device "today" filter — identical to the Stats tab, so the duel's
-    /// "You" score is rendered by the SAME report extension and shows the exact
-    /// same number as Nudge / Stats. (The app can't read that number back, so it
-    /// must be rendered here rather than computed app-side.)
-    private var deviceTotalFilter: DeviceActivityFilter {
-        DeviceActivityFilter(
-            segment: .daily(during: Calendar.current.dateInterval(of: .day, for: Date())!),
-            users: .all,
-            devices: .init([.iPhone])
-        )
     }
 
     // MARK: - Body
@@ -169,11 +156,11 @@ struct DuelView: View {
     // MARK: - Active Duel
 
     private func activeDuelCard(_ duel: DuelRecord) -> some View {
-        // "You" score is RENDERED by the report extension (same as Nudge / Stats)
-        // so it shows the exact same number — the app can't read the accurate
-        // whole-device total back, only the extension can. `myCount` is the
-        // app-side estimate, kept ONLY for the win/lose trophy + opponent color
-        // (the extension can't tell us who's ahead).
+        // "You" = the app-side Picksy Score. This is the SAME value we sync to
+        // Supabase (challenger_screen_time), so the opponent sees the exact same
+        // number for you and the comparison is fair. The screen-time term comes
+        // from the fine-grained confirmed-time ladder, so it tracks the real
+        // total closely (≈ what Nudge/Stats show, within ~15 min).
         let myCount = PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
 
         // Compute remaining seconds using `tick` so the view re-renders every second
@@ -198,28 +185,19 @@ struct DuelView: View {
 
             // Scoreboard
             HStack(spacing: 0) {
-                // Me — rendered by the report extension so the number is IDENTICAL
-                // to the Nudge ring pill and the Stats card (exact whole-device score).
-                VStack(spacing: 6) {
-                    Text(t("You", "Εσύ", "Du"))
-                        .font(.system(size: 13, design: .rounded))
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-
-                    DeviceActivityReport(.statsScore, filter: deviceTotalFilter)
-                        .frame(height: 40)
-
-                    Text("Picksy Score")
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundColor(.secondary)
-
-                    if myCount < duel.theirScore {
-                        Image(systemName: "trophy.fill")
-                            .font(.system(size: 12))
-                            .foregroundColor(.yellow)
-                    }
-                }
-                .frame(maxWidth: .infinity)
+                // Me — app-side Picksy Score (the same value synced to Supabase,
+                // so you and your friend always see the exact same number for you).
+                scoreColumn(
+                    label: t("You", "Εσύ", "Du"),
+                    score: myCount,
+                    numberColor: myCount < duel.theirScore
+                        ? Color(red: 0.2, green: 0.8, blue: 0.4)
+                        : myCount > duel.theirScore
+                            ? Color(red: 1.0, green: 0.3, blue: 0.3)
+                            : .primary,
+                    isLeading: myCount < duel.theirScore,
+                    highlight: true
+                )
 
                 // VS divider
                 VStack(spacing: 4) {

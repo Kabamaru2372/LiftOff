@@ -130,9 +130,13 @@ class UsageThresholdManager {
     /// from the notification thresholds above.
     static let scoreActivityName = DeviceActivityName("picksy.scoreLadder")
 
-    /// How many hourly confirmed-time events the score ladder registers (1h…Nh).
-    /// Kept modest to stay well under DeviceActivity's per-activity event limit.
-    static let scoreLadderMaxHours = 10
+    /// Confirmed-time score ladder granularity. Events fire every
+    /// `scoreLadderStepMinutes` of cumulative usage, up to `scoreLadderMaxMinutes`.
+    /// Finer steps → the in-app Picksy Score (and the duel score we sync) tracks
+    /// the real screen time more closely (≈ within one step + Apple's delivery
+    /// delay). 15 min × up to 10h = 40 events — well under DeviceActivity's limit.
+    static let scoreLadderStepMinutes = 15
+    static let scoreLadderMaxMinutes  = 10 * 60
 
     enum ThresholdLevel: String, CaseIterable {
         case level1 = "picksy.threshold.level1"
@@ -224,13 +228,15 @@ class UsageThresholdManager {
         // usage beyond the 3h cap (the app can't read the report's device total
         // directly — Apple sandboxes that extension).
         var ladderEvents: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
-        for hour in 1...Self.scoreLadderMaxHours {
-            let name = DeviceActivityEvent.Name("picksy.usagehour.\(hour)")
+        var minutes = Self.scoreLadderStepMinutes
+        while minutes <= Self.scoreLadderMaxMinutes {
+            let name = DeviceActivityEvent.Name("picksy.usagemin.\(minutes)")
             ladderEvents[name] = DeviceActivityEvent(
                 applications: selection.applicationTokens,
                 categories: selection.categoryTokens,
-                threshold: DateComponents(hour: hour)
+                threshold: DateComponents(minute: minutes)
             )
+            minutes += Self.scoreLadderStepMinutes
         }
 
         center.stopMonitoring([Self.scoreActivityName])
@@ -241,7 +247,7 @@ class UsageThresholdManager {
                 during: schedule,
                 events: ladderEvents
             )
-            log("✅ Started score ladder monitoring (1…\(Self.scoreLadderMaxHours)h)")
+            log("✅ Started score ladder monitoring (every \(Self.scoreLadderStepMinutes)min up to \(Self.scoreLadderMaxMinutes / 60)h, \(ladderEvents.count) events)")
         } catch {
             log("❌ Failed to start score ladder: \(error.localizedDescription)")
         }

@@ -6,7 +6,6 @@
 
 import SwiftUI
 import Combine
-import DeviceActivity
 
 struct FriendsView: View {
 
@@ -263,24 +262,19 @@ struct FriendsView: View {
 
     // MARK: - Active Duel Banner
 
-    /// Whole-device "today" filter so the duel "You" score is rendered by the
-    /// SAME report extension as Nudge / Stats (exact-match number).
-    private var deviceTotalFilter: DeviceActivityFilter {
-        DeviceActivityFilter(
-            segment: .daily(during: Calendar.current.dateInterval(of: .day, for: Date())!),
-            users: .all,
-            devices: .init([.iPhone])
-        )
-    }
-
     private func activeDuelBanner(_ duel: DuelRecord) -> some View {
         // Use Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
         // For "me" we use local store values (always up-to-date).
         // For opponent we use Supabase values via poll().
-        // app-side estimate — used only for opponent color + the "?" placeholder.
-        // The "You" number itself is rendered by the report extension below.
+        // app-side Picksy Score — the SAME value synced to Supabase, so both
+        // players see the exact same number for each other (fair comparison).
         let myScore    = PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
         let theirScore = duel.theirScore
+        let myColor: Color = myScore < theirScore
+            ? Color(red: 0.4, green: 1.0, blue: 0.6)
+            : myScore > theirScore
+                ? Color(red: 1.0, green: 0.38, blue: 0.38)
+                : .white
         let theirColor: Color = theirScore < myScore
             ? Color(red: 0.4, green: 1.0, blue: 0.6)
             : theirScore > myScore
@@ -301,10 +295,9 @@ struct FriendsView: View {
                     Text(t("You", "Εσύ", "Du"))
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.8))
-                    // Rendered by the report extension → exact same number as the
-                    // Nudge pill, Stats card and the full Duel screen.
-                    DeviceActivityReport(.statsScore, filter: deviceTotalFilter)
-                        .frame(height: 44)
+                    Text("\(myScore)")
+                        .font(.system(size: 44, weight: .semibold, design: .rounded))
+                        .foregroundColor(myColor)
                 }
                 .frame(maxWidth: .infinity)
 
