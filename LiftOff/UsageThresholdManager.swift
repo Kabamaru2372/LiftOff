@@ -220,24 +220,23 @@ class UsageThresholdManager {
             log("❌ Failed to start monitoring: \(error.localizedDescription)")
         }
 
-        // Hourly confirmed-time ladder for the Picksy Score, in a SEPARATE
-        // activity so that if it ever hits an event limit, the notification
-        // thresholds above are unaffected. Each event fires as cumulative usage
-        // of the selected apps crosses an hour mark; the monitor extension just
-        // records it (no notification), letting the in-app score reflect heavy
-        // usage beyond the 3h cap (the app can't read the report's device total
-        // directly — Apple sandboxes that extension).
-        // WHOLE-DEVICE ladder: no app/category filter → the event threshold is
-        // measured against TOTAL device usage, matching the Nudge/Stats screen-time
-        // card (deviceTotalFilter). Previously this used the selected apps only,
-        // so the score lagged badly (e.g. 5 apps = 2.8h while the device total was
-        // 6.8h → duel showed 44 instead of 104). Empty token sets = entire device,
-        // the same way DeviceActivityFilter with no apps means whole device.
+        // Confirmed-time ladder for the Picksy Score, in a SEPARATE activity so it
+        // can't affect the notification thresholds above. Each event fires as the
+        // user's SELECTED apps+categories cross a time mark; the monitor extension
+        // records it (no notification) so the in-app score reflects real usage.
+        //
+        // Measured against the user's selection (applications + categories) —
+        // category tokens DO track reliably (unlike empty/whole-device events,
+        // which fire all-at-once). If the user selects ALL CATEGORIES, this ≈ the
+        // whole-device total and stays accurate, so the duel score (synced from
+        // this) matches Nudge/Stats and is fair (both players on the same basis).
         var ladderEvents: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var minutes = Self.scoreLadderStepMinutes
         while minutes <= Self.scoreLadderMaxMinutes {
             let name = DeviceActivityEvent.Name("picksy.usagemin.\(minutes)")
             ladderEvents[name] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
                 threshold: DateComponents(minute: minutes)
             )
             minutes += Self.scoreLadderStepMinutes
