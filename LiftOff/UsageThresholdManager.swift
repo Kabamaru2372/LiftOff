@@ -227,13 +227,17 @@ class UsageThresholdManager {
         // records it (no notification), letting the in-app score reflect heavy
         // usage beyond the 3h cap (the app can't read the report's device total
         // directly — Apple sandboxes that extension).
+        // WHOLE-DEVICE ladder: no app/category filter → the event threshold is
+        // measured against TOTAL device usage, matching the Nudge/Stats screen-time
+        // card (deviceTotalFilter). Previously this used the selected apps only,
+        // so the score lagged badly (e.g. 5 apps = 2.8h while the device total was
+        // 6.8h → duel showed 44 instead of 104). Empty token sets = entire device,
+        // the same way DeviceActivityFilter with no apps means whole device.
         var ladderEvents: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var minutes = Self.scoreLadderStepMinutes
         while minutes <= Self.scoreLadderMaxMinutes {
             let name = DeviceActivityEvent.Name("picksy.usagemin.\(minutes)")
             ladderEvents[name] = DeviceActivityEvent(
-                applications: selection.applicationTokens,
-                categories: selection.categoryTokens,
                 threshold: DateComponents(minute: minutes)
             )
             minutes += Self.scoreLadderStepMinutes
