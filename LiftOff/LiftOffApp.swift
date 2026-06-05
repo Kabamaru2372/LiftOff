@@ -613,6 +613,14 @@ struct LiftOffApp: App {
 
         Task {
             await weatherManager.fetchWeather()
+            // Pre-write weather/time-aware milestone messages to the App Group so
+            // the DeviceActivityMonitor extension can read them when threshold events
+            // fire (the extension can't call weatherManager directly).
+            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+            ScreenTimeMilestoneNotifier.shared.syncMilestonesToAppGroup(
+                weather: weatherManager.activeCondition,
+                language: lang
+            )
         }
 
         // Show MilestoneDetailView when user taps a milestone notification
@@ -744,25 +752,22 @@ struct LiftOffApp: App {
                 UIApplication.shared.endBackgroundTask(bgTaskID)
             }
         }
-        // Continuous-use session START (every unlock): schedule the 30/60/90-min
-        // (per preset) continuous-use notifications counting from this moment.
+        // Continuous-use session START (every unlock).
+        // NOTE: We do NOT schedule time-based notifications here. iOS suspends the
+        // app after ~30s in background, making cancelContinuousSession() unreliable
+        // on lock — the cancel never fires and the notification shows hours later as
+        // a false positive. Screen-time notifications now come exclusively from the
+        // DeviceActivityMonitor extension which uses Apple's confirmed usage data.
         ScreenUnlockDetector.shared.onScreenSessionStarted = {
-            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-            ScreenTimeMilestoneNotifier.shared.scheduleContinuousSession(
-                weather: weatherManager.activeCondition,
-                language: lang
-            )
+            // Cancel any stale continuous notifications left over from a previous
+            // session that the app couldn't cancel (e.g. it was suspended at lock time).
+            ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
         }
 
         ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in
             store.addUsageTime(seconds: seconds)
             // Apple Watch: screen time changed → refresh the score on the wrist.
             syncWatch()
-
-            // Continuous-use session ENDED (screen locked): cancel any pending
-            // continuous-use notifications — this session didn't last long enough,
-            // so they must not fire. The counter "resets" for the next unlock.
-            ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
             print("[ScreenTime] ⏱ Session ended: \(seconds)s, total today: \(store.todayTotalSeconds)s, last2h: \(store.screenTimeLastTwoHours)s")
         }
         ScreenUnlockDetector.shared.startMonitoring()
@@ -964,8 +969,14 @@ struct LiftOffApp: App {
                         theirPickups: duel.theirPickups
                     )
                 }
-                // Milestone notifications fire via checkAndFire in onScreenSessionEnded —
-                // no pre-scheduling needed (pre-scheduling caused false dawn notifications).
+                // Refresh pre-computed milestone messages in the App Group so the
+                // DeviceActivityMonitor extension fires accurate, weather-aware
+                // notifications when Apple's usage thresholds are reached.
+                let milLang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+                ScreenTimeMilestoneNotifier.shared.syncMilestonesToAppGroup(
+                    weather: weatherManager.activeCondition,
+                    language: milLang
+                )
             }
 
             // Friend sync — upload own status & check if any pair is also overusing

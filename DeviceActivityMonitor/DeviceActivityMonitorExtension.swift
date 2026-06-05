@@ -82,7 +82,18 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         // can show an accurate value even when the main app was suspended.
         if event.rawValue.hasPrefix("picksy.threshold.level") {
             recordAppleConfirmedScreenTime(for: event.rawValue)
-            log("ℹ️ Usage threshold \(event.rawValue) fired — recorded as Apple-confirmed screen time")
+            log("ℹ️ Usage threshold \(event.rawValue) fired — recording confirmed time + firing notification")
+            // Fire the user notification using Apple's confirmed usage data.
+            // This is the accurate path: Apple's process triggers the event, so
+            // the threshold was ACTUALLY reached — no false positives possible.
+            let level: Int
+            switch event.rawValue {
+            case "picksy.threshold.level1": level = 1
+            case "picksy.threshold.level2": level = 2
+            case "picksy.threshold.level3": level = 3
+            default: return
+            }
+            fireScreenTimeMilestone(level: level)
             return
         }
 
