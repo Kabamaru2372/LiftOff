@@ -24,6 +24,10 @@ extension DeviceActivityReport.Context {
     static let nudgeScore = Self("Nudge Score")
     /// Picksy Score for the Stats card (computed + rendered by the extension).
     static let statsScore = Self("Stats Score")
+    /// Apple's REAL pickup count for the Stats card (rendered by the extension).
+    static let statsPickups = Self("Stats Pickups")
+    /// Apple's REAL pickup count for the Nudge ring center (rendered by the extension).
+    static let nudgePickups = Self("Nudge Pickups")
 }
 
 // MARK: - Apps View

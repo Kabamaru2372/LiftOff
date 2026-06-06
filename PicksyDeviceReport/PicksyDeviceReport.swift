@@ -41,6 +41,16 @@ struct PicksyDeviceReport: DeviceActivityReportExtension {
         StatsScoreReport { activityReport in
             StatsScoreView(report: activityReport)
         }
+
+        // Apple's REAL pickup count — Stats card (large, green)
+        StatsPickupsReport { activityReport in
+            StatsPickupsView(report: activityReport)
+        }
+
+        // Apple's REAL pickup count — Nudge ring center (big white)
+        NudgePickupsReport { activityReport in
+            NudgePickupsView(report: activityReport)
+        }
     }
 }
 

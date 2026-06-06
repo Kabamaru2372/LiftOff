@@ -25,6 +25,10 @@ extension DeviceActivityReport.Context {
     static let nudgeScore = Self("Nudge Score")
     /// Picksy Score (computed from the total), large/accent for the Stats card.
     static let statsScore = Self("Stats Score")
+    /// Apple's REAL pickup count (numberOfPickups), large/accent for the Stats card.
+    static let statsPickups = Self("Stats Pickups")
+    /// Apple's REAL pickup count, big number for the Nudge ring center.
+    static let nudgePickups = Self("Nudge Pickups")
 }
 
 // MARK: - Data Model
@@ -41,6 +45,7 @@ struct AppUsageData: Identifiable {
 /// Όλα τα δεδομένα του report
 struct ActivityReport {
     let totalDuration: TimeInterval
+    let totalPickups: Int
     let apps: [AppUsageData]
 }
 
@@ -48,6 +53,7 @@ struct ActivityReport {
 
 private func extractReport(from data: DeviceActivityResults<DeviceActivityData>, limit: Int? = nil) async -> ActivityReport {
     var totalDuration: TimeInterval = 0
+    var totalPickups = 0
     var apps: [AppUsageData] = []
 
     for await activityData in data {
@@ -56,6 +62,11 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
 
             for await category in segment.categories {
                 for await application in category.applications {
+                    // Apple's REAL pickup count (per app) — summed across all apps
+                    // ≈ total device pickups shown in Settings → Screen Time. Counted
+                    // before the duration guard so apps with pickups but ~0 time count.
+                    totalPickups += application.numberOfPickups
+
                     let duration = application.totalActivityDuration
                     guard duration > 0 else { continue }
 
@@ -86,7 +97,7 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
         apps = Array(apps.prefix(limit))
     }
 
-    return ActivityReport(totalDuration: totalDuration, apps: apps)
+    return ActivityReport(totalDuration: totalDuration, totalPickups: totalPickups, apps: apps)
 }
 
 // MARK: - Total Activity Report (full list)
@@ -147,6 +158,24 @@ struct NudgeScoreReport: DeviceActivityReportScene {
 struct StatsScoreReport: DeviceActivityReportScene {
     let context: DeviceActivityReport.Context = .statsScore
     let content: (ActivityReport) -> StatsScoreView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct StatsPickupsReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .statsPickups
+    let content: (ActivityReport) -> StatsPickupsView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct NudgePickupsReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .nudgePickups
+    let content: (ActivityReport) -> NudgePickupsView
 
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
         await extractReport(from: data)

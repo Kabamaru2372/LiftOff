@@ -64,17 +64,14 @@ struct StatsTotalTimeView: View {
 
 // MARK: - Picksy Score (computed here, where we have the real total)
 
-/// App Group key the main app writes today's pickup count to (DataStore.saveData).
-private let appGroupID = "group.fotiospongas.picksy"
-
-/// Picksy Score from the rendered whole-device total. Score = (pickups +
-/// minutes×5) ÷ 20 — identical to PicksyScore in the main app. Pickups are read
-/// best-effort from the App Group; even if unavailable, the screen-time term
-/// dominates (it's ×5), so the score stays essentially correct.
-private func picksyScore(_ seconds: TimeInterval) -> Int {
-    let minutes = Int(seconds) / 60
-    let pickups = UserDefaults(suiteName: appGroupID)?.integer(forKey: "todayPickups") ?? 0
-    let raw = pickups + minutes * 5
+/// Picksy Score from Apple's REAL whole-device data. Score = (pickups +
+/// minutes×5) ÷ 20 — identical to PicksyScore in the main app. Both inputs are
+/// Apple-accurate (rendered here in the extension): screen-time minutes from
+/// totalDuration, pickups from numberOfPickups. This is why the displayed score
+/// matches Settings, unlike the app-side estimate.
+private func picksyScore(_ report: ActivityReport) -> Int {
+    let minutes = Int(report.totalDuration) / 60
+    let raw = report.totalPickups + minutes * 5
     return (raw + 10) / 20
 }
 
@@ -92,7 +89,7 @@ struct NudgeScoreView: View {
     let report: ActivityReport
 
     var body: some View {
-        Text("\(picksyScore(report.totalDuration))")
+        Text("\(picksyScore(report))")
             .font(.system(size: 13, weight: .bold, design: .rounded))
             .foregroundColor(.white)
             .lineLimit(1)
@@ -105,11 +102,40 @@ struct StatsScoreView: View {
     let report: ActivityReport
 
     var body: some View {
-        let score = picksyScore(report.totalDuration)
+        let score = picksyScore(report)
         Text("\(score)")
             .font(.system(size: 32, weight: .bold, design: .rounded))
             .foregroundColor(scoreAccentColor(score))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
+    }
+}
+
+// MARK: - Pickups (Apple's REAL count — matches Settings → Screen Time)
+
+/// Stats card pickups (large, green) — Apple's exact pickup count.
+struct StatsPickupsView: View {
+    let report: ActivityReport
+
+    var body: some View {
+        Text("\(report.totalPickups)")
+            .font(.system(size: 30, weight: .bold, design: .rounded))
+            .foregroundColor(Color(red: 0.20, green: 0.78, blue: 0.35))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Nudge ring center pickups (big white number) — Apple's exact pickup count.
+struct NudgePickupsView: View {
+    let report: ActivityReport
+
+    var body: some View {
+        Text("\(report.totalPickups)")
+            .font(.system(size: 58, weight: .semibold, design: .rounded))
+            .foregroundColor(.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
     }
 }
