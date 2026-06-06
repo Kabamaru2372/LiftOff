@@ -216,28 +216,15 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 8)
 
-                    Text("\(store.todayPickups)")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundColor(pickupsAccentColor)
+                    // Apple's REAL pickup count (matches Settings → Screen Time),
+                    // rendered by the report extension. The app-side detector can
+                    // miss unlocks while the app is suspended (friends saw "30" in
+                    // Settings but the app showed 9), so we display the exact number
+                    // here — same approach as the Screen Time card next to it.
+                    DeviceActivityReport(.statsPickups, filter: deviceTotalFilter)
+                        .frame(height: 36)
 
                     Spacer()
-
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(Color(.systemGray5))
-                                .frame(height: 4)
-                            RoundedRectangle(cornerRadius: 3)
-                                .fill(pickupsAccentColor.opacity(0.75))
-                                .frame(
-                                    width: min(geo.size.width, geo.size.width * CGFloat(store.todayPickups) / CGFloat(max(dailyGoal, 1))),
-                                    height: 4
-                                )
-                                .animation(.easeOut(duration: 0.4), value: store.todayPickups)
-                        }
-                    }
-                    .frame(height: 4)
-                    .padding(.bottom, 6)
 
                     Text(t("goal \(dailyGoal)", "στόχος \(dailyGoal)", "Ziel \(dailyGoal)"))
                         .font(.system(size: 11, design: .rounded))
