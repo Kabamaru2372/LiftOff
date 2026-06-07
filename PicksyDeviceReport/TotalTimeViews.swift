@@ -62,16 +62,21 @@ struct StatsTotalTimeView: View {
     }
 }
 
-// MARK: - Picksy Score (computed here, where we have the real total)
+// MARK: - Picksy Score (computed here, where we have the real screen-time total)
 
-/// Picksy Score from Apple's REAL whole-device data. Score = (pickups +
-/// minutes×5) ÷ 20 — identical to PicksyScore in the main app. Both inputs are
-/// Apple-accurate (rendered here in the extension): screen-time minutes from
-/// totalDuration, pickups from numberOfPickups. This is why the displayed score
-/// matches Settings, unlike the app-side estimate.
+/// App Group key the main app writes today's HONEST pickup count to (real screen
+/// unlocks via protectedDataDidBecomeAvailable — NOT Apple's numberOfPickups,
+/// which inflates the count by treating every notification that lights the lock
+/// screen as a "pickup").
+private let appGroupID = "group.fotiospongas.picksy"
+
+/// Picksy Score = (pickups + minutes×5) ÷ 20. Screen-time minutes come from the
+/// accurate report total; pickups come from our own true-unlock counter (App
+/// Group), so the score reflects real conscious pickups, not notification noise.
 private func picksyScore(_ report: ActivityReport) -> Int {
     let minutes = Int(report.totalDuration) / 60
-    let raw = report.totalPickups + minutes * 5
+    let pickups = UserDefaults(suiteName: appGroupID)?.integer(forKey: "todayPickups") ?? 0
+    let raw = pickups + minutes * 5
     return (raw + 10) / 20
 }
 

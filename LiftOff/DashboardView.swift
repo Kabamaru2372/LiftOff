@@ -216,13 +216,13 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 8)
 
-                    // Apple's REAL pickup count (matches Settings → Screen Time),
-                    // rendered by the report extension. The app-side detector can
-                    // miss unlocks while the app is suspended (friends saw "30" in
-                    // Settings but the app showed 9), so we display the exact number
-                    // here — same approach as the Screen Time card next to it.
-                    DeviceActivityReport(.statsPickups, filter: deviceTotalFilter)
-                        .frame(height: 36)
+                    // Our OWN honest pickup count (real screen unlocks). We do NOT
+                    // use Apple's numberOfPickups here — it inflates the count by
+                    // treating every notification that lights the lock screen as a
+                    // pickup (e.g. 22 overnight notifications showed as 23 pickups).
+                    Text("\(store.todayPickups)")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(pickupsAccentColor)
 
                     Spacer()
 

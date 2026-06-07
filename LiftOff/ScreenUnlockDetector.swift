@@ -71,8 +71,15 @@ class ScreenUnlockDetector {
     // MARK: - Configuration
 
     /// Cooldown μεταξύ pickups σε δευτερόλεπτα.
-    /// 30s αποφεύγει διπλομέτρηση από quick lock/unlock cycles.
-    private let cooldownSeconds: TimeInterval = 30
+    ///
+    /// `protectedDataDidBecomeAvailable` fires once per REAL unlock (Face ID /
+    /// passcode) — never on a notification waking the lock screen (that's why our
+    /// count is more honest than Apple's "Pickups", which inflates with
+    /// notifications). 30s was far too long: two genuine unlocks within half a
+    /// minute were merged into one, undercounting badly. 3s only dedups the same
+    /// physical pickup (unlock + the tracked-app-open that follows ~1-2s later,
+    /// via the shared timestamp), while counting every distinct real unlock.
+    private let cooldownSeconds: TimeInterval = 3
 
     /// Shared key — ίδιο με το DeviceActivity extension για κοινό cooldown (fix #1)
     private static let lastPickupKey = "picksy_last_pickup_timestamp"
