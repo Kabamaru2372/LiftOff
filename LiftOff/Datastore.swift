@@ -52,6 +52,12 @@ class DataStore {
     /// writes.
     var appleConfirmedScreenTimeSecs: Int {
         _ = screenTimeRefreshTick
+        // Date-guarded: the extension writes this "only-increasing" within a day.
+        // Without the guard, a value from a previous day persists when the app
+        // isn't opened across midnight, and bestScreenTimeSecs' max() would keep
+        // showing yesterday's (higher) total instead of today's real one.
+        let storedDate = defaults.string(forKey: "picksy_apple_screen_time_date")
+        guard storedDate == todayDateString() else { return 0 }
         return defaults.integer(forKey: "picksy_apple_screen_time_secs")
     }
 
@@ -281,6 +287,7 @@ class DataStore {
 
         // Reset Apple-confirmed screen time
         defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+        defaults.removeObject(forKey: "picksy_apple_screen_time_date")
 
         // Reset report-confirmed screen time (Apps-tab total mirror)
         defaults.set(0, forKey: "picksy_report_screen_time_secs")
@@ -428,6 +435,7 @@ class DataStore {
             defaults.removeObject(forKey: todayPickupsKey())
             // Reset Apple-confirmed screen time for the new day.
             defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+            defaults.removeObject(forKey: "picksy_apple_screen_time_date")
             // Reset report-confirmed total for the new day.
             defaults.set(0, forKey: "picksy_report_screen_time_secs")
             defaults.removeObject(forKey: "picksy_report_screen_time_date")

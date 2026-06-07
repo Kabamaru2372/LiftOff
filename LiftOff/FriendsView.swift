@@ -263,12 +263,11 @@ struct FriendsView: View {
     // MARK: - Active Duel Banner
 
     private func activeDuelBanner(_ duel: DuelRecord) -> some View {
-        // Use Picksy Score: pickups + (screen_time_minutes × 5). Lower = better.
-        // For "me" we use local store values (always up-to-date).
-        // For opponent we use Supabase values via poll().
-        // app-side Picksy Score — the SAME value synced to Supabase, so both
-        // players see the exact same number for each other (fair comparison).
-        let myScore    = PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
+        // Duel metric = SCREEN TIME (seconds). Lower = better (less phone use).
+        // For "me" we use the local store value (always up-to-date); for the
+        // opponent the Supabase-synced value via poll(). Screen time is reliable in
+        // the background, so the comparison stays accurate even when apps sleep.
+        let myScore    = store.bestScreenTimeSecs
         let theirScore = duel.theirScore
         let myColor: Color = myScore < theirScore
             ? Color(red: 0.4, green: 1.0, blue: 0.6)
@@ -295,9 +294,11 @@ struct FriendsView: View {
                     Text(t("You", "Εσύ", "Du"))
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.8))
-                    Text("\(myScore)")
-                        .font(.system(size: 44, weight: .semibold, design: .rounded))
+                    Text(formatDuelTime(myScore))
+                        .font(.system(size: 32, weight: .semibold, design: .rounded))
                         .foregroundColor(myColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                 }
                 .frame(maxWidth: .infinity)
 
@@ -305,21 +306,25 @@ struct FriendsView: View {
                     Text("VS")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundColor(.white.opacity(0.5))
-                    Text("Picksy Score")
+                    Text(t("Screen time", "Χρόνος οθόνης", "Bildschirmzeit"))
                         .font(.system(size: 10, design: .rounded))
                         .foregroundColor(.white.opacity(0.4))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
-                .frame(width: 44)
+                .frame(width: 56)
 
                 VStack(spacing: 2) {
                     Text(duel.theirName)
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.8))
                         .lineLimit(1)
-                    let theirDisplay = (theirScore == 0 && myScore > 0) ? "?" : "\(theirScore)"
+                    let theirDisplay = (theirScore == 0 && myScore > 0) ? "?" : formatDuelTime(theirScore)
                     Text(theirDisplay)
-                        .font(.system(size: 44, weight: .semibold, design: .rounded))
+                        .font(.system(size: 32, weight: .semibold, design: .rounded))
                         .foregroundColor(theirDisplay == "?" ? .white.opacity(0.4) : theirColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -341,7 +346,7 @@ struct FriendsView: View {
                 .padding(.vertical, 2)
             }
 
-            Text(t("Fewer pickups by midnight wins 🏆", "Λιγότερα σηκώματα μέχρι τα μεσάνυχτα νικά 🏆", "Weniger Griffe bis Mitternacht gewinnt 🏆"))
+            Text(t("Less screen time by midnight wins 🏆", "Λιγότερος χρόνος οθόνης μέχρι τα μεσάνυχτα νικά 🏆", "Weniger Bildschirmzeit bis Mitternacht gewinnt 🏆"))
                 .font(.system(size: 12, design: .rounded))
                 .foregroundColor(.white.opacity(0.5))
 
@@ -782,6 +787,15 @@ struct FriendsView: View {
         let m = (total % 3600) / 60
         let s = total % 60
         return String(format: "%02d:%02d:%02d", h, m, s)
+    }
+
+    /// Formats duel screen-time seconds as a compact duration, e.g. "1h 23m" / "45m".
+    private func formatDuelTime(_ seconds: Int) -> String {
+        let secs = max(0, seconds)
+        if secs < 60 { return "0m" }
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
     }
 
     // Static formatters — DateFormatter is expensive to construct; cache once.

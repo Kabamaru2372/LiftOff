@@ -335,43 +335,26 @@ struct NudgeView: View {
             // ── HERO: Pickup ring ─────────────────────────────────────
             pickupRingCard
 
-            // ── Screen Time + Picksy Score pill ──────────────────────
-            HStack(spacing: 0) {
-                // Screen time — the WHOLE-DEVICE total, rendered by the report
-                // extension (it can't pass the number back to the app, so the
-                // value is drawn here exactly like the Apps tab).
-                HStack(spacing: 5) {
-                    Image(systemName: "hourglass")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.55))
-                    DeviceActivityReport(.nudgeTotalTime, filter: todayFilter)
-                        .id(refreshTrigger.reportIdentity)
-                        .frame(width: 72, height: 20)
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-
-                // Divider
-                Rectangle()
-                    .fill(Color.white.opacity(0.2))
-                    .frame(width: 1, height: 22)
-
-                // Score — computed and rendered by the report extension from the
-                // same whole-device total (the app can't read that number back).
-                HStack(spacing: 5) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 10))
-                        .foregroundColor(.white.opacity(0.55))
-                    DeviceActivityReport(.nudgeScore, filter: todayFilter)
-                        .id(refreshTrigger.reportIdentity)
-                        .frame(width: 38, height: 20)
-                    Text(t("lower = better", "χαμηλότερο = καλύτερο", "niedriger = besser"))
-                        .font(.system(size: 10, design: .rounded))
-                        .foregroundColor(.white.opacity(0.45))
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+            // ── Screen Time pill ─────────────────────────────────────
+            // The ring above shows today's pickups (this device). Here we show the
+            // whole-device screen-time total — the metric the duel now uses —
+            // rendered by the report extension (it can't pass the number back to
+            // the app, so the value is drawn here exactly like the Apps tab).
+            HStack(spacing: 5) {
+                Image(systemName: "hourglass")
+                    .font(.system(size: 10))
+                    .foregroundColor(.white.opacity(0.55))
+                DeviceActivityReport(.nudgeTotalTime, filter: todayFilter)
+                    .id(refreshTrigger.reportIdentity)
+                    .frame(width: 72, height: 20)
+                Text(t("screen time today", "χρόνος οθόνης σήμερα", "Bildschirmzeit heute"))
+                    .font(.system(size: 10, design: .rounded))
+                    .foregroundColor(.white.opacity(0.45))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
             .background(
                 Capsule().fill(.ultraThinMaterial).opacity(0.5)
             )

@@ -347,9 +347,9 @@ struct OnboardingView: View {
                 .padding(.horizontal, 24)
 
                 Text(t(
-                    "Select the apps you want Picksy to track. We recommend choosing your most distracting ones — social media, video, messaging.\n\nYou can change this anytime in Settings.",
-                    "Επίλεξε τις εφαρμογές που θέλεις να παρακολουθεί το Picksy. Σου προτείνουμε να επιλέξεις τις πιο εθιστικές — social media, video, messaging.\n\nΜπορείς να το αλλάξεις οποτεδήποτε στις Ρυθμίσεις.",
-                    "Wähle die Apps aus, die Picksy verfolgen soll. Wir empfehlen, die ablenkendsten zu wählen — Social Media, Video, Messaging.\n\nDu kannst dies jederzeit in den Einstellungen ändern."
+                    "Select the apps you want Picksy to track. We recommend the whole Social & Entertainment categories — that's where most time goes.\n\nYou can change this anytime in Settings.",
+                    "Επίλεξε τις εφαρμογές που θέλεις να παρακολουθεί το Picksy. Σου προτείνουμε ολόκληρες τις κατηγορίες Social & Entertainment — εκεί πάει ο περισσότερος χρόνος.\n\nΜπορείς να το αλλάξεις οποτεδήποτε στις Ρυθμίσεις.",
+                    "Wähle die Apps aus, die Picksy verfolgen soll. Wir empfehlen die ganzen Kategorien Social & Entertainment — dort geht die meiste Zeit hin.\n\nDu kannst dies jederzeit in den Einstellungen ändern."
                 ))
                 .font(.system(size: 15, weight: .regular, design: .rounded))
                 .foregroundColor(.secondary)
@@ -357,6 +357,25 @@ struct OnboardingView: View {
                 .lineSpacing(5)
                 .padding(.horizontal, 32)
             }
+
+            // Duel-fairness tip: screen-time duels compare time on the SAME
+            // categories, so picking the same ones as friends keeps it fair.
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.yellow)
+                Text(t(
+                    "For fair duels, pick the same categories as your friends — duels compare your screen time on these apps.",
+                    "Για δίκαιες μονομαχίες, διάλεξε τις ίδιες κατηγορίες με τους φίλους σου — η μονομαχία συγκρίνει τον χρόνο οθόνης σε αυτές τις apps.",
+                    "Für faire Duelle wähle dieselben Kategorien wie deine Freunde — Duelle vergleichen deine Bildschirmzeit in diesen Apps."
+                ))
+                .font(.system(size: 13, weight: .regular, design: .rounded))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.yellow.opacity(0.08)))
+            .padding(.horizontal, 28)
 
             // Selected apps badge — χρησιμοποιεί το τοπικό state
             if hasSelectedApps {

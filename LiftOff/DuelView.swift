@@ -128,9 +128,9 @@ struct DuelView: View {
                     .multilineTextAlignment(.center)
 
                 Text(t(
-                    "Whoever picks up their phone less by midnight wins.",
-                    "Όποιος σηκώσει λιγότερο το κινητό μέχρι τα μεσάνυχτα κερδίζει.",
-                    "Wer bis Mitternacht sein Handy seltener greift, gewinnt."
+                    "Whoever has less screen time by midnight wins.",
+                    "Όποιος έχει λιγότερο χρόνο οθόνης μέχρι τα μεσάνυχτα κερδίζει.",
+                    "Wer bis Mitternacht weniger Bildschirmzeit hat, gewinnt."
                 ))
                 .font(.system(size: 14, design: .rounded))
                 .foregroundColor(.secondary)
@@ -156,12 +156,12 @@ struct DuelView: View {
     // MARK: - Active Duel
 
     private func activeDuelCard(_ duel: DuelRecord) -> some View {
-        // "You" = the app-side Picksy Score. This is the SAME value we sync to
-        // Supabase (challenger_screen_time), so the opponent sees the exact same
-        // number for you and the comparison is fair. The screen-time term comes
-        // from the fine-grained confirmed-time ladder, so it tracks the real
-        // total closely (≈ what Nudge/Stats show, within ~15 min).
-        let myCount = PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
+        // "You" = my SCREEN TIME (seconds). This is the SAME value we sync to
+        // Supabase (challenger/opponent_screen_time), so the opponent sees the exact
+        // same number for you and the comparison is fair. Screen time is the metric
+        // Apple reports reliably in the background, so the duel stays accurate even
+        // when the app is suspended.
+        let myCount = store.bestScreenTimeSecs
 
         // Compute remaining seconds using `tick` so the view re-renders every second
         let secsRemaining: TimeInterval = {
@@ -189,7 +189,7 @@ struct DuelView: View {
                 // so you and your friend always see the exact same number for you).
                 scoreColumn(
                     label: t("You", "Εσύ", "Du"),
-                    score: myCount,
+                    display: formatScreenTime(myCount),
                     numberColor: myCount < duel.theirScore
                         ? Color(red: 0.2, green: 0.8, blue: 0.4)
                         : myCount > duel.theirScore
@@ -210,7 +210,7 @@ struct DuelView: View {
                 // Opponent
                 scoreColumn(
                     label: firstName,
-                    score: duel.theirScore,
+                    display: formatScreenTime(duel.theirScore),
                     numberColor: duel.theirScore < myCount
                         ? Color(red: 0.2, green: 0.8, blue: 0.4)
                         : duel.theirScore > myCount
@@ -223,9 +223,9 @@ struct DuelView: View {
             .padding(.vertical, 8)
 
             Text(t(
-                "Lower Picksy Score = winner 🏆",
-                "Χαμηλότερο Picksy Score = νίκη 🏆",
-                "Niedrigerer Picksy Score = Sieg 🏆"
+                "Less screen time = winner 🏆",
+                "Λιγότερος χρόνος οθόνης = νίκη 🏆",
+                "Weniger Bildschirmzeit = Sieg 🏆"
             ))
             .font(.system(size: 13, design: .rounded))
             .foregroundColor(.secondary)
@@ -260,7 +260,7 @@ struct DuelView: View {
                 } else {
                     Text(t("\(firstName) won", "\(firstName) κέρδισε", "\(firstName) hat gewonnen"))
                         .font(.system(size: 24, weight: .semibold, design: .rounded))
-                    Text(t("They picked up less than you today. Try again tomorrow!", "Σήκωσαν λιγότερο από εσένα σήμερα. Προσπάθησε αύριο!", "Sie haben heute seltener gegriffen. Versuch's morgen nochmal!"))
+                    Text(t("They used their phone less than you today. Try again tomorrow!", "Χρησιμοποίησαν λιγότερο το κινητό τους από εσένα σήμερα. Προσπάθησε αύριο!", "Sie haben heute ihr Handy weniger genutzt als du. Versuch's morgen nochmal!"))
                         .font(.system(size: 14, design: .rounded))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
@@ -271,7 +271,7 @@ struct DuelView: View {
             HStack(spacing: 0) {
                 scoreColumn(
                     label: t("You", "Εσύ", "Du"),
-                    score: duel.myScore,
+                    display: formatScreenTime(duel.myScore),
                     numberColor: duel.iWon
                         ? Color(red: 0.2, green: 0.8, blue: 0.4)
                         : duel.iLost
@@ -283,7 +283,7 @@ struct DuelView: View {
                 Text("VS").font(.system(size: 13, weight: .semibold, design: .rounded)).foregroundColor(.secondary).frame(width: 40)
                 scoreColumn(
                     label: firstName,
-                    score: duel.theirScore,
+                    display: formatScreenTime(duel.theirScore),
                     numberColor: duel.iLost
                         ? Color(red: 0.2, green: 0.8, blue: 0.4)
                         : duel.iWon
@@ -310,7 +310,7 @@ struct DuelView: View {
 
     // MARK: - Helpers
 
-    private func scoreColumn(label: String, score: Int, numberColor: Color, isLeading: Bool, highlight: Bool) -> some View {
+    private func scoreColumn(label: String, display: String, numberColor: Color, isLeading: Bool, highlight: Bool) -> some View {
         VStack(spacing: 6) {
             Text(label)
                 .font(.system(size: 13, design: .rounded))
@@ -318,21 +318,32 @@ struct DuelView: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
 
-            Text("\(score)")
-                .font(.system(size: 44, weight: .medium, design: .rounded))
+            Text(display)
+                .font(.system(size: 34, weight: .medium, design: .rounded))
                 .foregroundColor(numberColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
 
-            Text("Picksy Score")
+            Text(t("Screen time", "Χρόνος οθόνης", "Bildschirmzeit"))
                 .font(.system(size: 11, design: .rounded))
                 .foregroundColor(.secondary)
 
-            if isLeading && score >= 0 {
+            if isLeading {
                 Image(systemName: "trophy.fill")
                     .font(.system(size: 12))
                     .foregroundColor(.yellow)
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// Formats screen-time seconds as a compact duration, e.g. "1h 23m" / "45m".
+    private func formatScreenTime(_ seconds: Int) -> String {
+        let secs = max(0, seconds)
+        if secs < 60 { return "0m" }
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
     }
 
     private var firstName: String {

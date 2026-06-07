@@ -62,9 +62,13 @@ struct DuelRecord: Codable, Identifiable, Equatable {
     var myScreenTime:    Int { amChallenger ? challengerScreenTime : opponentScreenTime }
     var theirScreenTime: Int { amChallenger ? opponentScreenTime   : challengerScreenTime }
 
-    // Picksy Score: lower = better. See PicksyScore (1× pickup, 5× minute, ÷20).
-    var myScore:    Int { PicksyScore.value(pickups: myPickups, screenTimeSeconds: myScreenTime) }
-    var theirScore: Int { PicksyScore.value(pickups: theirPickups, screenTimeSeconds: theirScreenTime) }
+    // Duel metric = SCREEN TIME (seconds), lower = better. This is the one metric
+    // Apple reports reliably in the background (via the confirmed-time ladder), so
+    // the duel stays accurate and fair even when the app is suspended — unlike
+    // pickups, which iOS can't count while the app is asleep. Displayed as a
+    // formatted duration (e.g. "1h 23m") in DuelView/FriendsView.
+    var myScore:    Int { myScreenTime }
+    var theirScore: Int { theirScreenTime }
 
     var myName:       String { amChallenger ? challengerName : opponentName }
     var theirName:    String { amChallenger ? opponentName   : challengerName }
@@ -203,7 +207,7 @@ class DuelManager {
         await sendPush(
             toDeviceID: opponent.deviceID,
             title: "⚔️ \(name) started a duel with you!",
-            body: "You're in — fewer pickups by midnight wins 🏆 Open Picksy to see the score."
+            body: "You're in — less screen time by midnight wins 🏆 Open Picksy to see the score."
         )
 
         // Silent push so the opponent's app wakes up immediately in the background
@@ -368,13 +372,13 @@ class DuelManager {
             return
         }
 
-        // Use Picksy Score (1× pickup, 5× minute, ÷20). Lower = better.
-        let challengerScore = PicksyScore.value(pickups: duel.challengerPickups, screenTimeSeconds: duel.challengerScreenTime)
-        let opponentScore   = PicksyScore.value(pickups: duel.opponentPickups,   screenTimeSeconds: duel.opponentScreenTime)
+        // Duel metric = SCREEN TIME (seconds). Lower = winner (less phone use).
+        let challengerSecs = duel.challengerScreenTime
+        let opponentSecs   = duel.opponentScreenTime
         let winner: String
-        if challengerScore < opponentScore {
+        if challengerSecs < opponentSecs {
             winner = duel.challengerId
-        } else if opponentScore < challengerScore {
+        } else if opponentSecs < challengerSecs {
             winner = duel.opponentId
         } else {
             winner = "tie"

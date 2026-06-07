@@ -390,6 +390,16 @@ struct LiftOffApp: App {
 
             let pickups = sharedDefaults.integer(forKey: "todayPickups")
 
+            // SAFEGUARD (c) for continuous-use alerts: if the device is currently
+            // LOCKED, the user is not in an active session, so cancel any pending
+            // continuous alerts that a since-suspended app couldn't cancel at lock
+            // time. This kills the "fires an hour after I stopped" false positive.
+            let deviceLocked = await MainActor.run { !UIApplication.shared.isProtectedDataAvailable }
+            if deviceLocked {
+                ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
+                print("[BGRefresh] 🔒 Device locked — cancelled pending continuous-use alerts")
+            }
+
             // Widgets
             WidgetCenter.shared.reloadAllTimelines()
 
@@ -427,22 +437,17 @@ struct LiftOffApp: App {
         let g      = UserDefaults.standard.integer(forKey: "dailyGoal")
         let goal   = g > 0 ? g : 50
 
-        // Midday (12:00) — only reschedule if not yet fired today
+        // Midday (12:00) — "keep Picksy open for accurate counts" reminder.
+        // Replaces the old pickup-progress message: because iOS suspends the app
+        // shortly after it leaves the foreground, pickups are counted most
+        // accurately while Picksy is open. This nudges the user to pop it open.
         if hour < 12 {
             center.removePendingNotificationRequests(withIdentifiers: ["liftoff.midday"])
             let content = UNMutableNotificationContent()
             content.sound = .default
-            switch lang {
-            case "Ελληνικά":
-                content.title = "Πώς πας μέχρι τώρα;"
-                content.body  = middayMessageGR(pickupCount: pickupCount)
-            case "Deutsch":
-                content.title = "Wie läuft es bisher?"
-                content.body  = middayMessageDE(pickupCount: pickupCount)
-            default:
-                content.title = "How's it going so far?"
-                content.body  = middayMessageEN(pickupCount: pickupCount)
-            }
+            let (mtitle, mbody) = middayReminderMessage(language: lang)
+            content.title = mtitle
+            content.body  = mbody
             var dc = DateComponents(); dc.hour = 12; dc.minute = 0
             center.add(UNNotificationRequest(
                 identifier: "liftoff.midday", content: content,
@@ -487,31 +492,20 @@ struct LiftOffApp: App {
 
     // MARK: - Static message helpers (used by rescheduleTimeBasedNotifications)
 
-    private static func middayMessageEN(pickupCount: Int) -> String {
-        switch pickupCount {
-        case 0...5:  return "Excellent morning! You're barely touching your phone. Keep it up! 💪"
-        case 6...10: return "Good start! You're doing well. Stay focused this afternoon."
-        case 11...20: return "You've picked up your phone \(pickupCount) times. The afternoon is yours to improve."
-        case 21...30: return "\(pickupCount) pickups already. Take a breath. You've got this afternoon to turn it around."
-        default:     return "\(pickupCount) pickups before noon. The afternoon is a fresh start. You can do better."
-        }
-    }
-    private static func middayMessageGR(pickupCount: Int) -> String {
-        switch pickupCount {
-        case 0...5:  return "Εξαιρετικό πρωινό! Μόλις αγγίζεις το κινητό. Συνέχισε έτσι! 💪"
-        case 6...10: return "Καλή αρχή! Τα πας καλά. Μείνε συγκεντρωμένος το απόγευμα."
-        case 11...20: return "Έχεις πιάσει το κινητό \(pickupCount) φορές. Το απόγευμα είναι δικό σου για βελτίωση."
-        case 21...30: return "\(pickupCount) φορές ήδη. Πάρε μια ανάσα. Έχεις το απόγευμα να το αλλάξεις."
-        default:     return "\(pickupCount) φορές πριν το μεσημέρι. Το απόγευμα ξεκινάει από μηδέν."
-        }
-    }
-    private static func middayMessageDE(pickupCount: Int) -> String {
-        switch pickupCount {
-        case 0...5:  return "Ausgezeichneter Morgen! Du greifst kaum zum Handy. Weiter so! 💪"
-        case 6...10: return "Guter Start! Du machst das gut. Bleib heute Nachmittag fokussiert."
-        case 11...20: return "Du hast dein Handy \(pickupCount) Mal aufgehoben. Der Nachmittag gehört dir."
-        case 21...30: return "\(pickupCount) Griffe bereits. Tief durchatmen. Du kannst es am Nachmittag noch drehen."
-        default:     return "\(pickupCount) Griffe vor dem Mittag. Der Nachmittag ist ein Neustart."
+    /// Midday reminder: keeping Picksy open makes pickup counting more accurate
+    /// (iOS suspends the app shortly after it's backgrounded, so live counting only
+    /// happens while it's open). Returns localized (title, body).
+    private static func middayReminderMessage(language: String) -> (String, String) {
+        switch language {
+        case "Ελληνικά":
+            return ("Κράτα το Picksy ανοιχτό 📱",
+                    "Όσο πιο συχνά κρατάς το Picksy ανοιχτό, τόσο πιο ακριβή και αξιόπιστα μετριούνται τα σηκώματά σου. Ρίξε του μια ματιά!")
+        case "Deutsch":
+            return ("Halte Picksy offen 📱",
+                    "Je öfter du Picksy geöffnet hast, desto genauer und zuverlässiger werden deine Griffe gezählt. Schau kurz rein!")
+        default:
+            return ("Keep Picksy open 📱",
+                    "The more you keep Picksy open, the more accurately and reliably your pickups are counted. Pop it open for a sec!")
         }
     }
     private static func eveningMessageStatic(pickupCount: Int, dailyGoal: Int, language: String) -> (String, String) {
@@ -749,20 +743,31 @@ struct LiftOffApp: App {
                 UIApplication.shared.endBackgroundTask(bgTaskID)
             }
         }
-        // Continuous-use session START (every unlock).
-        // NOTE: We do NOT schedule time-based notifications here. iOS suspends the
-        // app after ~30s in background, making cancelContinuousSession() unreliable
-        // on lock — the cancel never fires and the notification shows hours later as
-        // a false positive. Screen-time notifications now come exclusively from the
-        // DeviceActivityMonitor extension which uses Apple's confirmed usage data.
+        // Continuous-use session START (fires on every real unlock while the app is
+        // alive). We schedule one local notification per threshold (+1h/+2h/+3h of
+        // CONTINUOUS use, counting from this unlock). This is a true continuous-
+        // session model — NOT the cumulative daily total the DeviceActivityMonitor
+        // used to fire (that path is now notification-free, recording confirmed time
+        // only). scheduleContinuousSession() first cancels any stale alerts from a
+        // previous session, so a broken session never fires.
+        //
+        // SAFEGUARDS against the suspended-at-lock false positive:
+        //   (a) cancel on lock          — onScreenSessionEnded below
+        //   (b) cancel + reschedule     — here, on the next unlock
+        //   (c) cancel on BG-refresh    — handleBackgroundRefresh, when device locked
         ScreenUnlockDetector.shared.onScreenSessionStarted = {
-            // Cancel any stale continuous notifications left over from a previous
-            // session that the app couldn't cancel (e.g. it was suspended at lock time).
-            ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
+            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+            ScreenTimeMilestoneNotifier.shared.scheduleContinuousSession(
+                weather: weatherManager.activeCondition,
+                language: lang
+            )
         }
 
         ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in
             store.addUsageTime(seconds: seconds)
+            // SAFEGUARD (a): the continuous session ended (screen locked) → cancel any
+            // pending continuous-use alerts so they don't fire after the user stopped.
+            ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
             // Apple Watch: screen time changed → refresh the score on the wrist.
             syncWatch()
             print("[ScreenTime] ⏱ Session ended: \(seconds)s, total today: \(store.todayTotalSeconds)s, last2h: \(store.screenTimeLastTwoHours)s")

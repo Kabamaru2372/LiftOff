@@ -50,6 +50,25 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             sharedDefaults?.removeObject(forKey: "picksy_active_duel_meta")
             sharedDefaults?.set(0.0, forKey: "picksy_duel_meta_last_fetch")
             log("⚔️ Duel meta cache cleared for new day")
+
+            // Reset the confirmed screen-time accumulator for the new day. This is
+            // "only-increasing" within a day, so it MUST be zeroed at midnight —
+            // otherwise yesterday's (higher) total persists when the app isn't
+            // opened across midnight, and today's lower real total gets ignored by
+            // the max(), making the duel/score show a stale, inflated value.
+            // Previously only the main app reset this (checkNewDay), which fails if
+            // the app stays closed across the day boundary.
+            sharedDefaults?.set(0, forKey: "picksy_apple_screen_time_secs")
+            sharedDefaults?.set(0, forKey: "picksy_report_screen_time_secs")
+            sharedDefaults?.removeObject(forKey: "picksy_report_screen_time_date")
+            log("📊 Screen-time accumulator reset for new day")
+
+            // Tell the main app (if alive) to re-read the now-zeroed values.
+            CFNotificationCenterPostNotification(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
+                nil, nil, true
+            )
         }
     }
 
@@ -77,23 +96,15 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         log("🎯 Event threshold reached: \(event.rawValue)")
 
         // Cumulative usage thresholds (picksy.threshold.levelN) are NO LONGER used
-        // for notifications. Screen-time alerts moved to a CONTINUOUS-use model.
-        // BUT: we still record the confirmed Apple screen time so the Nudge screen
-        // can show an accurate value even when the main app was suspended.
+        // for notifications — screen-time alerts moved to a true CONTINUOUS-use model
+        // (scheduled in-app on unlock, cancelled on lock; see ScreenTimeMilestoneNotifier
+        // + LiftOffApp). This cumulative daily threshold would fire when the *total*
+        // day's usage crossed 1h/2h/3h, which is NOT what the user wants.
+        // BUT: we still record the confirmed Apple screen time so the Nudge/Stats
+        // screen can show an accurate value even when the main app was suspended.
         if event.rawValue.hasPrefix("picksy.threshold.level") {
             recordAppleConfirmedScreenTime(for: event.rawValue)
-            log("ℹ️ Usage threshold \(event.rawValue) fired — recording confirmed time + firing notification")
-            // Fire the user notification using Apple's confirmed usage data.
-            // This is the accurate path: Apple's process triggers the event, so
-            // the threshold was ACTUALLY reached — no false positives possible.
-            let level: Int
-            switch event.rawValue {
-            case "picksy.threshold.level1": level = 1
-            case "picksy.threshold.level2": level = 2
-            case "picksy.threshold.level3": level = 3
-            default: return
-            }
-            fireScreenTimeMilestone(level: level)
+            log("ℹ️ Usage threshold \(event.rawValue) — recorded confirmed time only (no notification; continuous-use model)")
             return
         }
 
@@ -518,15 +529,32 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     }
 
     /// Writes an Apple-confirmed screen-time lower bound to the App Group,
-    /// only ever increasing it within the day, and pokes the main app to refresh.
-    /// Used by both the notification thresholds and the hourly score ladder.
+    /// only ever increasing it WITHIN THE SAME DAY, and pokes the main app to
+    /// refresh. Used by both the notification thresholds and the hourly score ladder.
+    ///
+    /// Date-stamped: the value is "only-increasing", so without a day guard a
+    /// yesterday total persists when the app isn't opened across midnight, and
+    /// today's lower real total gets ignored by the max() — making the duel/score
+    /// show a stale, inflated value (e.g. 9h45 from yesterday vs 7h57 real today).
+    /// On the first write of a new day we treat the baseline as 0 and re-stamp.
     private func recordConfirmedSeconds(_ secs: Int, source: String) {
         guard secs > 0, let defaults = sharedDefaults else { return }
-        let current = defaults.integer(forKey: "picksy_apple_screen_time_secs")
+
+        let today = milestoneTodayKey()   // "yyyy-MM-dd"
+        let storedDate = defaults.string(forKey: "picksy_apple_screen_time_date")
+        // New day → baseline is 0 (ignore yesterday's stored value).
+        let current = (storedDate == today) ? defaults.integer(forKey: "picksy_apple_screen_time_secs") : 0
         guard secs > current else { return }
 
         defaults.set(secs, forKey: "picksy_apple_screen_time_secs")
+        defaults.set(today, forKey: "picksy_apple_screen_time_date")
         log("📊 Apple screen time confirmed: ≥\(secs / 60)min (\(source))")
+
+        // ── Duel screen-time sync (background — no app open needed) ────────────
+        // Screen time is the duel metric. Pushing it here, from Apple's background
+        // process, keeps the opponent's view of our screen time accurate even when
+        // the main app is suspended — the whole reason the duel uses screen time.
+        syncScreenTimeToDuel(secs: secs)
 
         // Tell the main app to re-read so the Nudge/Stats score refreshes live.
         CFNotificationCenterPostNotification(
@@ -534,6 +562,51 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
             nil, nil, true
         )
+    }
+
+    /// Patches our SCREEN TIME (seconds) to every active duel in Supabase so the
+    /// opponent sees live, accurate screen time even when this device never opens
+    /// the main app. Uses the cached duel meta written by the pickup path /
+    /// LiftOffApp; if no meta is cached yet, skips (the pickup path populates it).
+    private func syncScreenTimeToDuel(secs: Int) {
+        guard secs > 0, let defaults = sharedDefaults else { return }
+        let deviceID = defaults.string(forKey: "picksy_device_id") ?? ""
+        guard !deviceID.isEmpty else { return }
+
+        guard let metaData = defaults.data(forKey: "picksy_active_duel_meta"),
+              let meta = try? JSONSerialization.jsonObject(with: metaData) as? [[String: String]],
+              !meta.isEmpty else {
+            log("⏭️ Screen-time duel sync skipped (no cached duel meta yet)")
+            return
+        }
+
+        for duelInfo in meta {
+            guard let duelID = duelInfo["id"] else { continue }
+            let amChallenger = duelInfo["challenger"] == "1"
+            let field = amChallenger ? "challenger_screen_time" : "opponent_screen_time"
+            patchDuelField(id: duelID, field: field, value: secs)
+        }
+    }
+
+    /// Generic single-field PATCH on a duel row (used for screen-time sync).
+    private func patchDuelField(id: String, field: String, value: Int) {
+        guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(id)") else { return }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "PATCH"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(Self.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(Self.supabaseAnonKey)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 10
+        req.httpBody = try? JSONSerialization.data(withJSONObject: [field: value])
+
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
+            if let http = response as? HTTPURLResponse {
+                self?.log("⚔️ Duel screen-time PATCH → HTTP \(http.statusCode) (\(field): \(value)s)")
+            } else if let error = error {
+                self?.log("⚠️ Duel screen-time PATCH failed: \(error.localizedDescription)")
+            }
+        }.resume()
     }
 
     /// Logging με prefix για ευκολία debugging
