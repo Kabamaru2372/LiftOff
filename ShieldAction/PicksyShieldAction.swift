@@ -79,9 +79,24 @@ class ShieldActionHandler: ShieldActionDelegate {
     /// Picksy for earlier apps to re-lock. (iOS can't wake us exactly on screen
     /// lock, so this + the foreground/background re-shield is the best coverage.)
     private func liftShield(for token: ApplicationToken) {
-        var shielded = selectedAppTokens()
-        shielded.remove(token)
-        store.shield.applications = shielded.isEmpty ? nil : shielded
+        // Accurate-mode store: rebuild full set minus this app (re-shields others)
+        // only if Accurate Mode is on; otherwise make sure it isn't shielding it.
+        let accurateOn = UserDefaults(suiteName: appGroupID)?.bool(forKey: "picksy_accurate_mode") ?? false
+        if accurateOn {
+            var shielded = selectedAppTokens()
+            shielded.remove(token)
+            store.shield.applications = shielded.isEmpty ? nil : shielded
+        } else if var s = store.shield.applications {
+            s.remove(token)
+            store.shield.applications = s.isEmpty ? nil : s
+        }
+
+        // Time-limit store: free this app so it opens (re-applied at next limit/midnight).
+        let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+        if var s = tlStore.shield.applications {
+            s.remove(token)
+            tlStore.shield.applications = s.isEmpty ? nil : s
+        }
     }
 
     /// The user's selected app tokens, decoded from the App Group (written by

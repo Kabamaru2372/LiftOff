@@ -46,8 +46,15 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         let pickups  = defaults?.integer(forKey: "todayPickups") ?? 0
         let language = defaults?.string(forKey: "picksy.appLanguage") ?? "English"
 
-        let (title, subtitle) = message(language: language, pickups: pickups, appName: appName)
-        let (openText, cancelText) = buttonLabels(language: language)
+        // If today's time limit has been reached, show the "time's up" variant.
+        let timeLimitActive = defaults?.string(forKey: "picksy_timelimit_active") == todayKey()
+
+        let (title, subtitle) = timeLimitActive
+            ? timeLimitMessage(language: language, appName: appName)
+            : message(language: language, pickups: pickups, appName: appName)
+        let (openText, cancelText) = timeLimitActive
+            ? timeLimitButtonLabels(language: language)
+            : buttonLabels(language: language)
 
         let indigo = UIColor(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
 
@@ -107,6 +114,37 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         case "Deutsch":  return ("Öffnen", "Abbrechen")
         default:         return ("Open", "Not now")
         }
+    }
+
+    // MARK: - Time-limit variant
+
+    private func timeLimitMessage(language: String, appName: String?) -> (String, String) {
+        let app = appName
+        switch language {
+        case "Ελληνικά":
+            let where_ = app.map { "στο \($0)" } ?? "εδώ"
+            return ("Έφτασες το όριο χρόνου ⏳", "Πέρασες αρκετή ώρα \(where_) σήμερα. Ώρα για διάλειμμα;")
+        case "Deutsch":
+            let where_ = app.map { "in \($0)" } ?? "hier"
+            return ("Zeitlimit erreicht ⏳", "Du hast heute viel Zeit \(where_) verbracht. Zeit für eine Pause?")
+        default:
+            let where_ = app.map { "on \($0)" } ?? "here"
+            return ("Time limit reached ⏳", "You've spent a while \(where_) today. Time for a break?")
+        }
+    }
+
+    private func timeLimitButtonLabels(language: String) -> (String, String) {
+        switch language {
+        case "Ελληνικά": return ("Συνέχισε", "Κλείσε")
+        case "Deutsch":  return ("Weiter", "Schließen")
+        default:         return ("Continue", "Close")
+        }
+    }
+
+    private func todayKey() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
     }
 
     private func ordinal(_ n: Int) -> String {

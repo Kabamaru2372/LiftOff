@@ -377,6 +377,24 @@ struct OnboardingView: View {
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.yellow.opacity(0.08)))
             .padding(.horizontal, 28)
 
+            // Accuracy disclaimer + Accurate Mode hint.
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 14))
+                    .foregroundColor(.indigo)
+                Text(t(
+                    "Pick the apps that eat your time, or pickups won't be reliable. For exact counts, turn on \"Exact pickup counting\" in Settings later.",
+                    "Διάλεξε τις apps που σου τρώνε χρόνο, αλλιώς τα σηκώματα δεν θα είναι αξιόπιστα. Για ακριβή μέτρηση, ενεργοποίησε αργότερα το «Ακριβής μέτρηση σηκωμάτων» στις Ρυθμίσεις.",
+                    "Wähle die Apps, die deine Zeit fressen, sonst sind die Griffe nicht zuverlässig. Für exakte Zählung aktiviere später \"Exakte Griff-Zählung\" in den Einstellungen."
+                ))
+                .font(.system(size: 13, weight: .regular, design: .rounded))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.indigo.opacity(0.08)))
+            .padding(.horizontal, 28)
+
             // Selected apps badge — χρησιμοποιεί το τοπικό state
             if hasSelectedApps {
                 HStack(spacing: 8) {

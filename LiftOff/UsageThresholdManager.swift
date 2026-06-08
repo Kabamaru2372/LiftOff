@@ -204,6 +204,18 @@ class UsageThresholdManager {
             )
         }
 
+        // Optional daily time-limit event: fires once when cumulative usage of the
+        // tracked apps crosses the user's chosen limit. The monitor then applies a
+        // "time's up" shield. 0 = off.
+        let limitMinutes = UserDefaults.standard.integer(forKey: "picksy_timelimit_minutes")
+        if limitMinutes > 0 {
+            events[DeviceActivityEvent.Name("picksy.timelimit")] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                threshold: DateComponents(minute: limitMinutes)
+            )
+        }
+
         center.stopMonitoring([Self.activityName])
 
         do {

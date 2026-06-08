@@ -28,6 +28,10 @@ final class ShieldManager {
     /// Dedicated store so our shields never clash with other ManagedSettings use.
     private let store = ManagedSettingsStore(named: .init("picksy.accurateMode"))
 
+    /// Separate store for the daily time-limit shield (applied by the monitor when
+    /// the limit is reached, cleared at midnight or when the user turns it off).
+    private let timeLimitStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+
     private let appGroup = UserDefaults(suiteName: "group.fotiospongas.picksy")
 
     var isAccurateModeOn: Bool {
@@ -65,5 +69,13 @@ final class ShieldManager {
     private func clearShields() {
         store.shield.applications = nil
         store.shield.applicationCategories = nil
+    }
+
+    /// Clears the daily time-limit shield + its "reached" flag. Called when the
+    /// user turns the limit off (the monitor clears it at midnight otherwise).
+    func clearTimeLimitShield() {
+        timeLimitStore.shield.applications = nil
+        timeLimitStore.shield.applicationCategories = nil
+        appGroup?.removeObject(forKey: "picksy_timelimit_active")
     }
 }

@@ -12,6 +12,8 @@ import DeviceActivity
 import Foundation
 import WidgetKit
 import UserNotifications
+import ManagedSettings
+import FamilyControls
 
 class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
@@ -63,6 +65,10 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             sharedDefaults?.removeObject(forKey: "picksy_report_screen_time_date")
             log("📊 Screen-time accumulator reset for new day")
 
+            // New day → lift yesterday's time-limit shield + clear its flag.
+            ManagedSettingsStore(named: .init("picksy.timeLimit")).shield.applications = nil
+            sharedDefaults?.removeObject(forKey: "picksy_timelimit_active")
+
             // Tell the main app (if alive) to re-read the now-zeroed values.
             CFNotificationCenterPostNotification(
                 CFNotificationCenterGetDarwinNotifyCenter(),
@@ -94,6 +100,14 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     override func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
         super.eventDidReachThreshold(event, activity: activity)
         log("🎯 Event threshold reached: \(event.rawValue)")
+
+        // Daily time-limit reached → apply the "time's up" shield to the tracked
+        // apps and flag it, so the ShieldConfiguration extension shows the limit
+        // message. Cleared at midnight (intervalDidStart "daily").
+        if event.rawValue == "picksy.timelimit" {
+            applyTimeLimitShield()
+            return
+        }
 
         // Cumulative usage thresholds (picksy.threshold.levelN) are NO LONGER used
         // for notifications — screen-time alerts moved to a true CONTINUOUS-use model
@@ -607,6 +621,26 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 self?.log("⚠️ Duel screen-time PATCH failed: \(error.localizedDescription)")
             }
         }.resume()
+    }
+
+    /// Applies the daily time-limit shield to the tracked apps and flags it (date-
+    /// stamped) so the ShieldConfiguration extension shows the "time's up" message.
+    /// Reads the selection from the App Group (written by AppSelectionStore).
+    private func applyTimeLimitShield() {
+        guard let defaults = sharedDefaults,
+              let data = defaults.data(forKey: "picksyAppSelection"),
+              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+        else {
+            log("⚠️ Time limit reached but no selection to shield")
+            return
+        }
+        let apps = selection.applicationTokens
+        guard !apps.isEmpty else { return }
+
+        let store = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+        store.shield.applications = apps
+        defaults.set(milestoneTodayKey(), forKey: "picksy_timelimit_active")
+        log("⏳ Daily time limit reached — shielded \(apps.count) app(s)")
     }
 
     /// Logging με prefix για ευκολία debugging

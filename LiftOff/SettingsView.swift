@@ -49,6 +49,9 @@ struct SettingsView: View {
     // Accurate Mode (shield-based exact pickup counting)
     @State private var accurateMode: Bool = ShieldManager.shared.isAccurateModeOn
 
+    // Daily time limit per tracked app (minutes; 0 = off)
+    @AppStorage("picksy_timelimit_minutes") private var timeLimitMinutes: Int = 0
+
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
         case "Ελληνικά": return gr
@@ -291,6 +294,8 @@ struct SettingsView: View {
                 Divider()
                 accurateModeRow
                 Divider()
+                timeLimitRow
+                Divider()
                 resetSection
 
                 #if DEBUG
@@ -357,6 +362,14 @@ struct SettingsView: View {
             UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(newValue, forKey: "dailyGoal")
             WidgetCenter.shared.reloadAllTimelines()
         }
+        .onChange(of: timeLimitMinutes) { _, newValue in
+            // Mirror to App Group so the monitor extension reads the new limit,
+            // then restart monitoring to (re)register the time-limit event.
+            UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(newValue, forKey: "picksy_timelimit_minutes")
+            UsageThresholdManager.shared.restartMonitoring()
+            // Turned off → remove any active time-limit shield immediately.
+            if newValue == 0 { ShieldManager.shared.clearTimeLimitShield() }
+        }
     }
 
     // MARK: - Achievements Row
@@ -414,6 +427,53 @@ struct SettingsView: View {
                     }
                 ))
                 .labelsHidden()
+            }
+        }
+        .padding(.vertical, 16)
+    }
+
+    // MARK: - Daily time limit per app
+
+    private func timeLimitLabel(_ minutes: Int) -> String {
+        switch minutes {
+        case 0:   return t("Off", "Ανενεργό", "Aus")
+        case 60:  return t("1 hour", "1 ώρα", "1 Std.")
+        case 90:  return t("1.5 hours", "1.5 ώρες", "1,5 Std.")
+        case 120: return t("2 hours", "2 ώρες", "2 Std.")
+        default:  return t("\(minutes) min", "\(minutes) λεπτά", "\(minutes) Min.")
+        }
+    }
+
+    private var timeLimitRow: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(t("Daily time limit", "Ημερήσιο όριο χρόνου", "Tägliches Zeitlimit"))
+                        .font(.system(size: 15, weight: .regular, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text("⏳").font(.system(size: 13))
+                }
+                Text(t(
+                    "After this much time in your tracked apps today, a reminder screen appears when you open them.",
+                    "Μόλις περάσεις τόση ώρα στις tracked apps σήμερα, εμφανίζεται οθόνη υπενθύμισης όταν τις ανοίγεις.",
+                    "Nach so viel Zeit in deinen verfolgten Apps erscheint heute ein Hinweis beim Öffnen."
+                ))
+                .font(.system(size: 12, design: .rounded))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Menu {
+                ForEach([0, 30, 60, 90, 120], id: \.self) { mins in
+                    Button(timeLimitLabel(mins)) { timeLimitMinutes = mins }
+                }
+            } label: {
+                Text(timeLimitLabel(timeLimitMinutes))
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.indigo)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.indigo.opacity(0.12)))
             }
         }
         .padding(.vertical, 16)
