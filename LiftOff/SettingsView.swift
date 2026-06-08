@@ -52,6 +52,10 @@ struct SettingsView: View {
     // Daily time limit per tracked app (minutes; 0 = off)
     @AppStorage("picksy_timelimit_minutes") private var timeLimitMinutes: Int = 0
 
+    // Optional passcode that gates the time limit (parental use)
+    @State private var passcodeRequired: Bool = PasscodeManager.shared.isRequired
+    @State private var showPasscodeSetup: Bool = false
+
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
         case "Ελληνικά": return gr
@@ -295,6 +299,10 @@ struct SettingsView: View {
                 accurateModeRow
                 Divider()
                 timeLimitRow
+                if timeLimitMinutes > 0 {
+                    Divider()
+                    passcodeRow
+                }
                 Divider()
                 resetSection
 
@@ -464,7 +472,7 @@ struct SettingsView: View {
             }
             Spacer()
             Menu {
-                ForEach([0, 30, 60, 90, 120], id: \.self) { mins in
+                ForEach([0, 15, 30, 60, 90, 120], id: \.self) { mins in
                     Button(timeLimitLabel(mins)) { timeLimitMinutes = mins }
                 }
             } label: {
@@ -477,6 +485,55 @@ struct SettingsView: View {
             }
         }
         .padding(.vertical, 16)
+    }
+
+    private var passcodeRow: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(t("Passcode to continue", "Κωδικός για συνέχεια", "Code zum Fortfahren"))
+                        .font(.system(size: 15, weight: .regular, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text("🔒").font(.system(size: 13))
+                }
+                Text(t(
+                    "After the limit, apps lock and only your passcode grants another session — great for giving a child the phone for a set time.",
+                    "Μετά το όριο, οι apps κλειδώνουν και μόνο ο κωδικός σου δίνει νέα session — ιδανικό για να δώσεις στο παιδί το κινητό για συγκεκριμένο χρόνο.",
+                    "Nach dem Limit sperren Apps und nur dein Code gewährt eine neue Sitzung — ideal, um dem Kind das Handy für eine bestimmte Zeit zu geben."
+                ))
+                .font(.system(size: 12, design: .rounded))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { passcodeRequired },
+                set: { newValue in
+                    if newValue {
+                        showPasscodeSetup = true   // confirm by setting a code
+                    } else {
+                        PasscodeManager.shared.disable()
+                        passcodeRequired = false
+                    }
+                }
+            ))
+            .labelsHidden()
+        }
+        .padding(.vertical, 16)
+        .sheet(isPresented: $showPasscodeSetup, onDismiss: {
+            // If the user dismissed without finishing setup, keep it off.
+            passcodeRequired = PasscodeManager.shared.isRequired
+        }) {
+            PasscodeView(
+                mode: .setup,
+                onSet: { code in
+                    PasscodeManager.shared.setPasscode(code)
+                    passcodeRequired = true
+                    showPasscodeSetup = false
+                },
+                onCancel: { showPasscodeSetup = false }
+            )
+        }
     }
 
     // MARK: - Threshold Section (v1.7)

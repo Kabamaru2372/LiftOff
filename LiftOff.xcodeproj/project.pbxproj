@@ -178,6 +178,8 @@
 				LiveActivityManager.swift,
 				NudgeView.swift,
 				OnboardingView.swift,
+				PasscodeManager.swift,
+				PasscodeView.swift,
 				PickupScheduler.swift,
 				Pushnotificationmanager.swift,
 				SettingsView.swift,

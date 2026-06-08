@@ -49,14 +49,32 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         // If today's time limit has been reached, show the "time's up" variant.
         let timeLimitActive = defaults?.string(forKey: "picksy_timelimit_active") == todayKey()
 
+        // Passcode-locked: time limit reached AND a passcode is required → no
+        // bypass button; the user must open Picksy and enter the code.
+        let passwordRequired = defaults?.bool(forKey: "picksy_timelimit_password_required") ?? false
+        let locked = timeLimitActive && passwordRequired
+
+        let indigo = UIColor(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
+
+        if locked {
+            let (title, subtitle) = lockedMessage(language: language)
+            return ShieldConfiguration(
+                backgroundBlurStyle: .systemUltraThinMaterialDark,
+                backgroundColor: UIColor.black.withAlphaComponent(0.6),
+                icon: UIImage(systemName: "lock.fill"),
+                title: ShieldConfiguration.Label(text: title, color: .white),
+                subtitle: ShieldConfiguration.Label(text: subtitle, color: UIColor.white.withAlphaComponent(0.8)),
+                primaryButtonLabel: ShieldConfiguration.Label(text: lockedButtonLabel(language: language), color: .white),
+                primaryButtonBackgroundColor: indigo
+            )
+        }
+
         let (title, subtitle) = timeLimitActive
             ? timeLimitMessage(language: language, appName: appName)
             : message(language: language, pickups: pickups, appName: appName)
         let (openText, cancelText) = timeLimitActive
             ? timeLimitButtonLabels(language: language)
             : buttonLabels(language: language)
-
-        let indigo = UIColor(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
 
         return ShieldConfiguration(
             backgroundBlurStyle: .systemUltraThinMaterialDark,
@@ -68,6 +86,21 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
             primaryButtonBackgroundColor: indigo,
             secondaryButtonLabel: ShieldConfiguration.Label(text: cancelText, color: UIColor.white.withAlphaComponent(0.9))
         )
+    }
+
+    private func lockedMessage(language: String) -> (String, String) {
+        switch language {
+        case "Ελληνικά":
+            return ("Κλειδωμένο 🔒", "Έφτασες το όριο χρόνου. Άνοιξε το Picksy και βάλε τον κωδικό για να συνεχίσεις.")
+        case "Deutsch":
+            return ("Gesperrt 🔒", "Zeitlimit erreicht. Öffne Picksy und gib den Code ein, um fortzufahren.")
+        default:
+            return ("Locked 🔒", "Time limit reached. Open Picksy and enter the passcode to continue.")
+        }
+    }
+
+    private func lockedButtonLabel(language: String) -> String {
+        switch language { case "Ελληνικά": return "Εντάξει"; case "Deutsch": return "OK"; default: return "OK" }
     }
 
     // MARK: - Messages (rotating + context-aware)

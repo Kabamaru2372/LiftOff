@@ -31,6 +31,12 @@ class ShieldActionHandler: ShieldActionDelegate {
                          completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
+            // Passcode-locked (time limit + passcode required) → NO bypass. The
+            // user must open Picksy and enter the code to get another session.
+            if isPasscodeLocked() {
+                completionHandler(.close)
+                return
+            }
             // Count the pickup, then LIFT the shield for THIS app so it actually
             // opens (.none alone does not launch a still-shielded app). The shield
             // is re-applied next time Picksy comes to the foreground.
@@ -42,6 +48,16 @@ class ShieldActionHandler: ShieldActionDelegate {
         @unknown default:
             completionHandler(.close)
         }
+    }
+
+    /// True when today's time limit is reached AND a passcode is required — the
+    /// shield can then only be cleared from inside Picksy (passcode entry).
+    private func isPasscodeLocked() -> Bool {
+        guard let d = UserDefaults(suiteName: appGroupID) else { return false }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let limitActiveToday = d.string(forKey: "picksy_timelimit_active") == f.string(from: Date())
+        let passwordRequired = d.bool(forKey: "picksy_timelimit_password_required")
+        return limitActiveToday && passwordRequired
     }
 
     // MARK: - Category

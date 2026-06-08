@@ -25,6 +25,10 @@ struct ContentView: View {
     @State private var zoneInsightData: ZoneInsightData? = nil
     @State private var usageInsightData: UsageInsightData? = nil
 
+    // Time-limit passcode gate (parental): shown when the limit is reached today
+    // and a passcode is required.
+    @State private var showPasscodeUnlock: Bool = false
+
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -40,6 +44,16 @@ struct ContentView: View {
         case "Deutsch": return ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
         default: return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         }
+    }
+
+    /// Shows the passcode unlock screen if today's time limit is reached AND a
+    /// passcode is required (parental gate).
+    private func checkTimeLimitPasscodeGate() {
+        guard PasscodeManager.shared.isRequired, !showPasscodeUnlock else { return }
+        let d = UserDefaults(suiteName: "group.fotiospongas.picksy")
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let activeToday = d?.string(forKey: "picksy_timelimit_active") == f.string(from: Date())
+        if activeToday { showPasscodeUnlock = true }
     }
 
     var body: some View {
@@ -134,9 +148,24 @@ struct ContentView: View {
             .presentationDetents([.large])  // v1.6: Πιο πολύ ύψος για να φαίνεται όλο
             .presentationDragIndicator(.hidden)
         }
+        // Time-limit passcode gate (parental use)
+        .fullScreenCover(isPresented: $showPasscodeUnlock) {
+            PasscodeView(
+                mode: .unlock,
+                onUnlock: {
+                    ShieldManager.shared.unlockTimeLimitSession()
+                    showPasscodeUnlock = false
+                },
+                onCancel: { showPasscodeUnlock = false }
+            )
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
+            checkTimeLimitPasscodeGate()
+        }
         .onAppear {
             checkForDailyCheckIn()
             checkForWeeklySummary()
+            checkTimeLimitPasscodeGate()
 
             if let pending = NotificationDelegate.shared.pendingZoneInsight {
                 zoneInsightData = pending

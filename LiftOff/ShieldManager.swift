@@ -78,4 +78,13 @@ final class ShieldManager {
         timeLimitStore.shield.applicationCategories = nil
         appGroup?.removeObject(forKey: "picksy_timelimit_active")
     }
+
+    /// Grants another full session of the chosen length: clears the time-limit
+    /// shield + flag, then restarts monitoring so the cumulative usage counter
+    /// resets to zero and the limit fires again after another full window.
+    /// Called from the in-app passcode screen (parental use case).
+    func unlockTimeLimitSession() {
+        clearTimeLimitShield()
+        UsageThresholdManager.shared.restartMonitoring()
+    }
 }
