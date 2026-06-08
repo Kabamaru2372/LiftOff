@@ -29,6 +29,13 @@ struct ContentView: View {
     // and a passcode is required.
     @State private var showPasscodeUnlock: Bool = false
 
+    // "What's new" upgrade screen — shown once to existing users after a version bump.
+    @AppStorage("picksy_last_seen_version") private var lastSeenVersion: String = ""
+    @State private var showWhatsNew: Bool = false
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    }
+
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -44,6 +51,14 @@ struct ContentView: View {
         case "Deutsch": return ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
         default: return ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
         }
+    }
+
+    /// Shows the "What's new" screen once after an upgrade. ContentView is only
+    /// shown to users past onboarding, so a version mismatch = an existing user
+    /// who just upgraded. New users had the version marked seen during onboarding.
+    private func checkWhatsNew() {
+        guard !appVersion.isEmpty, lastSeenVersion != appVersion, !showWhatsNew else { return }
+        showWhatsNew = true
     }
 
     /// Shows the passcode unlock screen if today's time limit is reached AND a
@@ -148,6 +163,13 @@ struct ContentView: View {
             .presentationDetents([.large])  // v1.6: Πιο πολύ ύψος για να φαίνεται όλο
             .presentationDragIndicator(.hidden)
         }
+        // "What's new" upgrade screen (existing users, once per version)
+        .fullScreenCover(isPresented: $showWhatsNew) {
+            WhatsNewView(onDismiss: {
+                lastSeenVersion = appVersion
+                showWhatsNew = false
+            })
+        }
         // Time-limit passcode gate (parental use)
         .fullScreenCover(isPresented: $showPasscodeUnlock) {
             PasscodeView(
@@ -163,6 +185,7 @@ struct ContentView: View {
             checkTimeLimitPasscodeGate()
         }
         .onAppear {
+            checkWhatsNew()
             checkForDailyCheckIn()
             checkForWeeklySummary()
             checkTimeLimitPasscodeGate()

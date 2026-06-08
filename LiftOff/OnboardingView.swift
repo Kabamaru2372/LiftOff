@@ -134,7 +134,7 @@ struct OnboardingView: View {
                         .padding(.vertical, 16)
                 } else if currentPage == 1 {
                     // Setup-choice page has its own buttons; offer only Skip here.
-                    Button(action: { hasSeenOnboarding = true }) {
+                    Button(action: { finishOnboarding() }) {
                         Text(t("Skip", "Παράλειψη", "Überspringen"))
                             .font(.system(size: 14, weight: .regular, design: .rounded))
                             .foregroundColor(.secondary)
@@ -150,7 +150,7 @@ struct OnboardingView: View {
                             .background(RoundedRectangle(cornerRadius: 14).fill(Color.blue))
                     }
 
-                    Button(action: { hasSeenOnboarding = true }) {
+                    Button(action: { finishOnboarding() }) {
                         Text(t("Skip", "Παράλειψη", "Überspringen"))
                             .font(.system(size: 14, weight: .regular, design: .rounded))
                             .foregroundColor(.secondary)
@@ -785,8 +785,18 @@ struct OnboardingView: View {
 
     private func requestNotificationsAndFinish() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in
-            DispatchQueue.main.async { hasSeenOnboarding = true }
+            DispatchQueue.main.async { finishOnboarding() }
         }
+    }
+
+    /// Completes onboarding AND marks the current app version as seen, so a brand-
+    /// new user doesn't get the "What's new" upgrade screen on top of onboarding.
+    private func finishOnboarding() {
+        UserDefaults.standard.set(
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "",
+            forKey: "picksy_last_seen_version"
+        )
+        hasSeenOnboarding = true
     }
 }
 

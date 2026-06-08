@@ -186,6 +186,7 @@
 				ShieldManager.swift,
 				UsageInsightView.swift,
 				UsageThresholdManager.swift,
+				WhatsNewView.swift,
 			);
 			target = 480D45C32F7318F500E5BB27 /* UnPluqLiveExtension */;
 		};
