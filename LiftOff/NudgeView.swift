@@ -60,6 +60,16 @@ struct NudgeView: View {
         }
     }
 
+    /// Compact screen-time duration, e.g. "1h 23m" / "45m" — same formatting as
+    /// Stats and the duel so every screen reads identically.
+    private func formatNudgeScreenTime(_ seconds: Int) -> String {
+        let secs = max(0, seconds)
+        if secs < 60 { return "0m" }
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+    }
+
     /// Uncapped progress toward the personal daily goal (can exceed 1.0).
     private var goalRatio: Double {
         let goal = dailyGoal > 0 ? dailyGoal : 50
@@ -337,16 +347,19 @@ struct NudgeView: View {
 
             // ── Screen Time pill ─────────────────────────────────────
             // The ring above shows today's pickups (this device). Here we show the
-            // whole-device screen-time total — the metric the duel now uses —
-            // rendered by the report extension (it can't pass the number back to
-            // the app, so the value is drawn here exactly like the Apps tab).
+            // SAME app-measured screen-time value the duel and Stats use
+            // (store.bestScreenTimeSecs), so every screen always agrees. (The
+            // report extension's exact total is accurate but locked — can't be
+            // sent to a duel — so we use the consistent app value everywhere.)
             HStack(spacing: 5) {
                 Image(systemName: "hourglass")
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.55))
-                DeviceActivityReport(.nudgeTotalTime, filter: todayFilter)
-                    .id(refreshTrigger.reportIdentity)
-                    .frame(width: 72, height: 20)
+                Text(formatNudgeScreenTime(store.bestScreenTimeSecs))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundColor(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Text(t("screen time today", "χρόνος οθόνης σήμερα", "Bildschirmzeit heute"))
                     .font(.system(size: 10, design: .rounded))
                     .foregroundColor(.white.opacity(0.45))

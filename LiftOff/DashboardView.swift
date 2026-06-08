@@ -250,12 +250,20 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 8)
 
-                    // Whole-device total, rendered by the report extension
-                    // (the number can't be passed back to the app, so it's
-                    // drawn here — same value the Apps tab shows, independent
-                    // of which apps are selected).
-                    DeviceActivityReport(.statsTotalTime, filter: deviceTotalFilter)
+                    // Consistency-first: show the SAME app-measured value the
+                    // duel and Nudge use (store.bestScreenTimeSecs), so every
+                    // screen always agrees. The report extension's exact total is
+                    // accurate but locked (can't be sent to a duel), so we no
+                    // longer render it here — that mismatch (Stats 25 vs duel 17)
+                    // was the source of confusion. Trade-off: may read slightly
+                    // under iOS Settings, but it's identical everywhere in-app.
+                    Text(formatScreenTime(store.bestScreenTimeSecs))
+                        .font(.system(size: 30, weight: .bold, design: .rounded))
+                        .foregroundColor(screenTimeDurationColor(store.bestScreenTimeSecs))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                         .frame(height: 36)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     Spacer()
 
@@ -294,7 +302,11 @@ struct DashboardView: View {
 
                 Spacer()
 
-                DeviceActivityReport(.statsScore, filter: deviceTotalFilter)
+                Text("\(PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs))")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundColor(statsScoreColor(PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .frame(width: 86, height: 38)
 
                 Spacer()
@@ -330,10 +342,37 @@ struct DashboardView: View {
         )
     }
 
-    /// Fixed chrome color for the Screen Time card. The number itself is
-    /// duration-colored inside the hosted report; the app no longer knows the
-    /// value, so the card frame uses a stable accent.
+    /// Fixed chrome color for the Screen Time card frame.
     private var screenTimeAccentColor: Color { .indigo }
+
+    /// Compact screen-time duration, e.g. "1h 23m" / "45m". Matches the duel and
+    /// the report-extension formatting so every screen reads identically.
+    private func formatScreenTime(_ seconds: Int) -> String {
+        let secs = max(0, seconds)
+        if secs < 60 { return "0m" }
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
+    }
+
+    /// Duration accent color — mirrors the report extension's thresholds.
+    private func screenTimeDurationColor(_ seconds: Int) -> Color {
+        let mins = seconds / 60
+        if mins == 0  { return .secondary }
+        if mins < 60  { return .green }
+        if mins < 120 { return .blue }
+        if mins < 240 { return .orange }
+        return .red
+    }
+
+    /// Picksy Score accent color — mirrors the report extension's scoreAccentColor.
+    private func statsScoreColor(_ score: Int) -> Color {
+        if score == 0  { return .blue }
+        if score < 5   { return .green }
+        if score < 15  { return .blue }
+        if score < 30  { return .orange }
+        return .red
+    }
 
     // MARK: - Streak Card
 
