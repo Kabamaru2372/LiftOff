@@ -19,9 +19,10 @@ struct OnboardingView: View {
 
     // 0:lang, 1:setup-choice, 2:what, 3:how, 4:family-controls, 5:choose-apps, 6:preferences, 7:notifications
     private let totalPages = 8
-    /// True while the one-tap "Quick setup" flow is running (chains permission →
-    /// app picker → notifications → finish).
-    @State private var quickSetupRunning = false
+    /// Guided "Quick setup" flow. Each step shows a short explanation BEFORE the
+    /// system prompt, so the user knows why they're approving / what to pick.
+    enum QuickStep: Hashable { case screenTime, chooseApps, notifications }
+    @State private var quickStep: QuickStep? = nil
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -165,7 +166,14 @@ struct OnboardingView: View {
             .padding(.horizontal, 32)
             .padding(.bottom, 48)
             .padding(.top, 8)
+
+            // Guided Quick-setup overlay (explains each step before its prompt).
+            if let step = quickStep {
+                quickFlowOverlay(step)
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeInOut, value: quickStep)
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
         .onAppear {
             // Φόρτωσε την υπάρχουσα selection στο τοπικό state
@@ -176,11 +184,10 @@ struct OnboardingView: View {
             AppSelectionStore.shared.selection = newValue
         }
         .onChange(of: showAppPicker) { wasShowing, isShowing in
-            // Quick setup: the app picker just closed → finish by requesting
-            // notifications, then complete onboarding.
-            if quickSetupRunning && wasShowing && !isShowing {
-                quickSetupRunning = false
-                requestNotificationsAndFinish()
+            // Quick setup: the app picker just closed → move to the notifications
+            // explanation step.
+            if quickStep == .chooseApps && wasShowing && !isShowing {
+                quickStep = .notifications
             }
         }
     }
@@ -284,24 +291,106 @@ struct OnboardingView: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemGray6)))
     }
 
-    /// One-tap "Quick setup": request Screen Time permission, then open the app
-    /// picker (Apple requires the user to pick apps themselves), then finish via
-    /// the showAppPicker onChange. If permission is denied, skip straight to the
-    /// notifications request + finish.
+    /// Starts the guided Quick setup at the first explained step.
     private func runQuickSetup() {
-        quickSetupRunning = true
+        quickStep = .screenTime
+    }
+
+    /// Full-screen explanation shown before each Quick-setup system prompt.
+    @ViewBuilder
+    private func quickFlowOverlay(_ step: QuickStep) -> some View {
+        let icon: String; let color: Color; let title: String
+        let bodyText: String; let buttonText: String; let action: () -> Void
+        switch step {
+        case .screenTime:
+            icon = "lock.shield.fill"; color = .purple
+            title = t("Allow Screen Time", "Άδεια Screen Time", "Bildschirmzeit erlauben")
+            bodyText = t("Tap “Allow” on the next screen so Picksy can see how much time you spend on your apps.",
+                         "Πάτα «Επιτρέπεται» στην επόμενη οθόνη ώστε το Picksy να ξέρει πόσο χρόνο ξοδεύεις στις apps σου.",
+                         "Tippe als Nächstes auf „Erlauben“, damit Picksy sehen kann, wie viel Zeit du in deinen Apps verbringst.")
+            buttonText = t("Continue", "Συνέχεια", "Weiter"); action = quickRequestScreenTime
+        case .chooseApps:
+            icon = "apps.iphone"; color = .indigo
+            title = t("Choose your apps", "Διάλεξε τις apps σου", "Wähle deine Apps")
+            bodyText = t("Pick the apps you want Picksy to track — the ones that eat your time (social, video, messaging).",
+                         "Διάλεξε τις apps που θες να παρακολουθεί το Picksy — αυτές που σου τρώνε χρόνο (social, video, μηνύματα).",
+                         "Wähle die Apps, die Picksy verfolgen soll — die, die deine Zeit fressen (Social, Video, Messaging).")
+            buttonText = t("Choose apps", "Επιλογή εφαρμογών", "Apps wählen"); action = quickChooseApps
+        case .notifications:
+            icon = "bell.badge.fill"; color = .green
+            title = t("Gentle reminders", "Ευγενικές υπενθυμίσεις", "Sanfte Erinnerungen")
+            bodyText = t("Allow notifications so Picksy can send a few friendly nudges and your daily summary.",
+                         "Επίτρεψε ειδοποιήσεις ώστε το Picksy να στέλνει λίγες φιλικές υπενθυμίσεις και την ημερήσια σύνοψη.",
+                         "Erlaube Mitteilungen, damit Picksy ein paar freundliche Anstöße und deine Tageszusammenfassung senden kann.")
+            buttonText = t("Allow & finish", "Επίτρεψε & τέλος", "Erlauben & fertig"); action = quickFinish
+        }
+
+        return ZStack {
+            Color(.systemBackground).ignoresSafeArea()
+            VStack(spacing: 26) {
+                Spacer()
+                ZStack {
+                    Circle().fill(color.opacity(0.12)).frame(width: 100, height: 100)
+                    Image(systemName: icon).font(.system(size: 44)).foregroundColor(color)
+                }
+                VStack(spacing: 10) {
+                    Text(title)
+                        .font(.system(size: 24, weight: .semibold, design: .rounded))
+                        .multilineTextAlignment(.center)
+                    Text(bodyText)
+                        .font(.system(size: 15, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(4)
+                        .padding(.horizontal, 36)
+                }
+                HStack(spacing: 8) {
+                    ForEach([QuickStep.screenTime, .chooseApps, .notifications], id: \.self) { s in
+                        Circle().fill(s == step ? color : color.opacity(0.2)).frame(width: 8, height: 8)
+                    }
+                }
+                Spacer()
+                Button(action: action) {
+                    Text(buttonText)
+                        .font(.system(size: 17, weight: .medium, design: .rounded))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(color))
+                }
+                .padding(.horizontal, 32)
+                Button(action: { quickStep = nil }) {
+                    Text(t("Cancel", "Άκυρο", "Abbrechen"))
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.bottom, 40)
+            }
+        }
+    }
+
+    /// Step 1 action: request Screen Time permission, then move to the app step.
+    private func quickRequestScreenTime() {
         Task {
             let granted = await FamilyControlsManager.shared.requestAuthorization()
             await MainActor.run {
                 FamilyControlsManager.shared.isAuthorized = granted
-                if granted {
-                    showAppPicker = true
-                } else {
-                    quickSetupRunning = false
-                    requestNotificationsAndFinish()
-                }
+                // Either way, move on — apps can be picked later if denied.
+                quickStep = granted ? .chooseApps : .notifications
             }
         }
+    }
+
+    /// Step 2 action: open the system app picker. The showAppPicker onChange
+    /// advances to the notifications step once it closes.
+    private func quickChooseApps() {
+        showAppPicker = true
+    }
+
+    /// Step 3 action: request notifications and complete onboarding.
+    private func quickFinish() {
+        quickStep = nil
+        requestNotificationsAndFinish()
     }
 
     private func languageButton(code: String, label: String, badge: String) -> some View {
