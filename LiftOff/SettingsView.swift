@@ -859,6 +859,20 @@ struct SettingsView: View {
                 }
             }
 
+            Button(action: {
+                // Re-show the onboarding flow without deleting the app.
+                UserDefaults.standard.set(false, forKey: "hasSeenOnboarding")
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.uturn.backward.circle.fill").font(.system(size: 12))
+                    Text("Reset Onboarding").font(.system(size: 13, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Color.blue.opacity(0.85)))
+            }
+
             Text("These buttons exist only in DEBUG builds and will not appear in the App Store version.")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundColor(.secondary)
