@@ -310,6 +310,9 @@ struct SettingsView: View {
                     if timeLimitMinutes > 0 {
                         Divider()
                         passcodeRow
+                        if passcodeRequired {
+                            parentalLockTip
+                        }
                     }
                 }
                 Divider()
@@ -543,6 +546,25 @@ struct SettingsView: View {
                 onCancel: { showPasscodeSetup = false }
             )
         }
+    }
+
+    private var parentalLockTip: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 13))
+                .foregroundColor(.indigo)
+            Text(t(
+                "Full parental lock: in iOS Settings → Screen Time → Content & Privacy Restrictions → App Deletion → Don't Allow, so Picksy can't be deleted.",
+                "Πλήρες γονικό κλείδωμα: στις Ρυθμίσεις iOS → Χρόνος επί οθόνης → Περιεχόμενο & Απόρρητο → Διαγραφή εφαρμογών → Να μην επιτρέπεται, ώστε να μη διαγράφεται το Picksy.",
+                "Vollständige Kindersicherung: in iOS Einstellungen → Bildschirmzeit → Inhalt & Datenschutz → App löschen → Nicht erlauben, damit Picksy nicht gelöscht werden kann."
+            ))
+            .font(.system(size: 11, design: .rounded))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.indigo.opacity(0.06)))
+        .padding(.vertical, 8)
     }
 
     private var lockedSettingsRow: some View {

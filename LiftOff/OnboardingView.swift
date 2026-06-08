@@ -395,6 +395,25 @@ struct OnboardingView: View {
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.indigo.opacity(0.08)))
             .padding(.horizontal, 28)
 
+            // Parental hint: time limit + passcode live in Settings; for a full
+            // lock, disable app deletion in iOS Settings.
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "figure.and.child.holdinghands")
+                    .font(.system(size: 14))
+                    .foregroundColor(.pink)
+                Text(t(
+                    "Parents: set a daily time limit + passcode in Settings. For a full lock, also turn off app deletion in iOS Settings → Screen Time.",
+                    "Γονείς: ορίστε ημερήσιο όριο + κωδικό στις Ρυθμίσεις. Για πλήρες κλείδωμα, απενεργοποιήστε και τη διαγραφή εφαρμογών στις Ρυθμίσεις iOS → Χρόνος επί οθόνης.",
+                    "Eltern: Tageslimit + Code in den Einstellungen festlegen. Für volle Sperre auch App-Löschung in iOS → Bildschirmzeit deaktivieren."
+                ))
+                .font(.system(size: 13, weight: .regular, design: .rounded))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.pink.opacity(0.07)))
+            .padding(.horizontal, 28)
+
             // Selected apps badge — χρησιμοποιεί το τοπικό state
             if hasSelectedApps {
                 HStack(spacing: 8) {
