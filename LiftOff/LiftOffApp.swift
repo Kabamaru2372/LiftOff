@@ -390,20 +390,20 @@ struct LiftOffApp: App {
 
             let pickups = sharedDefaults.integer(forKey: "todayPickups")
 
-            // Accurate Mode: re-apply shields. After "Open" lifts a shield so an
-            // app can launch, this background pass re-shields it (within the next
-            // refresh cycle) even if the user never returns to Picksy — so later
-            // opens are caught again.
-            await MainActor.run { ShieldManager.shared.refresh() }
-
-            // SAFEGUARD (c) for continuous-use alerts: if the device is currently
-            // LOCKED, the user is not in an active session, so cancel any pending
-            // continuous alerts that a since-suspended app couldn't cancel at lock
-            // time. This kills the "fires an hour after I stopped" false positive.
             let deviceLocked = await MainActor.run { !UIApplication.shared.isProtectedDataAvailable }
+
             if deviceLocked {
+                // Accurate Mode: re-apply shields ONLY while the device is locked,
+                // so we NEVER re-shield an app the user is actively using (which
+                // would pop the shield over their session). When unlocked, the
+                // foreground + any-shield-interaction paths handle re-shielding.
+                // After "Open" lifts a shield, the next lock's refresh re-shields it.
+                await MainActor.run { ShieldManager.shared.refresh() }
+
+                // SAFEGUARD (c): cancel any pending continuous-use alerts the
+                // since-suspended app couldn't cancel at lock time (false positives).
                 ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
-                print("[BGRefresh] 🔒 Device locked — cancelled pending continuous-use alerts")
+                print("[BGRefresh] 🔒 Device locked — re-shielded + cancelled pending continuous alerts")
             }
 
             // Widgets
