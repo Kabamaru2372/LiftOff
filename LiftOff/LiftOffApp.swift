@@ -775,6 +775,10 @@ struct LiftOffApp: App {
         ScreenUnlockDetector.shared.startMonitoring()
         detector.startMonitoring()
 
+        // Accurate Mode (opt-in): (re)apply shields on the current selection so
+        // newly added apps are covered and the state survives relaunch.
+        ShieldManager.shared.refresh()
+
         // Ensure a BGAppRefreshTask is always scheduled so iOS can wake us periodically
         // to sync pickup counts and update the Live Activity when the app is suspended.
         LiftOffApp.scheduleBackgroundRefresh()

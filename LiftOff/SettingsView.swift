@@ -46,6 +46,9 @@ struct SettingsView: View {
     // v1.7: Threshold preset
     @State private var selectedPreset: ThresholdPreset = ThresholdPreset.current
 
+    // Accurate Mode (shield-based exact pickup counting)
+    @State private var accurateMode: Bool = ShieldManager.shared.isAccurateModeOn
+
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
         case "Ελληνικά": return gr
@@ -286,6 +289,8 @@ struct SettingsView: View {
                 Divider()
                 trackedAppsRow
                 Divider()
+                accurateModeRow
+                Divider()
                 resetSection
 
                 #if DEBUG
@@ -376,6 +381,41 @@ struct SettingsView: View {
         }
         .buttonStyle(.plain)
     }
+    // MARK: - Accurate Mode (shield-based exact pickup counting)
+
+    private var accurateModeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(t("Exact pickup counting", "Ακριβής μέτρηση σηκωμάτων", "Exakte Griff-Zählung"))
+                            .font(.system(size: 15, weight: .regular, design: .rounded))
+                            .foregroundColor(.primary)
+                        Text("🛡️").font(.system(size: 13))
+                    }
+                    Text(t(
+                        "Shows a quick tap screen when you open a tracked app, so pickups are counted exactly — even when Picksy is closed.",
+                        "Δείχνει μια γρήγορη οθόνη όταν ανοίγεις tracked app, ώστε τα σηκώματα να μετρώνται ακριβώς — ακόμα κι όταν το Picksy είναι κλειστό.",
+                        "Zeigt einen kurzen Tipp-Bildschirm beim Öffnen einer verfolgten App, damit Griffe exakt gezählt werden — auch wenn Picksy geschlossen ist."
+                    ))
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { accurateMode },
+                    set: { newValue in
+                        accurateMode = newValue
+                        ShieldManager.shared.setAccurateMode(newValue)
+                    }
+                ))
+                .labelsHidden()
+            }
+        }
+        .padding(.vertical, 16)
+    }
+
     // MARK: - Threshold Section (v1.7)
 
     private var thresholdSection: some View {

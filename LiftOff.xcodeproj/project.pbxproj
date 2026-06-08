@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		04B8D03A8E3E4934710104D9 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5B44094F71A7660CD90548D8 /* Foundation.framework */; };
+		0F30D7822DEE21F5C1085237 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BDA45467CF85B69B202E4283 /* ManagedSettings.framework */; };
 		480D45C72F7318F500E5BB27 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 480D45C62F7318F500E5BB27 /* WidgetKit.framework */; };
 		480D45C92F7318F500E5BB27 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 480D45C82F7318F500E5BB27 /* SwiftUI.framework */; };
 		480D45DA2F7318F600E5BB27 /* UnPluqLiveExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 480D45C42F7318F500E5BB27 /* UnPluqLiveExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -28,9 +30,21 @@
 		48A8709A2F9EC7C500D08642 /* FamilyControlsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48A870982F9EC7C000D08642 /* FamilyControlsManager.swift */; };
 		48FEF62A2F9ED00800B263E2 /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 48625D272F8806EF0009DDB3 /* DeviceActivity.framework */; };
 		48FEF6322F9ED00800B263E2 /* DeviceActivityMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 48FEF6292F9ED00800B263E2 /* DeviceActivityMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		4B58C74A8DB1E43C732193A4 /* PicksyShieldConfig.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = CC83B003629BDEF6E0866B7B /* PicksyShieldConfig.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		621F3B82AEC90A5661DEB30A /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BDA45467CF85B69B202E4283 /* ManagedSettings.framework */; };
+		8D62D5288B43644C4410DDED /* PicksyShieldAction.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 53CC27D228C14C19DC67269E /* PicksyShieldAction.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		969C432A68EC0EF788E5C7AA /* ManagedSettingsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2A9F9BF33B0AAE40475030AC /* ManagedSettingsUI.framework */; };
+		C107081C82E185DE0FB58A20 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5B44094F71A7660CD90548D8 /* Foundation.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		42B451E4E659BE5B7A8FB461 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 480D45982F72D3DD00E5BB27 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 98099D75F132586C215C032B;
+			remoteInfo = PicksyShieldConfig;
+		};
 		480D45D82F7318F600E5BB27 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 480D45982F72D3DD00E5BB27 /* Project object */;
@@ -59,6 +73,13 @@
 			remoteGlobalIDString = 48FEF6282F9ED00800B263E2;
 			remoteInfo = DeviceActivityMonitor;
 		};
+		8060B32854E4F0FA44C330B1 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 480D45982F72D3DD00E5BB27 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6A81B9A1AE16149115E802BE;
+			remoteInfo = PicksyShieldAction;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -71,6 +92,8 @@
 				48FEF6322F9ED00800B263E2 /* DeviceActivityMonitor.appex in Embed Foundation Extensions */,
 				48625D532F8823190009DDB3 /* PicksyWidgetExtension.appex in Embed Foundation Extensions */,
 				480D45DA2F7318F600E5BB27 /* UnPluqLiveExtension.appex in Embed Foundation Extensions */,
+				4B58C74A8DB1E43C732193A4 /* PicksyShieldConfig.appex in Embed Foundation Extensions */,
+				8D62D5288B43644C4410DDED /* PicksyShieldAction.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -109,6 +132,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		2A9F9BF33B0AAE40475030AC /* ManagedSettingsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettingsUI.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/ManagedSettingsUI.framework; sourceTree = DEVELOPER_DIR; };
 		480D45A02F72D3DD00E5BB27 /* UnPluq.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = UnPluq.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		480D45C42F7318F500E5BB27 /* UnPluqLiveExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = UnPluqLiveExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		480D45C62F7318F500E5BB27 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
@@ -126,9 +150,20 @@
 		48A870862F9E3A0300D08642 /* PicksyDeviceReport.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.extensionkit-extension"; includeInIndex = 0; path = PicksyDeviceReport.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		48A870982F9EC7C000D08642 /* FamilyControlsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FamilyControlsManager.swift; sourceTree = "<group>"; };
 		48FEF6292F9ED00800B263E2 /* DeviceActivityMonitor.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = DeviceActivityMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		53CC27D228C14C19DC67269E /* PicksyShieldAction.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PicksyShieldAction.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		5B44094F71A7660CD90548D8 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		BDA45467CF85B69B202E4283 /* ManagedSettings.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettings.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/ManagedSettings.framework; sourceTree = DEVELOPER_DIR; };
+		CC83B003629BDEF6E0866B7B /* PicksyShieldConfig.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = PicksyShieldConfig.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		368C8A8059BB5D520469D27C /* Exceptions for "ShieldAction" folder in "PicksyShieldAction" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 6A81B9A1AE16149115E802BE /* PicksyShieldAction */;
+		};
 		482BA0222F85322F00E9E4B8 /* Exceptions for "LiftOff" folder in "UnPluqLiveExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -146,6 +181,7 @@
 				PickupScheduler.swift,
 				Pushnotificationmanager.swift,
 				SettingsView.swift,
+				ShieldManager.swift,
 				UsageInsightView.swift,
 				UsageThresholdManager.swift,
 			);
@@ -179,6 +215,13 @@
 			);
 			target = 48FEF6282F9ED00800B263E2 /* DeviceActivityMonitor */;
 		};
+		9A96C50CDD4B24F94D0E3D16 /* Exceptions for "ShieldConfiguration" folder in "PicksyShieldConfig" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 98099D75F132586C215C032B /* PicksyShieldConfig */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -200,6 +243,8 @@
 		};
 		4815EB162FD0C1C6006BBA38 /* Picksy Watch Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = "Picksy Watch Watch App";
 			sourceTree = "<group>";
 		};
@@ -227,9 +272,44 @@
 			path = DeviceActivityMonitor;
 			sourceTree = "<group>";
 		};
+		A03F3E068B97284E3627E47A /* ShieldAction */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				368C8A8059BB5D520469D27C /* Exceptions for "ShieldAction" folder in "PicksyShieldAction" target */,
+			);
+			path = ShieldAction;
+			sourceTree = "<group>";
+		};
+		C52EF2B2E65429C0753CEC5B /* ShieldConfiguration */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9A96C50CDD4B24F94D0E3D16 /* Exceptions for "ShieldConfiguration" folder in "PicksyShieldConfig" target */,
+			);
+			path = ShieldConfiguration;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		001D00D4EECC823E601062F7 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C107081C82E185DE0FB58A20 /* Foundation.framework in Frameworks */,
+				0F30D7822DEE21F5C1085237 /* ManagedSettings.framework in Frameworks */,
+				969C432A68EC0EF788E5C7AA /* ManagedSettingsUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		1B013B0F20C0BBA4BFBE4CFA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				04B8D03A8E3E4934710104D9 /* Foundation.framework in Frameworks */,
+				621F3B82AEC90A5661DEB30A /* ManagedSettings.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		480D459D2F72D3DD00E5BB27 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -303,6 +383,8 @@
 				480D45C52F7318F500E5BB27 /* Frameworks */,
 				480D45A12F72D3DD00E5BB27 /* Products */,
 				48DE32F52FD0CCFD00D76F1D /* Recovered References */,
+				C52EF2B2E65429C0753CEC5B /* ShieldConfiguration */,
+				A03F3E068B97284E3627E47A /* ShieldAction */,
 			);
 			sourceTree = "<group>";
 		};
@@ -314,6 +396,8 @@
 				48625D402F8823180009DDB3 /* PicksyWidgetExtension.appex */,
 				48A870862F9E3A0300D08642 /* PicksyDeviceReport.appex */,
 				48FEF6292F9ED00800B263E2 /* DeviceActivityMonitor.appex */,
+				CC83B003629BDEF6E0866B7B /* PicksyShieldConfig.appex */,
+				53CC27D228C14C19DC67269E /* PicksyShieldAction.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -324,6 +408,7 @@
 				480D45C62F7318F500E5BB27 /* WidgetKit.framework */,
 				480D45C82F7318F500E5BB27 /* SwiftUI.framework */,
 				48625D272F8806EF0009DDB3 /* DeviceActivity.framework */,
+				ED52E57F3C0222CA143BEFDC /* iOS */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -334,6 +419,16 @@
 				4815EB122FD0C1C6006BBA38 /* Picksy Watch Watch App.app */,
 			);
 			name = "Recovered References";
+			sourceTree = "<group>";
+		};
+		ED52E57F3C0222CA143BEFDC /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				5B44094F71A7660CD90548D8 /* Foundation.framework */,
+				BDA45467CF85B69B202E4283 /* ManagedSettings.framework */,
+				2A9F9BF33B0AAE40475030AC /* ManagedSettingsUI.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -358,6 +453,8 @@
 				48625D522F8823190009DDB3 /* PBXTargetDependency */,
 				48A870912F9E3A0300D08642 /* PBXTargetDependency */,
 				48FEF6312F9ED00800B263E2 /* PBXTargetDependency */,
+				8C26BC20B5A87B1AE1B28F94 /* PBXTargetDependency */,
+				47092EEC01E754A8E96F2FEB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				480D45A22F72D3DD00E5BB27 /* LiftOff */,
@@ -474,6 +571,46 @@
 			productReference = 48FEF6292F9ED00800B263E2 /* DeviceActivityMonitor.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		6A81B9A1AE16149115E802BE /* PicksyShieldAction */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9CB39D7DEF7545A60F4AB0AF /* Build configuration list for PBXNativeTarget "PicksyShieldAction" */;
+			buildPhases = (
+				61F99D890159CBC804F53481 /* Sources */,
+				1B013B0F20C0BBA4BFBE4CFA /* Frameworks */,
+				EC7ACBCA08D85ECA36022994 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A03F3E068B97284E3627E47A /* ShieldAction */,
+			);
+			name = PicksyShieldAction;
+			productName = PicksyShieldAction;
+			productReference = 53CC27D228C14C19DC67269E /* PicksyShieldAction.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		98099D75F132586C215C032B /* PicksyShieldConfig */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F4FF88787C8807D464A0F04F /* Build configuration list for PBXNativeTarget "PicksyShieldConfig" */;
+			buildPhases = (
+				411F4D8CEB7ABDA8F394DC94 /* Sources */,
+				001D00D4EECC823E601062F7 /* Frameworks */,
+				D1F98D2AE697AC1B98865E57 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				C52EF2B2E65429C0753CEC5B /* ShieldConfiguration */,
+			);
+			name = PicksyShieldConfig;
+			productName = PicksyShieldConfig;
+			productReference = CC83B003629BDEF6E0866B7B /* PicksyShieldConfig.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -527,6 +664,8 @@
 				48A870852F9E3A0300D08642 /* PicksyDeviceReport */,
 				48FEF6282F9ED00800B263E2 /* DeviceActivityMonitor */,
 				4815EB112FD0C1C6006BBA38 /* Picksy Watch Watch App */,
+				98099D75F132586C215C032B /* PicksyShieldConfig */,
+				6A81B9A1AE16149115E802BE /* PicksyShieldAction */,
 			);
 		};
 /* End PBXProject section */
@@ -574,9 +713,30 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D1F98D2AE697AC1B98865E57 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EC7ACBCA08D85ECA36022994 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		411F4D8CEB7ABDA8F394DC94 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		480D459C2F72D3DD00E5BB27 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -628,9 +788,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		61F99D890159CBC804F53481 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		47092EEC01E754A8E96F2FEB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = PicksyShieldAction;
+			target = 6A81B9A1AE16149115E802BE /* PicksyShieldAction */;
+			targetProxy = 8060B32854E4F0FA44C330B1 /* PBXContainerItemProxy */;
+		};
 		480D45D92F7318F600E5BB27 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 480D45C32F7318F500E5BB27 /* UnPluqLiveExtension */;
@@ -651,9 +824,44 @@
 			target = 48FEF6282F9ED00800B263E2 /* DeviceActivityMonitor */;
 			targetProxy = 48FEF6302F9ED00800B263E2 /* PBXContainerItemProxy */;
 		};
+		8C26BC20B5A87B1AE1B28F94 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = PicksyShieldConfig;
+			target = 98099D75F132586C215C032B /* PicksyShieldConfig */;
+			targetProxy = 42B451E4E659BE5B7A8FB461 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		47C9E8988622BAFFBBF23AFD /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShieldAction/ShieldAction.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShieldAction/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DeviceActivityMonitor;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.8;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.ShieldAction;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		480D45A92F72D3DE00E5BB27 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1183,6 +1391,93 @@
 			};
 			name = Release;
 		};
+		58BDA6C7C59A528F9D82E411 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShieldConfiguration/ShieldConfiguration.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShieldConfiguration/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DeviceActivityMonitor;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.8;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.ShieldConfig;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C2960B6B9D6901FBA73694E5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShieldAction/ShieldAction.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShieldAction/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DeviceActivityMonitor;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.8;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.ShieldAction;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		E4D6118F09DDA845DFFEF4EC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShieldConfiguration/ShieldConfiguration.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 20;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShieldConfiguration/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = DeviceActivityMonitor;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.8;
+				PRODUCT_BUNDLE_IDENTIFIER = fotiospongas.dev.UnPluq.ShieldConfig;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1245,6 +1540,24 @@
 			buildConfigurations = (
 				48FEF6332F9ED00800B263E2 /* Debug */,
 				48FEF6342F9ED00800B263E2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		9CB39D7DEF7545A60F4AB0AF /* Build configuration list for PBXNativeTarget "PicksyShieldAction" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				47C9E8988622BAFFBBF23AFD /* Release */,
+				C2960B6B9D6901FBA73694E5 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F4FF88787C8807D464A0F04F /* Build configuration list for PBXNativeTarget "PicksyShieldConfig" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				E4D6118F09DDA845DFFEF4EC /* Release */,
+				58BDA6C7C59A528F9D82E411 /* Debug */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

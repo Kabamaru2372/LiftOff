@@ -161,6 +161,8 @@ struct AppsView: View {
             AppSelectionStore.shared.selection = newValue
             refreshState()
             UsageThresholdManager.shared.restartMonitoring()
+            // Accurate Mode: re-shield the new selection (no-op if mode is off).
+            ShieldManager.shared.refresh()
             // Filter changed — force immediate re-render ignoring the cooldown
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 self.refreshTrigger.forceRefresh()
