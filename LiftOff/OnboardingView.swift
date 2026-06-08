@@ -17,11 +17,12 @@ struct OnboardingView: View {
     @State private var showAppPicker: Bool = false
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
 
-    // 0:lang, 1:setup-choice, 2:what, 3:how, 4:family-controls, 5:choose-apps, 6:preferences, 7:notifications
-    private let totalPages = 8
+    // 0:lang, 1:setup-choice, 2:what, 3:how, 4:family-controls, 5:choose-apps,
+    // 6:preferences, 7:notifications, 8:next-steps (tips)
+    private let totalPages = 9
     /// Guided "Quick setup" flow. Each step shows a short explanation BEFORE the
     /// system prompt, so the user knows why they're approving / what to pick.
-    enum QuickStep: Hashable { case screenTime, chooseApps, notifications }
+    enum QuickStep: Hashable { case screenTime, chooseApps }
     @State private var quickStep: QuickStep? = nil
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
@@ -117,6 +118,9 @@ struct OnboardingView: View {
                     ),
                     tag: 7
                 )
+
+                // Page 8: Next steps (what else to do in Settings)
+                nextStepsPage.tag(8)
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
             .indexViewStyle(.page(backgroundDisplayMode: .always))
@@ -184,10 +188,10 @@ struct OnboardingView: View {
             AppSelectionStore.shared.selection = newValue
         }
         .onChange(of: showAppPicker) { wasShowing, isShowing in
-            // Quick setup: the app picker just closed → move to the notifications
-            // explanation step.
+            // Quick setup: the app picker just closed → go to the final tips page.
             if quickStep == .chooseApps && wasShowing && !isShowing {
-                quickStep = .notifications
+                quickStep = nil
+                withAnimation { currentPage = 8 }   // tips / next-steps page
             }
         }
     }
@@ -316,17 +320,10 @@ struct OnboardingView: View {
                          "Διάλεξε τις apps που θες να παρακολουθεί το Picksy — αυτές που σου τρώνε χρόνο (social, video, μηνύματα).",
                          "Wähle die Apps, die Picksy verfolgen soll — die, die deine Zeit fressen (Social, Video, Messaging).")
             buttonText = t("Choose apps", "Επιλογή εφαρμογών", "Apps wählen"); action = quickChooseApps
-        case .notifications:
-            icon = "bell.badge.fill"; color = .green
-            title = t("Gentle reminders", "Ευγενικές υπενθυμίσεις", "Sanfte Erinnerungen")
-            bodyText = t("Allow notifications so Picksy can send a few friendly nudges and your daily summary.",
-                         "Επίτρεψε ειδοποιήσεις ώστε το Picksy να στέλνει λίγες φιλικές υπενθυμίσεις και την ημερήσια σύνοψη.",
-                         "Erlaube Mitteilungen, damit Picksy ein paar freundliche Anstöße und deine Tageszusammenfassung senden kann.")
-            buttonText = t("Allow & finish", "Επίτρεψε & τέλος", "Erlauben & fertig"); action = quickFinish
         }
 
         return ZStack {
-            Color(.systemBackground).ignoresSafeArea()
+            Color(.systemBackground)
             VStack(spacing: 26) {
                 Spacer()
                 ZStack {
@@ -337,15 +334,17 @@ struct OnboardingView: View {
                     Text(title)
                         .font(.system(size: 24, weight: .semibold, design: .rounded))
                         .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(bodyText)
                         .font(.system(size: 15, design: .rounded))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .lineSpacing(4)
+                        .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 36)
                 }
                 HStack(spacing: 8) {
-                    ForEach([QuickStep.screenTime, .chooseApps, .notifications], id: \.self) { s in
+                    ForEach([QuickStep.screenTime, .chooseApps], id: \.self) { s in
                         Circle().fill(s == step ? color : color.opacity(0.2)).frame(width: 8, height: 8)
                     }
                 }
@@ -367,30 +366,102 @@ struct OnboardingView: View {
                 .padding(.bottom, 40)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+    }
+
+    // MARK: - Next Steps (final onboarding page)
+
+    private var nextStepsPage: some View {
+        ScrollView {
+            VStack(spacing: 18) {
+                Spacer().frame(height: 16)
+
+                ZStack {
+                    Circle().fill(Color.green.opacity(0.12)).frame(width: 88, height: 88)
+                    Image(systemName: "checkmark.seal.fill").font(.system(size: 38)).foregroundColor(.green)
+                }
+
+                VStack(spacing: 8) {
+                    Text(t("You're almost set! 🎉", "Σχεδόν έτοιμος! 🎉", "Fast fertig! 🎉"))
+                        .font(.system(size: 23, weight: .semibold, design: .rounded))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(t("A few optional extras — all in Settings — to get the most out of Picksy:",
+                           "Λίγα προαιρετικά extra — όλα στις Ρυθμίσεις — για να αξιοποιήσεις πλήρως το Picksy:",
+                           "Ein paar optionale Extras — alle in den Einstellungen — um Picksy voll zu nutzen:"))
+                        .font(.system(size: 14, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 28)
+                }
+
+                VStack(spacing: 10) {
+                    tipRow("⏱️", t("Daily time limit", "Ημερήσιο όριο χρόνου", "Tageslimit"),
+                           t("Lock apps after X minutes a day.", "Κλείδωσε apps μετά από Χ λεπτά την ημέρα.", "Sperre Apps nach X Minuten pro Tag."))
+                    tipRow("🛡️", t("Exact pickup counting", "Ακριβής μέτρηση σηκωμάτων", "Exakte Griff-Zählung"),
+                           t("A quick tap screen for precise counts.", "Μια γρήγορη οθόνη για ακριβή νούμερα.", "Ein kurzer Tipp-Screen für genaue Zahlen."))
+                    tipRow("👨‍👩‍👧", t("Parent passcode", "Γονικός κωδικός", "Eltern-Code"),
+                           t("Hand the phone to your kid, locked to a set time.", "Δώσε το κινητό στο παιδί, κλειδωμένο για συγκεκριμένο χρόνο.", "Gib dem Kind das Handy, auf eine feste Zeit gesperrt."))
+                    tipRow("⚔️", t("Duel your friends", "Μονομαχίες με φίλους", "Freunde duellieren"),
+                           t("Less screen time than them wins — from the Friends tab.", "Λιγότερος χρόνος από αυτούς νικάει — από το tab Φίλοι.", "Weniger Bildschirmzeit gewinnt — im Freunde-Tab."))
+                }
+                .padding(.horizontal, 24)
+
+                Text(t("Tap “Get started!” — we'll ask for notification permission.",
+                       "Πάτα «Ξεκίνα!» — θα ζητήσουμε άδεια για ειδοποιήσεις.",
+                       "Tippe „Los geht's!“ — wir fragen nach Mitteilungserlaubnis."))
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 32)
+                    .padding(.top, 2)
+
+                Spacer(minLength: 16)
+            }
+            .padding(.bottom, 16)
+        }
+        .tag(8)
+    }
+
+    private func tipRow(_ emoji: String, _ title: String, _ subtitle: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(emoji).font(.system(size: 20)).frame(width: 28)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 15, weight: .semibold, design: .rounded)).foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(subtitle).font(.system(size: 13, design: .rounded)).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(14)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color(.systemGray6)))
     }
 
     /// Step 1 action: request Screen Time permission, then move to the app step.
+    /// If denied, jump straight to the final tips page (apps can be picked later).
     private func quickRequestScreenTime() {
         Task {
             let granted = await FamilyControlsManager.shared.requestAuthorization()
             await MainActor.run {
                 FamilyControlsManager.shared.isAuthorized = granted
-                // Either way, move on — apps can be picked later if denied.
-                quickStep = granted ? .chooseApps : .notifications
+                if granted {
+                    quickStep = .chooseApps
+                } else {
+                    quickStep = nil
+                    withAnimation { currentPage = 8 }   // tips / next-steps page
+                }
             }
         }
     }
 
     /// Step 2 action: open the system app picker. The showAppPicker onChange
-    /// advances to the notifications step once it closes.
+    /// sends the user to the final tips page once it closes.
     private func quickChooseApps() {
         showAppPicker = true
-    }
-
-    /// Step 3 action: request notifications and complete onboarding.
-    private func quickFinish() {
-        quickStep = nil
-        requestNotificationsAndFinish()
     }
 
     private func languageButton(code: String, label: String, badge: String) -> some View {
@@ -748,6 +819,7 @@ struct OnboardingPage: View {
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
                     .lineSpacing(5)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 32)
             }
 
