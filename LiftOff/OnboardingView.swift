@@ -122,8 +122,7 @@ struct OnboardingView: View {
                 // Page 8: Next steps (what else to do in Settings)
                 nextStepsPage.tag(8)
             }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .always))
+            .tabViewStyle(.page(indexDisplayMode: .never))
             .animation(.easeInOut, value: currentPage)
 
             // Bottom buttons
@@ -170,8 +169,9 @@ struct OnboardingView: View {
             .padding(.horizontal, 32)
             .padding(.bottom, 48)
             .padding(.top, 8)
-
-            // Guided Quick-setup overlay (explains each step before its prompt).
+        }
+        // Guided Quick-setup overlay (covers the whole screen, on top).
+        .overlay {
             if let step = quickStep {
                 quickFlowOverlay(step)
                     .transition(.opacity)
