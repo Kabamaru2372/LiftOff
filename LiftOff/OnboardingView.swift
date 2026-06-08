@@ -17,7 +17,11 @@ struct OnboardingView: View {
     @State private var showAppPicker: Bool = false
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
 
-    private let totalPages = 7 // 0:lang, 1:what, 2:how, 3:family-controls, 4:choose-apps, 5:preferences, 6:notifications
+    // 0:lang, 1:setup-choice, 2:what, 3:how, 4:family-controls, 5:choose-apps, 6:preferences, 7:notifications
+    private let totalPages = 8
+    /// True while the one-tap "Quick setup" flow is running (chains permission →
+    /// app picker → notifications → finish).
+    @State private var quickSetupRunning = false
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -62,7 +66,10 @@ struct OnboardingView: View {
                 // Page 0: Language
                 languagePage.tag(0)
 
-                // Page 1: What is Picksy
+                // Page 1: Setup choice (Quick vs Customize)
+                setupChoicePage.tag(1)
+
+                // Page 2: What is Picksy
                 OnboardingPage(
                     icon: "hand.raised.fill",
                     iconColor: .blue,
@@ -72,10 +79,10 @@ struct OnboardingView: View {
                         "Έχεις δει τον χρόνο σου να ανεβαίνει. Το Picksy σε βοηθάει να τον ρίξεις — χωρίς ενοχές, με λίγη πλάκα.",
                         "Du hast deine Bildschirmzeit steigen sehen. Picksy hilft dir wirklich, sie zu senken — ohne Schuldgefühle, mit etwas Spaß."
                     ),
-                    tag: 1
+                    tag: 2
                 )
 
-                // Page 2: How it works
+                // Page 3: How it works
                 OnboardingPage(
                     icon: "target",
                     iconColor: .orange,
@@ -85,19 +92,19 @@ struct OnboardingView: View {
                         "1. Διάλεξε τις apps που σου τρώνε χρόνο.\n2. Βάλε ημερήσιο όριο — το Picksy τις κλειδώνει όταν το φτάσεις.\n3. Μονομάχησε με φίλους για το ποιος είναι λιγότερο στο κινητό.\n\nΤόσο απλό.",
                         "1. Wähle die Apps, die deine Zeit fressen.\n2. Setze ein Tageslimit — Picksy sperrt sie, wenn du es erreichst.\n3. Duelliere Freunde, wer weniger am Handy ist.\n\nSo einfach."
                     ),
-                    tag: 2
+                    tag: 3
                 )
 
-                // Page 3: Family Controls
-                familyControlsPage.tag(3)
+                // Page 4: Family Controls
+                familyControlsPage.tag(4)
 
-                // Page 4: Choose Apps (NEW!)
-                chooseAppsPage.tag(4)
+                // Page 5: Choose Apps
+                chooseAppsPage.tag(5)
 
-                // Page 5: Activity preferences
-                preferencesPage.tag(5)
+                // Page 6: Activity preferences
+                preferencesPage.tag(6)
 
-                // Page 6: Notifications
+                // Page 7: Notifications
                 OnboardingPage(
                     icon: "bell.badge.fill",
                     iconColor: .green,
@@ -107,7 +114,7 @@ struct OnboardingView: View {
                         "Το Picksy στέλνει λίγες φιλικές υπενθυμίσεις και μια ημερήσια σύνοψη, για να μένεις σε φόρμα χωρίς να το σκέφτεσαι.\n\nΠάτα \"Ξεκίνα!\" για να τις ενεργοποιήσεις.",
                         "Picksy sendet ein paar freundliche Anstöße und eine Tageszusammenfassung, damit du mühelos dranbleibst.\n\nTippe auf \"Los geht's!\", um sie zu aktivieren."
                     ),
-                    tag: 6
+                    tag: 7
                 )
             }
             .tabViewStyle(.page(indexDisplayMode: .always))
@@ -121,6 +128,14 @@ struct OnboardingView: View {
                         .font(.system(size: 14, weight: .regular, design: .rounded))
                         .foregroundColor(.secondary)
                         .padding(.vertical, 16)
+                } else if currentPage == 1 {
+                    // Setup-choice page has its own buttons; offer only Skip here.
+                    Button(action: { hasSeenOnboarding = true }) {
+                        Text(t("Skip", "Παράλειψη", "Überspringen"))
+                            .font(.system(size: 14, weight: .regular, design: .rounded))
+                            .foregroundColor(.secondary)
+                    }
+                    .padding(.vertical, 16)
                 } else if currentPage < totalPages - 1 {
                     Button(action: { withAnimation { currentPage += 1 } }) {
                         Text(t("Continue", "Συνέχεια", "Weiter"))
@@ -160,6 +175,14 @@ struct OnboardingView: View {
             // Save selection όταν αλλάζει
             AppSelectionStore.shared.selection = newValue
         }
+        .onChange(of: showAppPicker) { wasShowing, isShowing in
+            // Quick setup: the app picker just closed → finish by requesting
+            // notifications, then complete onboarding.
+            if quickSetupRunning && wasShowing && !isShowing {
+                quickSetupRunning = false
+                requestNotificationsAndFinish()
+            }
+        }
     }
 
     // MARK: - Language Page
@@ -192,6 +215,92 @@ struct OnboardingView: View {
             .padding(.horizontal, 32)
 
             Spacer()
+        }
+    }
+
+    // MARK: - Setup Choice Page
+
+    private var setupChoicePage: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            ZStack {
+                Circle().fill(Color.blue.opacity(0.12)).frame(width: 100, height: 100)
+                Image(systemName: "wand.and.stars").font(.system(size: 44)).foregroundColor(.blue)
+            }
+
+            VStack(spacing: 8) {
+                Text(t("How do you want to start?", "Πώς θες να ξεκινήσεις;", "Wie möchtest du starten?"))
+                    .font(.system(size: 24, weight: .medium, design: .rounded))
+                    .multilineTextAlignment(.center)
+                Text(t("You can change everything later in Settings.",
+                       "Μπορείς να τα αλλάξεις όλα αργότερα στις Ρυθμίσεις.",
+                       "Du kannst alles später in den Einstellungen ändern."))
+                    .font(.system(size: 14, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+            }
+
+            VStack(spacing: 14) {
+                Button(action: { runQuickSetup() }) {
+                    choiceCard(
+                        icon: "bolt.fill", color: .blue,
+                        title: t("Quick setup", "Γρήγορο setup", "Schnell einrichten"),
+                        subtitle: t("We set it up — just approve the prompts and pick your apps once.",
+                                    "Τα ρυθμίζουμε εμείς — απλά ενέκρινε και διάλεξε apps μία φορά.",
+                                    "Wir richten ein — bestätige und wähle einmal deine Apps.")
+                    )
+                }
+                Button(action: { withAnimation { currentPage = 2 } }) {
+                    choiceCard(
+                        icon: "slider.horizontal.3", color: .secondary,
+                        title: t("Customize", "Προσαρμογή", "Anpassen"),
+                        subtitle: t("Go through each step yourself.",
+                                    "Πέρνα από κάθε βήμα μόνος σου.",
+                                    "Gehe jeden Schritt selbst durch.")
+                    )
+                }
+            }
+            .padding(.horizontal, 28)
+
+            Spacer()
+        }
+    }
+
+    private func choiceCard(icon: String, color: Color, title: String, subtitle: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).font(.system(size: 22)).foregroundColor(color).frame(width: 36)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 17, weight: .semibold, design: .rounded)).foregroundColor(.primary)
+                Text(subtitle).font(.system(size: 13, design: .rounded)).foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.system(size: 13)).foregroundColor(.secondary)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemGray6)))
+    }
+
+    /// One-tap "Quick setup": request Screen Time permission, then open the app
+    /// picker (Apple requires the user to pick apps themselves), then finish via
+    /// the showAppPicker onChange. If permission is denied, skip straight to the
+    /// notifications request + finish.
+    private func runQuickSetup() {
+        quickSetupRunning = true
+        Task {
+            let granted = await FamilyControlsManager.shared.requestAuthorization()
+            await MainActor.run {
+                FamilyControlsManager.shared.isAuthorized = granted
+                if granted {
+                    showAppPicker = true
+                } else {
+                    quickSetupRunning = false
+                    requestNotificationsAndFinish()
+                }
+            }
         }
     }
 
@@ -306,7 +415,7 @@ struct OnboardingView: View {
 
             Spacer()
         }
-        .tag(3)
+        .tag(4)
     }
 
     private func requestFamilyControls() {
@@ -316,7 +425,7 @@ struct OnboardingView: View {
                 familyControlsRequested = true
                 if granted {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                        withAnimation { currentPage = 4 }
+                        withAnimation { currentPage = 5 }
                     }
                 }
             }
@@ -458,7 +567,7 @@ struct OnboardingView: View {
 
             Spacer()
         }
-        .tag(4)
+        .tag(5)
     }
 
     private func openAppPicker() {
@@ -511,7 +620,7 @@ struct OnboardingView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 40)
         }
-        .tag(5)
+        .tag(6)
     }
 
     private func requestNotificationsAndFinish() {
