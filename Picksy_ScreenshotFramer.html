@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Picksy — App Store Screenshot Framer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root {
+    --w: 1320;            /* App Store 6.9" width  */
+    --h: 2868;            /* App Store 6.9" height */
+    --preview: 0.26;      /* preview scale */
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "SF Pro Rounded", "Segoe UI", system-ui, sans-serif;
+    background: #0d0d12; color: #fff; padding: 24px;
+  }
+  h1 { font-size: 22px; font-weight: 800; margin-bottom: 4px; }
+  .sub { color: #9aa; font-size: 14px; margin-bottom: 20px; }
+  .controls {
+    position: sticky; top: 0; z-index: 50; background: #0d0d12cc; backdrop-filter: blur(8px);
+    padding: 14px 0; margin-bottom: 16px; border-bottom: 1px solid #ffffff14;
+    display: flex; gap: 14px; align-items: center; flex-wrap: wrap;
+  }
+  select, button {
+    font: inherit; font-weight: 600; border-radius: 10px; border: 1px solid #ffffff22;
+    background: #1b1b24; color: #fff; padding: 8px 14px; cursor: pointer;
+  }
+  button.primary { background: #5957d6; border-color: #5957d6; }
+  .grid { display: flex; flex-wrap: wrap; gap: 28px; }
+  .item { display: flex; flex-direction: column; gap: 10px; }
+
+  /* The scaler collapses the full-size shot to a small preview */
+  .scaler {
+    width: calc(var(--w) * 1px * var(--preview));
+    height: calc(var(--h) * 1px * var(--preview));
+    overflow: hidden; border-radius: 22px; border: 1px solid #ffffff1a;
+  }
+  .shot {
+    width: calc(var(--w) * 1px);
+    height: calc(var(--h) * 1px);
+    transform: scale(var(--preview));
+    transform-origin: top left;
+    position: relative;
+    display: flex; flex-direction: column; align-items: center;
+    /* default gradient; overridden per-screen */
+    background: linear-gradient(160deg, #1a1430 0%, #0d0d12 60%);
+    overflow: hidden;
+  }
+  .cap {
+    width: 100%; text-align: center; color: #fff;
+    padding: 150px 90px 0;
+  }
+  .cap .title {
+    font-size: 104px; font-weight: 800; line-height: 1.08; letter-spacing: -1px;
+  }
+  .cap .accent { color: #b9b6ff; }
+  .phone {
+    margin-top: 90px;
+    width: 1000px;
+    border-radius: 70px;
+    border: 14px solid #000;
+    box-shadow: 0 40px 120px #00000088;
+    overflow: hidden; background: #000;
+    aspect-ratio: 9 / 19.5;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .phone img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .phone .placeholder { color: #667; font-size: 46px; text-align: center; padding: 40px; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row label { font-size: 12px; color: #9aa; }
+  input[type=file] { font-size: 12px; width: 220px; }
+  .tip { color:#778; font-size:12px; max-width: 900px; line-height:1.5; }
+  .accent-bars { display:flex; gap:6px; }
+  .accent-bars i { width:34px; height:6px; border-radius:3px; background:#5957d6; }
+</style>
+</head>
+<body>
+  <h1>Picksy — App Store Screenshot Framer</h1>
+  <div class="sub">Drop your raw app screenshots into each slot, pick a language, then Download. Output = 1320×2868 px (6.9" / required size).</div>
+
+  <div class="controls">
+    <div class="row">
+      <label>Language</label>
+      <select id="lang" onchange="applyLang()">
+        <option value="en">English</option>
+        <option value="gr">Ελληνικά</option>
+        <option value="de">Deutsch</option>
+      </select>
+    </div>
+    <button class="primary" onclick="downloadAll()">⬇︎ Download all 6 (current language)</button>
+    <span class="tip">Tip: capture raw screenshots in the matching app language, then switch this selector + re-download for each locale.</span>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <p class="tip" style="margin-top:24px">
+    Screens: 1) Nudge ring · 2) Shield/limit · 3) Duel scoreboard · 4) Stats/Score · 5) Parent passcode · 6) Apps tab.<br>
+    Upload to App Store Connect under the 6.9" display size (covers all iPhones).
+  </p>
+
+<script>
+  // Caption copy per screen, per language. {accent} marks the colored part.
+  const SCREENS = [
+    { grad: "linear-gradient(160deg,#1a1430,#0d0d12 60%)", accent:"#b9b6ff",
+      en:["Use your phone","less. {accent}For real.{/}"],
+      gr:["Λιγότερο","κινητό. {accent}Στ' αλήθεια.{/}"],
+      de:["Weniger Handy.","{accent}Wirklich.{/}"] },
+    { grad: "linear-gradient(160deg,#2a1030,#0d0d12 60%)", accent:"#ff7ae0",
+      en:["Apps lock when","you hit your {accent}limit.{/}"],
+      gr:["Κλειδώνουν όταν","φτάσεις το {accent}όριο.{/}"],
+      de:["Apps sperren","beim {accent}Limit.{/}"] },
+    { grad: "linear-gradient(160deg,#101a2e,#0d0d12 60%)", accent:"#7ac0ff",
+      en:["Beat your friends","at being {accent}present.{/}"],
+      gr:["Νίκα τους φίλους","σου στο {accent}παρόν.{/}"],
+      de:["Schlag deine","Freunde im {accent}Jetzt.{/}"] },
+    { grad: "linear-gradient(160deg,#102a1c,#0d0d12 60%)", accent:"#6ee7a8",
+      en:["Watch your screen","time {accent}drop.{/}"],
+      gr:["Δες τον χρόνο σου","να {accent}πέφτει.{/}"],
+      de:["Sieh deine Zeit","{accent}sinken.{/}"] },
+    { grad: "linear-gradient(160deg,#241030,#0d0d12 60%)", accent:"#c79bff",
+      en:["Hand your kid the","phone — {accent}locked.{/}"],
+      gr:["Δώσε το κινητό","στο παιδί — {accent}κλειδωμένο.{/}"],
+      de:["Gib dem Kind das","Handy — {accent}gesperrt.{/}"] },
+    { grad: "linear-gradient(160deg,#2a2410,#0d0d12 60%)", accent:"#ffd56e",
+      en:["Real numbers.","{accent}No fluff.{/}"],
+      gr:["Τίμια νούμερα.","{accent}Χωρίς φλυαρίες.{/}"],
+      de:["Ehrliche Zahlen.","{accent}Ohne Schnörkel.{/}"] },
+  ];
+
+  function fmt(parts, accentColor){
+    return parts.map(line =>
+      line.replace(/\{accent\}/g,`<span class="accent" style="color:${accentColor}">`).replace(/\{\/\}/g,"</span>")
+    ).join("<br>");
+  }
+
+  const grid = document.getElementById('grid');
+  SCREENS.forEach((s, i) => {
+    const item = document.createElement('div'); item.className='item';
+    item.innerHTML = `
+      <div class="scaler">
+        <div class="shot" id="shot${i}" style="background:${s.grad}">
+          <div class="cap" id="cap${i}"></div>
+          <div class="phone"><div class="placeholder" id="ph${i}">Screen ${i+1}<br>↑ upload screenshot</div></div>
+          <div class="accent-bars" style="position:absolute;bottom:120px"><i style="background:${s.accent}"></i><i style="background:${s.accent}"></i><i style="background:${s.accent}"></i></div>
+        </div>
+      </div>
+      <div class="row"><label>Screen ${i+1}</label><input type="file" accept="image/*" onchange="loadImg(event,${i})"></div>
+      <button onclick="download(${i})">⬇︎ Download screen ${i+1}</button>
+    `;
+    grid.appendChild(item);
+  });
+
+  function applyLang(){
+    const lang = document.getElementById('lang').value;
+    SCREENS.forEach((s,i)=>{
+      document.getElementById('cap'+i).innerHTML =
+        `<div class="title">${fmt(s[lang], s.accent)}</div>`;
+    });
+  }
+  applyLang();
+
+  function loadImg(e,i){
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const phone = document.querySelector('#shot'+i+' .phone');
+      phone.innerHTML = `<img src="${ev.target.result}">`;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function download(i){
+    const shot = document.getElementById('shot'+i);
+    const prev = shot.style.transform;
+    shot.style.transform = 'none';            // capture at full 1320×2868
+    await new Promise(r=>requestAnimationFrame(r));
+    const canvas = await html2canvas(shot, {width:1320, height:2868, scale:1, backgroundColor:null, useCORS:true});
+    shot.style.transform = prev;
+    const lang = document.getElementById('lang').value;
+    const a = document.createElement('a');
+    a.href = canvas.toDataURL('image/png');
+    a.download = `picksy_${lang}_screen${i+1}.png`;
+    a.click();
+  }
+
+  async function downloadAll(){
+    for(let i=0;i<SCREENS.length;i++){ await download(i); await new Promise(r=>setTimeout(r,400)); }
+  }
+</script>
+</body>
+</html>
