@@ -20,12 +20,27 @@ class ShieldActionHandler: ShieldActionDelegate {
 
     private let appGroupID = "group.fotiospongas.picksy"
 
+    /// Same named store the main app uses, so we can lift a shield from here.
+    private let store = ManagedSettingsStore(named: .init("picksy.accurateMode"))
+
     // MARK: - Application
 
     override func handle(action: ShieldAction,
                          for application: ApplicationToken,
                          completionHandler: @escaping (ShieldActionResponse) -> Void) {
-        respond(to: action, completionHandler: completionHandler)
+        switch action {
+        case .primaryButtonPressed:
+            // Count the pickup, then LIFT the shield for THIS app so it actually
+            // opens (.none alone does not launch a still-shielded app). The shield
+            // is re-applied next time Picksy comes to the foreground.
+            countPickup()
+            liftShield(for: application)
+            completionHandler(.none)
+        case .secondaryButtonPressed:
+            completionHandler(.close)
+        @unknown default:
+            completionHandler(.close)
+        }
     }
 
     // MARK: - Category
@@ -33,7 +48,13 @@ class ShieldActionHandler: ShieldActionDelegate {
     override func handle(action: ShieldAction,
                          for category: ActivityCategoryToken,
                          completionHandler: @escaping (ShieldActionResponse) -> Void) {
-        respond(to: action, completionHandler: completionHandler)
+        switch action {
+        case .primaryButtonPressed:
+            countPickup()
+            completionHandler(.none)
+        default:
+            completionHandler(.close)
+        }
     }
 
     // MARK: - Web domain
@@ -41,25 +62,21 @@ class ShieldActionHandler: ShieldActionDelegate {
     override func handle(action: ShieldAction,
                          for webDomain: WebDomainToken,
                          completionHandler: @escaping (ShieldActionResponse) -> Void) {
-        respond(to: action, completionHandler: completionHandler)
-    }
-
-    // MARK: - Shared response
-
-    private func respond(to action: ShieldAction,
-                         completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
-            // User chose to open → count the pickup, then dismiss the shield so
-            // the app launches (.none = dismiss the shield for this attempt).
             countPickup()
             completionHandler(.none)
-        case .secondaryButtonPressed:
-            // User backed out → don't open, don't count.
-            completionHandler(.close)
-        @unknown default:
+        default:
             completionHandler(.close)
         }
+    }
+
+    /// Removes a single app from the shield set so it can launch. Picksy re-applies
+    /// the full shield on its next foreground (ShieldManager.refresh).
+    private func liftShield(for token: ApplicationToken) {
+        var apps = store.shield.applications ?? []
+        apps.remove(token)
+        store.shield.applications = apps.isEmpty ? nil : apps
     }
 
     // MARK: - Counting (App Group, shared cooldown)

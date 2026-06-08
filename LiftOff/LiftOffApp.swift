@@ -901,6 +901,11 @@ struct LiftOffApp: App {
         ) { _ in
             print("[LiftOffApp] 🔆 App came to foreground")
 
+            // Re-apply Accurate Mode shields: the ShieldAction extension lifts an
+            // app's shield so it can open, so we must re-shield on every foreground
+            // to keep counting subsequent opens.
+            ShieldManager.shared.refresh()
+
             // Navigate on foreground — notification taps win, else always home
             DispatchQueue.main.async {
                 if NotificationDelegate.shared.didNavigateViaNotification {

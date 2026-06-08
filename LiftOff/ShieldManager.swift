@@ -52,11 +52,14 @@ final class ShieldManager {
     private func applyShields() {
         let selection = AppSelectionStore.shared.selection
         let apps = selection.applicationTokens
-        let cats = selection.categoryTokens
 
+        // Shield ONLY the individually-selected apps — NOT whole categories.
+        // Shielding a category (e.g. "Social") covers dozens of apps, which felt
+        // like "everything is blocked". Per-app shielding is predictable and also
+        // lets the ShieldAction extension lift the shield for one specific app so
+        // it can open (you can't remove a single app from a category policy).
         store.shield.applications = apps.isEmpty ? nil : apps
-        store.shield.applicationCategories = cats.isEmpty ? nil
-            : ShieldSettings.ActivityCategoryPolicy.specific(cats)
+        store.shield.applicationCategories = nil
     }
 
     private func clearShields() {
