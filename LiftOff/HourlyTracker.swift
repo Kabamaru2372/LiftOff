@@ -123,6 +123,23 @@ class HourlyTracker {
         defaults.set(flat, forKey: storageKey)
     }
 
+    #if DEBUG
+    /// Fills the 7×24 heatmap with a realistic daily pattern (for screenshots).
+    func seedDemo() {
+        let base = [0,0,0,0,0,0,1,2,3,2,1,3,4,2,1,2,3,4,5,4,3,2,1,0]
+        let dayBoost = [2,1,3,0,2,1,2]
+        hourlyData = (0..<7).map { day in
+            base.map { $0 == 0 ? 0 : min(9, $0 + dayBoost[day]) }
+        }
+        saveData()
+    }
+
+    func clearDemo() {
+        hourlyData = Array(repeating: Array(repeating: 0, count: 24), count: 7)
+        saveData()
+    }
+    #endif
+
     private func loadData() {
         guard let flat = defaults.array(forKey: storageKey) as? [Int],
               flat.count == 168 else { return }

@@ -28,6 +28,8 @@ struct SettingsView: View {
     @Environment(DataStore.self) var store
     @Environment(WeatherManager.self) var weatherManager
     @Environment(ActivityPreferences.self) var activityPrefs
+    @Environment(HourlyTracker.self) var hourlyTracker
+    @Environment(CheckInManager.self) var checkInManager
 
     @State private var showAboutScience: Bool = false
     @State private var showPaywall: Bool = false
@@ -877,6 +879,8 @@ struct SettingsView: View {
             HStack(spacing: 10) {
                 Button(action: {
                     store.seedDemoData()
+                    hourlyTracker.seedDemo()
+                    checkInManager.seedDemo()
                     DuelManager.shared.injectDemoDuel()
                     FriendSyncManager.shared.registeredPairs = [
                         RegisteredPair(deviceID: "demo-alex", name: "Alex", registeredAt: Date().addingTimeInterval(-86400 * 3)),
@@ -895,6 +899,8 @@ struct SettingsView: View {
 
                 Button(action: {
                     store.clearDemoData()
+                    hourlyTracker.clearDemo()
+                    checkInManager.clearDemo()
                     DuelManager.shared.clearDemoDuel()
                     FriendSyncManager.shared.registeredPairs = []
                 }) {

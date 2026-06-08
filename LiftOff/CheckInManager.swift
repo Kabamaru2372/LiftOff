@@ -116,6 +116,23 @@ class CheckInManager {
         defaults.set(data, forKey: storageKey)
     }
 
+    #if DEBUG
+    /// Seeds 7 days of varied moods for the "mood this week" screenshot.
+    func seedDemo() {
+        let moods: [CheckInMood] = [.great, .okay, .great, .rough, .okay, .great, .great]
+        entries = (0..<7).map { i in
+            let d = Calendar.current.date(byAdding: .day, value: -(6 - i), to: Date()) ?? Date()
+            return CheckInEntry(date: dateStringFor(d), mood: moods[i], note: "", timestamp: d)
+        }
+        saveEntries()
+    }
+
+    func clearDemo() {
+        entries = []
+        saveEntries()
+    }
+    #endif
+
     // MARK: - Helpers
 
     private func todayDateString() -> String {
