@@ -390,6 +390,12 @@ struct LiftOffApp: App {
 
             let pickups = sharedDefaults.integer(forKey: "todayPickups")
 
+            // Accurate Mode: re-apply shields. After "Open" lifts a shield so an
+            // app can launch, this background pass re-shields it (within the next
+            // refresh cycle) even if the user never returns to Picksy — so later
+            // opens are caught again.
+            await MainActor.run { ShieldManager.shared.refresh() }
+
             // SAFEGUARD (c) for continuous-use alerts: if the device is currently
             // LOCKED, the user is not in an active session, so cancel any pending
             // continuous alerts that a since-suspended app couldn't cancel at lock

@@ -347,6 +347,9 @@ struct SettingsView: View {
         .onChange(of: pickerSelection) { _, newValue in
             AppSelectionStore.shared.selection = newValue
             UsageThresholdManager.shared.restartMonitoring()
+            // Accurate Mode: shield the updated selection right away so a newly
+            // added app is locked immediately (no need to relaunch / re-lock).
+            ShieldManager.shared.refresh()
         }
         // Mirror dailyGoal to App Group suite immediately so the widget reflects
         // the new goal without waiting for the next pickup (which triggers saveData).
