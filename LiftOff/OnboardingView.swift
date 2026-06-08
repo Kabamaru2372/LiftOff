@@ -66,24 +66,24 @@ struct OnboardingView: View {
                 OnboardingPage(
                     icon: "hand.raised.fill",
                     iconColor: .blue,
-                    title: t("How often do you pick it up?", "Πόσες φορές το σηκώνεις;", "Wie oft greifst du hin?"),
+                    title: t("Use your phone less. For real.", "Λιγότερο κινητό. Στ' αλήθεια.", "Weniger Handy. Wirklich."),
                     description: t(
-                        "Picksy counts every time you pick up your phone. No judgment — just awareness.",
-                        "Το Picksy μετράει κάθε φορά που σηκώνεις το κινητό σου. Χωρίς κριτική — απλά συνειδητοποίηση.",
-                        "Picksy zählt jedes Mal, wenn du dein Handy aufhebst. Kein Urteil — nur Bewusstsein."
+                        "You've watched your screen time climb. Picksy actually helps you bring it down — no guilt, and a bit of fun.",
+                        "Έχεις δει τον χρόνο σου να ανεβαίνει. Το Picksy σε βοηθάει να τον ρίξεις — χωρίς ενοχές, με λίγη πλάκα.",
+                        "Du hast deine Bildschirmzeit steigen sehen. Picksy hilft dir wirklich, sie zu senken — ohne Schuldgefühle, mit etwas Spaß."
                     ),
                     tag: 1
                 )
 
                 // Page 2: How it works
                 OnboardingPage(
-                    icon: "iphone.and.arrow.forward",
+                    icon: "target",
                     iconColor: .orange,
                     title: t("How it works", "Πώς λειτουργεί", "So funktioniert es"),
                     description: t(
-                        "Picksy needs to stay open in the foreground to count your pickups.\n\nIf you send it to the background or close it, counting stops automatically.\n\nOpen it every morning and leave it running for accurate results.",
-                        "Το Picksy χρειάζεται να είναι ανοιχτό στο προσκήνιο για να μετράει τα σηκώματα.\n\nΑν το στείλεις στο παρασκήνιο ή το κλείσεις εντελώς, η μέτρηση σταματάει αυτόματα.\n\nΆνοιξέ το κάθε πρωί και άφησέ το ανοιχτό για ακριβή αποτελέσματα.",
-                        "Picksy muss im Vordergrund geöffnet bleiben, um deine Griffe zu zählen.\n\nWenn du es in den Hintergrund schickst oder schließt, stoppt die Zählung automatisch.\n\nÖffne es jeden Morgen und lass es laufen für genaue Ergebnisse."
+                        "1. Pick the apps that eat your time.\n2. Set a daily limit — Picksy locks them when you reach it.\n3. Duel friends to see who's on their phone less.\n\nSimple as that.",
+                        "1. Διάλεξε τις apps που σου τρώνε χρόνο.\n2. Βάλε ημερήσιο όριο — το Picksy τις κλειδώνει όταν το φτάσεις.\n3. Μονομάχησε με φίλους για το ποιος είναι λιγότερο στο κινητό.\n\nΤόσο απλό.",
+                        "1. Wähle die Apps, die deine Zeit fressen.\n2. Setze ein Tageslimit — Picksy sperrt sie, wenn du es erreichst.\n3. Duelliere Freunde, wer weniger am Handy ist.\n\nSo einfach."
                     ),
                     tag: 2
                 )
@@ -101,11 +101,11 @@ struct OnboardingView: View {
                 OnboardingPage(
                     icon: "bell.badge.fill",
                     iconColor: .green,
-                    title: t("Stay informed", "Μείνε ενημερωμένος", "Bleib informiert"),
+                    title: t("Gentle reminders", "Ευγενικές υπενθυμίσεις", "Sanfte Erinnerungen"),
                     description: t(
-                        "Picksy sends a midday notification with your progress and an evening one with your daily results.\n\nTap \"Get started!\" to enable notifications.",
-                        "Το Picksy στέλνει μια ειδοποίηση στο μεσημέρι με την πρόοδό σου και μια το βράδυ με τα αποτελέσματα της ημέρας.\n\nΠάτα \"Ξεκίνα!\" για να ενεργοποιήσεις τις ειδοποιήσεις.",
-                        "Picksy sendet eine Mittagsbenachrichtigung mit deinem Fortschritt und eine abendliche mit deinen Tagesergebnissen.\n\nTippe auf \"Los geht's!\", um Benachrichtigungen zu aktivieren."
+                        "Picksy sends a few friendly nudges and a daily summary, so you stay on track without thinking about it.\n\nTap \"Get started!\" to turn them on.",
+                        "Το Picksy στέλνει λίγες φιλικές υπενθυμίσεις και μια ημερήσια σύνοψη, για να μένεις σε φόρμα χωρίς να το σκέφτεσαι.\n\nΠάτα \"Ξεκίνα!\" για να τις ενεργοποιήσεις.",
+                        "Picksy sendet ein paar freundliche Anstöße und eine Tageszusammenfassung, damit du mühelos dranbleibst.\n\nTippe auf \"Los geht's!\", um sie zu aktivieren."
                     ),
                     tag: 6
                 )
@@ -253,9 +253,9 @@ struct OnboardingView: View {
                 .padding(.horizontal, 24)
 
                 Text(t(
-                    "For the most accurate tracking, Picksy can use Apple's Screen Time data.\n\nThis lets us track time spent in your selected apps — even when Picksy is in the background.\n\nYour data stays private and on your device.",
-                    "Για την πιο ακριβή μέτρηση, το Picksy μπορεί να χρησιμοποιήσει τα δεδομένα Screen Time της Apple.\n\nΈτσι μπορούμε να μετράμε τον χρόνο που ξοδεύεις στις επιλεγμένες εφαρμογές — ακόμα και όταν το Picksy είναι στο παρασκήνιο.\n\nΤα δεδομένα σου παραμένουν ιδιωτικά και στη συσκευή σου.",
-                    "Für die genaueste Verfolgung kann Picksy die Bildschirmzeit-Daten von Apple verwenden.\n\nSo können wir die Zeit verfolgen, die du in deinen ausgewählten Apps verbringst — auch wenn Picksy im Hintergrund ist.\n\nDeine Daten bleiben privat und auf deinem Gerät."
+                    "To measure your screen time and lock apps, Picksy needs Screen Time permission.\n\nIt keeps working even when Picksy is closed — and your data stays private, on your device.",
+                    "Για να μετράει τον χρόνο σου και να κλειδώνει apps, το Picksy χρειάζεται άδεια Screen Time.\n\nΛειτουργεί ακόμα κι όταν το Picksy είναι κλειστό — και τα δεδομένα σου μένουν ιδιωτικά, στη συσκευή σου.",
+                    "Um deine Bildschirmzeit zu messen und Apps zu sperren, braucht Picksy die Bildschirmzeit-Berechtigung.\n\nEs funktioniert auch wenn Picksy geschlossen ist — und deine Daten bleiben privat, auf deinem Gerät."
                 ))
                 .font(.system(size: 15, weight: .regular, design: .rounded))
                 .foregroundColor(.secondary)
