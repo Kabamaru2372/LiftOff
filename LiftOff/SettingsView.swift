@@ -875,6 +875,20 @@ struct SettingsView: View {
                 .background(Capsule().fill(Color.blue.opacity(0.85)))
             }
 
+            Button(action: {
+                // Simulate an older install so "What's new" shows on next launch.
+                UserDefaults.standard.set("0.0", forKey: "picksy_last_seen_version")
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles.rectangle.stack").font(.system(size: 12))
+                    Text("Reset What's New (relaunch)").font(.system(size: 13, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Color.pink.opacity(0.8)))
+            }
+
             // Demo data for App Store screenshots
             HStack(spacing: 10) {
                 Button(action: {
