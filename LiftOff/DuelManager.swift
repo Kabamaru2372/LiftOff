@@ -108,6 +108,31 @@ class DuelManager {
     /// Completed duels from the last 7 days, newest first.
     var duelHistory: [DuelRecord]     = []
 
+    #if DEBUG
+    /// When true, poll() is skipped so an injected demo duel isn't overwritten
+    /// (App Store screenshots).
+    var demoMode = false
+
+    /// Injects a fake active duel where "you" are winning on screen time.
+    func injectDemoDuel() {
+        demoMode = true
+        let end = Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: Date())
+        activeDuels = [DuelRecord(
+            id: "demo-duel", challengerId: myDeviceID, opponentId: "demo-opp",
+            challengerName: "You", opponentName: "Alex", status: .active,
+            startedAt: Date(), endsAt: end,
+            challengerPickups: 9, opponentPickups: 14,
+            challengerScreenTime: 5400, opponentScreenTime: 9300,   // 1h30 vs 2h35
+            winnerId: nil, createdAt: Date()
+        )]
+    }
+
+    func clearDemoDuel() {
+        demoMode = false
+        activeDuels = []
+    }
+    #endif
+
     // MARK: Rate limiting
     /// Minimum seconds between polls when no duel is active.
     private let pollInterval: TimeInterval = 12
@@ -269,6 +294,9 @@ class DuelManager {
     /// Rate-limited: at most one real network request per `pollInterval` seconds,
     /// enforced atomically on MainActor so concurrent Tasks can't race through.
     func poll() async {
+        #if DEBUG
+        if demoMode { return }   // keep the injected demo duel intact for screenshots
+        #endif
         // Atomic check+set on MainActor prevents concurrent Tasks from all passing
         let proceed = await MainActor.run { () -> Bool in
             let now = Date()

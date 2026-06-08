@@ -225,6 +225,44 @@ class DataStore {
     /// Μηδενίζει μόνο τα σημερινά σηκώματα.
     /// Αφαιρεί το σημερινό count από το totalPickups ώστε να παραμείνει συνεπές.
     /// Το streak, η εβδομαδιαία ιστορία (εκτός σήμερα) και τα achievements δεν επηρεάζονται.
+    #if DEBUG
+    /// Fills the app with realistic demo data for App Store screenshots.
+    /// Pair with DuelManager.injectDemoDuel() + a seeded friends list.
+    func seedDemoData() {
+        todayPickups      = 12
+        totalPickups      = 487
+        currentStreak     = 7
+        totalDaysTracked  = 23
+        todayTotalSeconds = 5400            // 1h 30m → Nudge/Stats screen time
+        weeklyPickups     = [22, 18, 25, 14, 19, 9, 12]
+        hourlyScreenTimeSecs = [0,0,0,0,0,0,300,900,1200,800,600,1500,2000,1100,700,900,1300,1800,2400,2100,1600,900,400,100]
+
+        defaults.set(12, forKey: "todayPickups")
+        defaults.set(5400, forKey: "picksy_apple_screen_time_secs")
+        defaults.set(todayDateString(), forKey: "picksy_apple_screen_time_date")
+
+        saveData()
+        refreshConfirmedScreenTime()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Clears the demo data (back to empty) after screenshots.
+    func clearDemoData() {
+        todayPickups = 0; totalPickups = 0; currentStreak = 0; totalDaysTracked = 0
+        todayTotalSeconds = 0
+        weeklyPickups = Array(repeating: 0, count: 7)
+        hourlyScreenTimeSecs = Array(repeating: 0, count: 24)
+
+        defaults.set(0, forKey: "todayPickups")
+        defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+        defaults.removeObject(forKey: "picksy_apple_screen_time_date")
+
+        saveData()
+        refreshConfirmedScreenTime()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+    #endif
+
     func resetTodayPickups() {
         let todayCount = todayPickups
 

@@ -873,6 +873,42 @@ struct SettingsView: View {
                 .background(Capsule().fill(Color.blue.opacity(0.85)))
             }
 
+            // Demo data for App Store screenshots
+            HStack(spacing: 10) {
+                Button(action: {
+                    store.seedDemoData()
+                    DuelManager.shared.injectDemoDuel()
+                    FriendSyncManager.shared.registeredPairs = [
+                        RegisteredPair(deviceID: "demo-alex", name: "Alex", registeredAt: Date().addingTimeInterval(-86400 * 3)),
+                        RegisteredPair(deviceID: "demo-john", name: "John", registeredAt: Date().addingTimeInterval(-86400 * 8))
+                    ]
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "wand.and.stars").font(.system(size: 12))
+                        Text("Seed Demo").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.teal.opacity(0.85)))
+                }
+
+                Button(action: {
+                    store.clearDemoData()
+                    DuelManager.shared.clearDemoDuel()
+                    FriendSyncManager.shared.registeredPairs = []
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "trash").font(.system(size: 12))
+                        Text("Clear Demo").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.gray.opacity(0.7)))
+                }
+            }
+
             Text("These buttons exist only in DEBUG builds and will not appear in the App Store version.")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundColor(.secondary)
