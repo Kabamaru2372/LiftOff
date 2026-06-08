@@ -55,6 +55,11 @@ struct SettingsView: View {
     // Optional passcode that gates the time limit (parental use)
     @State private var passcodeRequired: Bool = PasscodeManager.shared.isRequired
     @State private var showPasscodeSetup: Bool = false
+    // Settings lock: when a passcode is set, time-limit/passcode controls require
+    // the code to change (so a child can't just turn the limit off). Resets each
+    // time Settings is opened.
+    @State private var settingsUnlocked: Bool = !PasscodeManager.shared.isRequired
+    @State private var showSettingsUnlock: Bool = false
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -298,10 +303,14 @@ struct SettingsView: View {
                 Divider()
                 accurateModeRow
                 Divider()
-                timeLimitRow
-                if timeLimitMinutes > 0 {
-                    Divider()
-                    passcodeRow
+                if PasscodeManager.shared.isRequired && !settingsUnlocked {
+                    lockedSettingsRow
+                } else {
+                    timeLimitRow
+                    if timeLimitMinutes > 0 {
+                        Divider()
+                        passcodeRow
+                    }
                 }
                 Divider()
                 resetSection
@@ -532,6 +541,34 @@ struct SettingsView: View {
                     showPasscodeSetup = false
                 },
                 onCancel: { showPasscodeSetup = false }
+            )
+        }
+    }
+
+    private var lockedSettingsRow: some View {
+        Button(action: { showSettingsUnlock = true }) {
+            HStack(spacing: 10) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.indigo)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Time limit & passcode", "Όριο χρόνου & κωδικός", "Zeitlimit & Code"))
+                        .font(.system(size: 15, weight: .regular, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text(t("Locked — tap to enter passcode", "Κλειδωμένο — πάτα για κωδικό", "Gesperrt — zum Eingeben tippen"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.secondary)
+            }
+            .padding(.vertical, 16)
+        }
+        .sheet(isPresented: $showSettingsUnlock) {
+            PasscodeView(
+                mode: .unlock,
+                onUnlock: { settingsUnlocked = true; showSettingsUnlock = false },
+                onCancel: { showSettingsUnlock = false }
             )
         }
     }
