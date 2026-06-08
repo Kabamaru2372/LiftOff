@@ -13,6 +13,7 @@
 //
 
 import ManagedSettings
+import FamilyControls
 import Foundation
 import WidgetKit
 
@@ -71,12 +72,28 @@ class ShieldActionHandler: ShieldActionDelegate {
         }
     }
 
-    /// Removes a single app from the shield set so it can launch. Picksy re-applies
-    /// the full shield on its next foreground (ShieldManager.refresh).
+    /// Lets the just-opened app launch by rebuilding the FULL shielded set from the
+    /// saved selection, minus this one app. Rebuilding (instead of only removing)
+    /// means any app whose shield was previously lifted snaps back to shielded the
+    /// moment the user hits any shield again — so the user doesn't have to reopen
+    /// Picksy for earlier apps to re-lock. (iOS can't wake us exactly on screen
+    /// lock, so this + the foreground/background re-shield is the best coverage.)
     private func liftShield(for token: ApplicationToken) {
-        var apps = store.shield.applications ?? []
-        apps.remove(token)
-        store.shield.applications = apps.isEmpty ? nil : apps
+        var shielded = selectedAppTokens()
+        shielded.remove(token)
+        store.shield.applications = shielded.isEmpty ? nil : shielded
+    }
+
+    /// The user's selected app tokens, decoded from the App Group (written by
+    /// AppSelectionStore). Falls back to whatever is currently shielded.
+    private func selectedAppTokens() -> Set<ApplicationToken> {
+        guard let defaults = UserDefaults(suiteName: appGroupID),
+              let data = defaults.data(forKey: "picksyAppSelection"),
+              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+        else {
+            return store.shield.applications ?? []
+        }
+        return selection.applicationTokens
     }
 
     // MARK: - Counting (App Group, shared cooldown)
