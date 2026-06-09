@@ -46,6 +46,17 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         super.intervalDidStart(for: activity)
         log("📅 Interval started for: \(activity.rawValue)")
 
+        // One-shot re-shield, scheduled by the ShieldAction extension after a
+        // category shield was lifted (tap-through on a category-shielded app).
+        // The config extension is sealed (can't tell us WHICH app was opened),
+        // so the whole category unshields — this guarantees it re-locks within
+        // ~15 min even if Picksy's process is dead and the screen never locks.
+        if activity.rawValue == "picksy.reshield" {
+            reapplyCategoryShields()
+            DeviceActivityCenter().stopMonitoring([activity])
+            return
+        }
+
         // New day: clear the duel meta cache so the first pickup fetches fresh
         // active duels from Supabase (catches overnight duel invitations).
         if activity.rawValue == "daily" {
@@ -66,7 +77,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             log("📊 Screen-time accumulator reset for new day")
 
             // New day → lift yesterday's time-limit shield + clear its flag.
-            ManagedSettingsStore(named: .init("picksy.timeLimit")).shield.applications = nil
+            let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+            tlStore.shield.applications = nil
+            tlStore.shield.applicationCategories = nil
             sharedDefaults?.removeObject(forKey: "picksy_timelimit_active")
 
             // Tell the main app (if alive) to re-read the now-zeroed values.
@@ -635,12 +648,57 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
         let apps = selection.applicationTokens
-        guard !apps.isEmpty else { return }
+        let categories = selection.categoryTokens
+        // BUGFIX: previously only shielded `applications` and bailed if empty, so a
+        // CATEGORY-only selection (e.g. "Social") never locked. Shield both.
+        guard !apps.isEmpty || !categories.isEmpty else {
+            log("⚠️ Time limit reached but selection has no apps or categories")
+            return
+        }
 
         let store = ManagedSettingsStore(named: .init("picksy.timeLimit"))
-        store.shield.applications = apps
+        // Per-app first (category ticks arrive pre-expanded into app tokens);
+        // category policy only for legacy category-only selections.
+        store.shield.applications = apps.isEmpty ? nil : apps
+        store.shield.applicationCategories =
+            (apps.isEmpty && !categories.isEmpty) ? .specific(categories) : nil
         defaults.set(milestoneTodayKey(), forKey: "picksy_timelimit_active")
-        log("⏳ Daily time limit reached — shielded \(apps.count) app(s)")
+        log("⏳ Daily time limit reached — shielded \(apps.count) app(s), \(categories.count) categor(y/ies)")
+    }
+
+    /// Re-applies the Accurate Mode + (if active today) time-limit shields from
+    /// the saved selection. Fired by the one-shot "picksy.reshield" activity the
+    /// ShieldAction extension schedules after lifting a category shield — closes
+    /// the window where the whole category stays unshielded because we can't
+    /// know which single app the user tapped through.
+    private func reapplyCategoryShields() {
+        guard let defaults = sharedDefaults,
+              let data = defaults.data(forKey: "picksyAppSelection"),
+              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+        else {
+            log("⚠️ Re-shield fired but no selection found")
+            return
+        }
+        let apps = selection.applicationTokens
+        let categories = selection.categoryTokens
+
+        // Same policy as ShieldManager: per-app first, category policy only for
+        // legacy category-only selections (no expanded app tokens).
+        let categoryPolicy: ShieldSettings.ActivityCategoryPolicy<Application>? =
+            (apps.isEmpty && !categories.isEmpty) ? .specific(categories) : nil
+
+        if defaults.bool(forKey: "picksy_accurate_mode") {
+            let store = ManagedSettingsStore(named: .init("picksy.accurateMode"))
+            store.shield.applications = apps.isEmpty ? nil : apps
+            store.shield.applicationCategories = categoryPolicy
+            log("🛡 Re-shielded Accurate Mode (\(apps.count) apps, \(categories.count) categories)")
+        }
+        if defaults.string(forKey: "picksy_timelimit_active") == milestoneTodayKey() {
+            let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+            tlStore.shield.applications = apps.isEmpty ? nil : apps
+            tlStore.shield.applicationCategories = categoryPolicy
+            log("⏳ Re-shielded time-limit (limit already reached today)")
+        }
     }
 
     /// Logging με prefix για ευκολία debugging

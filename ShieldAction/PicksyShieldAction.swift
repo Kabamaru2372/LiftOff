@@ -14,6 +14,7 @@
 
 import ManagedSettings
 import FamilyControls
+import DeviceActivity
 import Foundation
 import WidgetKit
 
@@ -41,6 +42,7 @@ class ShieldActionHandler: ShieldActionDelegate {
             // opens (.none alone does not launch a still-shielded app). The shield
             // is re-applied next time Picksy comes to the foreground.
             countPickup()
+            writeShieldDebug("app handler → lift")
             liftShield(for: application)
             completionHandler(.none)
         case .secondaryButtonPressed:
@@ -67,7 +69,24 @@ class ShieldActionHandler: ShieldActionDelegate {
                          completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
+            // Same passcode gate as the application handler: when the time limit
+            // is reached and a passcode is required, there is NO tap-through.
+            if isPasscodeLocked() {
+                completionHandler(.close)
+                return
+            }
             countPickup()
+            // iOS doesn't pass the app token here — but the ShieldConfiguration
+            // extension recorded which app's shield was just displayed. Use it to
+            // except ONLY that app (everything else stays shielded); fall back to
+            // lifting the whole category if the handoff is missing/stale.
+            if let token = lastShieldedToken() {
+                writeShieldDebug("cat → except (token ok)")
+                liftShield(for: token)
+            } else {
+                writeShieldDebug("cat → fallback (no token)")
+                liftCategoryShield()
+            }
             completionHandler(.none)
         default:
             completionHandler(.close)
@@ -107,11 +126,66 @@ class ShieldActionHandler: ShieldActionDelegate {
             store.shield.applications = s.isEmpty ? nil : s
         }
 
+        // Category policy (user selected e.g. "Social" instead of single apps):
+        // keep the category shield but except THIS app so it actually opens.
+        // Rebuilding the except-set fresh each time re-shields any previously
+        // excepted app — same semantics as the per-app rebuild above.
+        if store.shield.applicationCategories != nil {
+            let cats = selectedCategoryTokens()
+            store.shield.applicationCategories = cats.isEmpty
+                ? nil : .specific(cats, except: [token])
+        }
+
         // Time-limit store: free this app so it opens (re-applied at next limit/midnight).
         let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
         if var s = tlStore.shield.applications {
             s.remove(token)
             tlStore.shield.applications = s.isEmpty ? nil : s
+        }
+        if tlStore.shield.applicationCategories != nil {
+            let cats = selectedCategoryTokens()
+            tlStore.shield.applicationCategories = cats.isEmpty
+                ? nil : .specific(cats, except: [token])
+        }
+    }
+
+    /// Fallback when iOS reports a tap via the CATEGORY handler (no app token
+    /// available, so no except is possible): lift the category policy entirely so
+    /// the tapped app opens. ShieldManager.refresh() re-applies it on Picksy's
+    /// next foreground / device lock — the same re-shield net the app path uses.
+    private func liftCategoryShield() {
+        if store.shield.applicationCategories != nil {
+            store.shield.applicationCategories = nil
+        }
+        let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+        if tlStore.shield.applicationCategories != nil {
+            tlStore.shield.applicationCategories = nil
+        }
+        scheduleCategoryReshield()
+    }
+
+    /// Schedules a one-shot DeviceActivity (~15 min out) whose intervalDidStart
+    /// makes the monitor extension re-apply the category shields. Guarantees the
+    /// lifted category re-locks even if Picksy's process is dead and the screen
+    /// is never locked in between. Best-effort: if starting monitoring is not
+    /// permitted from this extension, the lock/foreground re-shield nets remain.
+    private func scheduleCategoryReshield() {
+        let start = Date().addingTimeInterval(15 * 60)
+        let end   = start.addingTimeInterval(30 * 60)   // ≥15 min interval required
+        let cal = Calendar.current
+        let comps: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
+        let schedule = DeviceActivitySchedule(
+            intervalStart: cal.dateComponents(comps, from: start),
+            intervalEnd:   cal.dateComponents(comps, from: end),
+            repeats: false
+        )
+        do {
+            try DeviceActivityCenter().startMonitoring(
+                DeviceActivityName("picksy.reshield"),
+                during: schedule
+            )
+        } catch {
+            // Lock/foreground nets still cover re-shielding.
         }
     }
 
@@ -125,6 +199,51 @@ class ShieldActionHandler: ShieldActionDelegate {
             return store.shield.applications ?? []
         }
         return selection.applicationTokens
+    }
+
+    /// The user's selected category tokens, decoded from the App Group.
+    private func selectedCategoryTokens() -> Set<ActivityCategoryToken> {
+        guard let defaults = UserDefaults(suiteName: appGroupID),
+              let data = defaults.data(forKey: "picksyAppSelection"),
+              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+        else { return [] }
+        return selection.categoryTokens
+    }
+
+    /// Token of the app whose shield was most recently DISPLAYED, written by the
+    /// ShieldConfiguration extension. Freshness-gated: the shield renders moments
+    /// before any button press, so a stale value means the handoff didn't happen.
+    /// Tries the App Group FILE first (survives sandboxes that drop the config
+    /// extension's UserDefaults writes), then falls back to UserDefaults.
+    private func lastShieldedToken() -> ApplicationToken? {
+        // 1) File handoff — freshness via modification date
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("last_shield_token.json"),
+           let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let mod = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(mod) < 120,
+           let data = try? Data(contentsOf: url),
+           let token = try? JSONDecoder().decode(ApplicationToken.self, from: data) {
+            return token
+        }
+        // 2) UserDefaults handoff
+        if let d = UserDefaults(suiteName: appGroupID),
+           let data = d.data(forKey: "picksy_last_shield_token") {
+            let ts = d.double(forKey: "picksy_last_shield_token_ts")
+            if ts > 0, Date().timeIntervalSince1970 - ts < 120 {
+                return try? JSONDecoder().decode(ApplicationToken.self, from: data)
+            }
+        }
+        return nil
+    }
+
+    /// DEV breadcrumb shown in Settings → DEV ONLY (this extension's defaults
+    /// writes are proven to work — countPickup uses the same mechanism).
+    private func writeShieldDebug(_ info: String) {
+        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"
+        UserDefaults(suiteName: appGroupID)?
+            .set("\(f.string(from: Date())) \(info)", forKey: "picksy_shield_debug")
     }
 
     // MARK: - Counting (App Group, shared cooldown)

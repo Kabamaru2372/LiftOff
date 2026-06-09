@@ -22,12 +22,51 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
     // MARK: - Overrides
 
     override func configuration(shielding application: Application) -> ShieldConfiguration {
-        makeConfiguration(appName: application.localizedDisplayName)
+        recordShieldedApp(application)
+        return makeConfiguration(appName: application.localizedDisplayName)
     }
 
     override func configuration(shielding application: Application,
                                 in category: ActivityCategory) -> ShieldConfiguration {
-        makeConfiguration(appName: application.localizedDisplayName)
+        recordShieldedApp(application)
+        return makeConfiguration(appName: application.localizedDisplayName)
+    }
+
+    /// Hands the shielded app's token to the ShieldAction extension. For
+    /// CATEGORY-shielded apps the action handler only receives the category
+    /// token — without this it cannot tell WHICH app the user is opening, so it
+    /// had to lift the whole category (unshielding every app in it). iOS renders
+    /// the shield right before any button press, so the last-recorded token is
+    /// the app being acted on. Best-effort: if this extension's writes are
+    /// discarded by the sandbox, ShieldAction falls back to lifting the category.
+    private func recordShieldedApp(_ application: Application) {
+        let container = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)
+
+        // Diagnostic marker — written on EVERY shield display, regardless of
+        // token availability. Lets the DEV screen distinguish "this extension's
+        // writes are discarded" from "the token was nil".
+        if let url = container?.appendingPathComponent("shield_config_marker.txt") {
+            try? "\(Date().timeIntervalSince1970)".data(using: .utf8)?
+                .write(to: url, options: .atomic)
+        }
+
+        guard let token = application.token,
+              let data = try? JSONEncoder().encode(token) else { return }
+
+        // Primary handoff: a FILE in the App Group container. File writes go
+        // through a different path than UserDefaults (cfprefsd) and survive in
+        // sandboxes where the defaults write is silently dropped. Freshness is
+        // checked via the file's modification date on the reader side.
+        if let url = container?.appendingPathComponent("last_shield_token.json") {
+            try? data.write(to: url, options: .atomic)
+        }
+
+        // Secondary: UserDefaults (kept as belt-and-braces where it does work).
+        if let d = UserDefaults(suiteName: appGroupID) {
+            d.set(data, forKey: "picksy_last_shield_token")
+            d.set(Date().timeIntervalSince1970, forKey: "picksy_last_shield_token_ts")
+        }
     }
 
     override func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {

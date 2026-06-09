@@ -38,7 +38,7 @@ struct SettingsView: View {
     @State private var showAppInfo: Bool = false
     @State private var showActivityPrefs: Bool = false
     @State private var showAppPicker: Bool = false
-    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
+    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true)
     @State private var isAuthorized: Bool = false
     @State private var showAchievements: Bool = false
     #if DEBUG
@@ -439,6 +439,21 @@ struct SettingsView: View {
                     .font(.system(size: 12, design: .rounded))
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                    // Category ticks now expand to the category's CURRENT apps
+                    // (includeEntireCategory), so locking is strictly per-app.
+                    // Only remaining caveat: apps installed later into a ticked
+                    // category aren't auto-added until the picker is reopened.
+                    if AppSelectionStore.shared.selectedCategoriesCount > 0 {
+                        Text(t(
+                            "Category picks include the apps installed right now — new apps you install later aren't added automatically. Reopen the app picker to include them.",
+                            "Η επιλογή κατηγορίας περιλαμβάνει τις εφαρμογές που έχεις τώρα — νέες εφαρμογές που εγκαθιστάς αργότερα δεν προστίθενται αυτόματα. Ξανάνοιξε την επιλογή εφαρμογών για να μπουν.",
+                            "Eine Kategorie-Auswahl umfasst die jetzt installierten Apps — später installierte Apps werden nicht automatisch ergänzt. Öffne die App-Auswahl erneut, um sie aufzunehmen."
+                        ))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.8))
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer()
                 Toggle("", isOn: Binding(
@@ -789,6 +804,28 @@ struct SettingsView: View {
     // Wrapped in #if DEBUG so it is completely stripped from App Store builds.
 
     #if DEBUG
+    /// One-line shield-handoff diagnosis: ShieldAction breadcrumb + ages of the
+    /// files the ShieldConfiguration extension tries to write. Decodes whether
+    /// (a) the token handoff works, (b) config writes are discarded, or (c) the
+    /// app token was nil in the category variant.
+    private var shieldDebugInfo: String {
+        let groupID = "group.fotiospongas.picksy"
+        let action = UserDefaults(suiteName: groupID)?
+            .string(forKey: "picksy_shield_debug") ?? "no taps yet"
+
+        func fileAge(_ name: String) -> String {
+            guard let url = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: groupID)?
+                .appendingPathComponent(name),
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                let mod = attrs[.modificationDate] as? Date
+            else { return "—" }
+            return "\(Int(Date().timeIntervalSince(mod)))s"
+        }
+
+        return "shield: \(action)\nmarker: \(fileAge("shield_config_marker.txt")) · token: \(fileAge("last_shield_token.json"))"
+    }
+
     private var debugSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 6) {
@@ -808,6 +845,14 @@ struct SettingsView: View {
                     .font(.system(size: 14, weight: .medium, design: .rounded))
                     .foregroundColor(.primary)
             }
+
+            // Shield handoff diagnostics: which path the ShieldAction took on the
+            // last tap, and whether the ShieldConfiguration extension's writes
+            // (marker/token files) are landing at all. Re-enter Settings to refresh.
+            Text(shieldDebugInfo)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 10) {
                 Button(action: { proManager.isPro = true }) {

@@ -56,14 +56,17 @@ final class ShieldManager {
     private func applyShields() {
         let selection = AppSelectionStore.shared.selection
         let apps = selection.applicationTokens
+        let categories = selection.categoryTokens
 
-        // Shield ONLY the individually-selected apps — NOT whole categories.
-        // Shielding a category (e.g. "Social") covers dozens of apps, which felt
-        // like "everything is blocked". Per-app shielding is predictable and also
-        // lets the ShieldAction extension lift the shield for one specific app so
-        // it can open (you can't remove a single app from a category policy).
+        // Per-app first: with includeEntireCategory the picker expands category
+        // ticks into individual app tokens, so the apps set covers everything —
+        // and tap-through lifting is precise (the app handler gets the token).
+        // A category POLICY is applied only for legacy selections that contain
+        // a bare category token with no apps (pre-expansion data), where iOS
+        // routes taps through the category handler (no token → 15-min reshield).
         store.shield.applications = apps.isEmpty ? nil : apps
-        store.shield.applicationCategories = nil
+        store.shield.applicationCategories =
+            (apps.isEmpty && !categories.isEmpty) ? .specific(categories) : nil
     }
 
     private func clearShields() {

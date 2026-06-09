@@ -38,7 +38,7 @@ struct AppsView: View {
     @State private var isAuthorized: Bool = false
     @State private var hasSelectedApps: Bool = false
     @State private var showAppPicker: Bool = false
-    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
+    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true)
     @State private var midnightTimer: Timer? = nil
     @State private var currentDate: Date = Date()
     @State private var hasAppeared: Bool = false

@@ -15,7 +15,7 @@ struct OnboardingView: View {
     @State private var currentPage: Int = 0
     @State private var familyControlsRequested: Bool = false
     @State private var showAppPicker: Bool = false
-    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
+    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true)
 
     // 0:lang, 1:setup-choice, 2:what, 3:how, 4:family-controls, 5:choose-apps,
     // 6:preferences, 7:notifications, 8:next-steps (tips)
