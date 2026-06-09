@@ -130,6 +130,10 @@ class DuelManager {
     func clearDemoDuel() {
         demoMode = false
         activeDuels = []
+        // Refresh the Live Activity so the ⚔️ demo duel disappears from the
+        // Dynamic Island immediately (update() now sees no active duel → normal
+        // mode). Without this the injected duel stayed "stuck" in the DI.
+        NotificationCenter.default.post(name: .picksyDuelFinalized, object: nil)
     }
     #endif
 

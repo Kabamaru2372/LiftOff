@@ -49,6 +49,32 @@ struct NudgeView: View {
     @State private var moonGlow: Bool = false
     // Separate display state so we can drive .contentTransition via withAnimation
     @State private var displayPickups: Int = 0
+
+    // "Wow" FX — spark burst per pickup + balloon pop on goal cross + idle bob
+    @State private var burstID: Int = 0          // increments → PickupBurstFX fires
+    @State private var bigPop: Bool = false      // true = balloon-pop variant
+    @State private var ringPopScale: CGFloat = 1.0
+    @State private var ringPopOpacity: Double = 1.0
+    @State private var ringBob: Bool = false     // gentle floating-balloon bob
+    /// Date-gate so the balloon pop plays exactly ONCE per day — live if you're
+    /// watching when you cross the goal, otherwise replayed on the next open.
+    @AppStorage("picksy_balloonpop_date") private var balloonPopDate: String = ""
+
+    /// Expanding wavefront radius (pt from ring center). Animated 0→500 per
+    /// sweep; WaveCarry-modified views get physically pushed as it passes them.
+    @State private var waveRadius: CGFloat = 0
+
+    /// Runs `sweeps` consecutive wave sweeps (~1.6s each). Views carrying the
+    /// WaveCarry modifier bob outward as each front passes — the ripple visibly
+    /// "drags" the title above and the cards below along with it.
+    private func runWaveShow(_ sweeps: Int) {
+        guard sweeps > 0 else { return }
+        waveRadius = 0   // instant reset; all bumps ≈ 0 at both extremes
+        withAnimation(.linear(duration: 1.6)) { waveRadius = 500 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.65) {
+            runWaveShow(sweeps - 1)
+        }
+    }
     // C4 fix: store the closure-based observer token so we can properly remove it
     @State private var pickupObserverToken: NSObjectProtocol? = nil
 
@@ -246,7 +272,29 @@ struct NudgeView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 7) { store.refreshConfirmedScreenTime() }
             startRefreshTimer()
             checkTogetherBanner()
-            displayPickups = store.todayPickups   // seed ring counter on every appear
+            // Seed/replay the ring counter. The live burst fires at unlock time —
+            // when nobody is looking at the app. So if pickups accumulated while
+            // we were away, REPLAY the feedback now that the user can see it:
+            // the number rolls up, bounces, and the burst (or the once-a-day
+            // balloon pop) plays right in front of them.
+            if store.todayPickups > displayPickups {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    withAnimation(.bouncy(duration: 0.5)) {
+                        displayPickups = store.todayPickups
+                    }
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.4)) {
+                        counterScale = 1.35
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+                            counterScale = 1.0
+                        }
+                    }
+                    maybeFireWowFX()
+                }
+            } else {
+                displayPickups = store.todayPickups
+            }
             // Entrance animation — τρέχει ΜΟΝΟ την πρώτη φορά (όχι σε κάθε tab switch)
             if !appeared {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -268,6 +316,18 @@ struct NudgeView: View {
             // Zone badge pulse (only in danger zone)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 badgePulse = goalZone == .problematic || goalZone == .heavy
+            }
+            // Floating-balloon bob — starts after the entrance animation settles
+            if !ringBob {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    ringBob = true
+                }
+            }
+            // Ripple wave show: three sweeps that physically carry the title and
+            // the cards as the front passes them; the visible rings (RippleField)
+            // fade out on their own at the same time (~5s total, then calm).
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                runWaveShow(3)
             }
 
             // C4 fix: save the token so onDisappear can properly remove this observer.
@@ -297,6 +357,8 @@ struct NudgeView: View {
                             counterScale = 1.0
                         }
                     }
+                    // Wow FX: once-a-day balloon pop past the goal, burst otherwise
+                    maybeFireWowFX()
                     // Update danger zone pulse
                     badgePulse = goalZone == .problematic || goalZone == .heavy
                 }
@@ -308,6 +370,7 @@ struct NudgeView: View {
             // Μόνο τα looping animations σταματούν για να μην τρέχουν off-screen
             titleShimmer = false
             badgePulse = false
+            ringBob = false   // stop the bob loop off-screen (mirrors badgePulse)
             // C4 fix: use the stored token (closure-based API requires this form)
             if let token = pickupObserverToken {
                 NotificationCenter.default.removeObserver(token)
@@ -330,7 +393,7 @@ struct NudgeView: View {
             // so the content isn't bunched at the top with empty space below.
             Spacer(minLength: 16)
 
-            // Picksy title — subtle shimmer
+            // Picksy title — subtle shimmer; carried upward as the ripple passes
             Text("Picksy")
                 .font(.system(size: 32, weight: .light, design: .rounded))
                 .foregroundColor(.white)
@@ -339,6 +402,7 @@ struct NudgeView: View {
                 .opacity(appeared ? 1 : 0)
                 .animation(.easeOut(duration: 0.5).delay(0.05), value: appeared)
                 .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: titleShimmer)
+                .modifier(WaveCarry(radius: waveRadius, distance: 200, push: -9))
 
             Spacer(minLength: 12)
 
@@ -373,6 +437,7 @@ struct NudgeView: View {
             )
             .opacity(appeared ? 1 : 0)
             .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.42), value: appeared)
+            .modifier(WaveCarry(radius: waveRadius, distance: 135, push: 6))
 
             Spacer(minLength: 12)
 
@@ -386,6 +451,7 @@ struct NudgeView: View {
                     .offset(y: appeared ? 0 : 20)
                     .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.18), value: appeared)
                     .transition(.opacity.combined(with: .offset(y: 8)))
+                    .modifier(WaveCarry(radius: waveRadius, distance: 250, push: 9))
             }
 
             // Last pickup info
@@ -395,6 +461,7 @@ struct NudgeView: View {
                     .opacity(appeared ? 1 : 0)
                     .offset(y: appeared ? 0 : 20)
                     .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.22), value: appeared)
+                    .modifier(WaveCarry(radius: waveRadius, distance: 310, push: 8))
             }
 
             // Focus Session button
@@ -403,6 +470,7 @@ struct NudgeView: View {
                 .opacity(appeared ? 1 : 0)
                 .offset(y: appeared ? 0 : 20)
                 .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.26), value: appeared)
+                .modifier(WaveCarry(radius: waveRadius, distance: 365, push: 7))
 
             // "Τι να κάνω τώρα;" button
             activitySuggestionsButton
@@ -438,7 +506,7 @@ struct NudgeView: View {
         // The glow lives in .background so it does NOT contribute to the ZStack's
         // measured height (which caused the 200pt glow to compress all Spacers,
         // pushing the "Picksy" title behind the Dynamic Island).
-        return ZStack {
+        let card = ZStack {
             // ── Track ring ────────────────────────────────────────────────
             Circle()
                 .stroke(Color.white.opacity(0.13), lineWidth: lineWidth)
@@ -470,6 +538,9 @@ struct NudgeView: View {
                     .scaleEffect(badgePulse ? 1.07 : 0.97)
                     .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: badgePulse)
             }
+
+            // ── Pickup burst FX (particles + shockwave, fires on burstID) ──
+            PickupBurstFX(burstID: burstID, color: zoneColor, big: bigPop)
 
             // ── Center: rolling number + goal + zone badge ────────────────
             VStack(spacing: 3) {
@@ -513,21 +584,104 @@ struct NudgeView: View {
         // Explicit frame keeps ZStack at exactly ringSize — the glow circle is in
         // .background so it extends visually beyond the frame without affecting layout.
         .frame(width: ringSize, height: ringSize)
+        // Balloon-pop transform — applied BEFORE .background so the glow halo
+        // survives the pop: the ring vanishes and re-fabricates inside it.
+        .scaleEffect(ringPopScale)
+        .opacity(ringPopOpacity)
         .background(
-            Circle()
-                .fill(zoneColor.opacity(badgePulse ? 0.30 : 0.14))
-                .frame(width: 200, height: 200)
-                .blur(radius: 30)
-                .animation(
-                    goalZone == .problematic || goalZone == .heavy
-                        ? .easeInOut(duration: 1.4).repeatForever(autoreverses: true)
-                        : .easeOut(duration: 0.7),
-                    value: badgePulse
-                )
+            ZStack {
+                // Ambient water ripples — calm sonar rings drifting out of the
+                // ring and fading, like drops in a pond. Behind the glow.
+                RippleField(color: zoneColor)
+
+                Circle()
+                    .fill(zoneColor.opacity(badgePulse ? 0.30 : 0.14))
+                    .frame(width: 200, height: 200)
+                    .blur(radius: 30)
+                    .animation(
+                        goalZone == .problematic || goalZone == .heavy
+                            ? .easeInOut(duration: 1.4).repeatForever(autoreverses: true)
+                            : .easeOut(duration: 0.7),
+                        value: badgePulse
+                    )
+            }
         )
+        // Floating-balloon bob — gentle ±3.5pt drift, glow moves with the ring.
+        .offset(y: ringBob ? -3.5 : 3.5)
+        .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: ringBob)
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared ? 0 : 20)
         .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.12), value: appeared)
+
+        #if DEBUG
+        // DEV preview: double-tap the ring → spark burst, long-press → balloon
+        // pop, without needing real unlocks. Stripped from release builds.
+        return card
+            .onTapGesture(count: 2) { fireSparkBurst() }
+            .onLongPressGesture(minimumDuration: 0.6) { fireBalloonPop() }
+        #else
+        return card
+        #endif
+    }
+
+    // MARK: - Wow FX (spark burst + balloon pop)
+
+    /// Picks the right effect: the balloon pop if we're past the daily goal and
+    /// it hasn't popped today (date-gated → exactly once per day, live or
+    /// replayed on open), otherwise the regular spark burst.
+    private func maybeFireWowFX() {
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let today = f.string(from: Date())
+        if store.todayPickups >= dailyGoal && balloonPopDate != today {
+            balloonPopDate = today
+            fireBalloonPop()
+        } else {
+            fireSparkBurst()
+        }
+    }
+
+    /// Every pickup: particles fly out of the ring + a quick rubber bounce.
+    private func fireSparkBurst() {
+        bigPop = false
+        burstID += 1
+        runWaveShow(1)   // the burst's wave carries the title/cards too
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.38)) {
+            ringPopScale = 1.12
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.5)) {
+                ringPopScale = 1.0
+            }
+        }
+    }
+
+    /// Goal crossed: the "pickup budget balloon" inflates, POPS into a particle
+    /// explosion, then re-fabricates with a spring — the visual story of having
+    /// spent today's budget. Warning haptic, not celebration.
+    private func fireBalloonPop() {
+        bigPop = true
+        // 1) Inflate — visibly "too full", like a balloon at its limit
+        withAnimation(.easeIn(duration: 0.18)) { ringPopScale = 1.28 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            // 2) Pop — particle explosion while the ring vanishes; the blast
+            // wave rocks the whole screen (two sweeps)
+            burstID += 1
+            runWaveShow(2)
+            UINotificationFeedbackGenerator().notificationOccurred(.warning)
+            withAnimation(.easeOut(duration: 0.12)) {
+                ringPopScale = 0.45
+                ringPopOpacity = 0.0
+            }
+            // 3) Re-fabricate — springs back into place inside the glow halo,
+            // with a bouncier overshoot so the rebuild reads clearly.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                withAnimation(.spring(response: 0.55, dampingFraction: 0.45)) {
+                    ringPopScale = 1.0
+                    ringPopOpacity = 1.0
+                }
+            }
+        }
     }
 
     // MARK: - Focus Session Button
@@ -955,6 +1109,197 @@ private struct WeatherPillFABView: View {
         case "Ελληνικά": return gr
         case "Deutsch":  return de
         default:         return en
+        }
+    }
+}
+
+// MARK: - Wave Carry
+//
+// Physically "carries" a view as the ripple wavefront passes it, like a buoy on
+// a pond. `radius` is the animated wavefront distance from the ring center;
+// when it crosses this view's `distance`, a gaussian bump displaces the view by
+// up to `push` points (negative = upward) with a matching micro-scale. Because
+// the modifier is Animatable, SwiftUI evaluates the bump every frame of the
+// radius animation — the motion follows the front exactly, no choreography.
+
+private struct WaveCarry: ViewModifier, Animatable {
+
+    var radius: CGFloat      // current wavefront radius (animated by the parent)
+    let distance: CGFloat    // how far this view sits from the ring center
+    let push: CGFloat        // max displacement as the front passes (− = up)
+
+    var animatableData: CGFloat {
+        get { radius }
+        set { radius = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let band: CGFloat = 70                      // wavefront thickness
+        let x = (radius - distance) / band
+        let bump = exp(-x * x)                      // 1 at the crest, →0 away
+        return content
+            .offset(y: push * bump)
+            .scaleEffect(1 + 0.02 * bump)
+    }
+}
+
+// MARK: - Ripple Field
+//
+// Ambient "pond" ripples behind the pickup ring: three staggered rings that
+// continuously expand and fade (sonar style), then re-emit from the center.
+// Self-contained lifecycle — starts shortly after appearing (so it never fights
+// the entrance animation) and stops whenever the view leaves the screen, like
+// the other looping effects. Purely decorative: no layout impact, no hit-testing.
+
+private struct RippleField: View {
+
+    let color: Color
+
+    @State private var animate = false   // drives the looping expansion
+    @State private var visible = false   // outer fade in/out of the whole show
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .stroke(color.opacity(animate ? 0 : 0.40),
+                            lineWidth: animate ? 0.5 : 2.5)
+                    .frame(width: 190, height: 190)
+                    .scaleEffect(animate ? 4.0 : 0.95)   // reaches title & cards
+                    .animation(
+                        .easeOut(duration: 2.6)
+                            .repeatForever(autoreverses: false)
+                            .delay(Double(i) * 1.05),
+                        value: animate
+                    )
+            }
+        }
+        .opacity(visible ? 1 : 0)
+        .animation(.easeOut(duration: 0.9), value: visible)
+        .allowsHitTesting(false)
+        .onAppear {
+            // Start after the entrance settles; fade the whole show out after
+            // ~4s of rippling (the wave-carry sweeps end around the same time),
+            // then stop the loops once fully invisible.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                animate = true
+                visible = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                visible = false
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6.0) {
+                animate = false
+            }
+        }
+        .onDisappear {
+            animate = false
+            visible = false
+        }
+    }
+}
+
+// MARK: - Pickup Burst FX
+//
+// One-shot particle burst + expanding shockwave ring, fired whenever `burstID`
+// changes. `big` selects the balloon-pop variant (more / larger / farther
+// particles). Pure visual layer: fixed center, hit-testing off, zero layout
+// impact, and particles clear themselves after the flight so nothing keeps
+// animating between pickups.
+
+private struct PickupBurstFX: View {
+
+    let burstID: Int
+    let color: Color
+    let big: Bool
+
+    private struct Particle: Identifiable {
+        let id = UUID()
+        let angle: Double        // flight direction (radians)
+        let distance: CGFloat    // flight distance
+        let size: CGFloat
+        let isSparkle: Bool      // every few particles render as a white sparkle
+    }
+
+    @State private var particles: [Particle] = []
+    @State private var flying = false
+    @State private var shock = false
+    @State private var generation = 0   // invalidates stale cleanup timers
+
+    var body: some View {
+        ZStack {
+            // White pop-flash — a quick bright blink at the moment of the burst.
+            // Faster than the particle flight (own scoped animation) for "punch".
+            Circle()
+                .fill(.white)
+                .frame(width: 90, height: 90)
+                .blur(radius: 18)
+                .scaleEffect(flying ? (big ? 2.2 : 1.5) : 0.3)
+                .opacity(particles.isEmpty ? 0 : (flying ? 0 : (big ? 0.95 : 0.6)))
+                .animation(.easeOut(duration: 0.35), value: flying)
+
+            // Shockwave — expands + fades; hidden whenever no burst is live
+            Circle()
+                .stroke(color.opacity(shock ? 0 : 0.8), lineWidth: shock ? 2 : 7)
+                .frame(width: 110, height: 110)
+                .scaleEffect(shock ? (big ? 3.4 : 2.2) : 0.55)
+                .opacity(particles.isEmpty ? 0 : 1)
+
+            ForEach(particles) { p in
+                Group {
+                    if p.isSparkle {
+                        Image(systemName: "sparkle")
+                            .font(.system(size: p.size))
+                            .foregroundColor(.white)
+                    } else {
+                        Circle()
+                            .fill(color)
+                            .frame(width: p.size, height: p.size)
+                    }
+                }
+                .shadow(color: color.opacity(0.8), radius: 3)
+                .offset(
+                    x: flying ? cos(p.angle) * p.distance : 0,
+                    y: flying ? sin(p.angle) * p.distance : 0
+                )
+                .scaleEffect(flying ? 0.25 : 1.0)
+                .opacity(flying ? 0 : 1)
+            }
+        }
+        .allowsHitTesting(false)
+        .onChange(of: burstID) { _, _ in fire() }
+    }
+
+    private func fire() {
+        generation += 1
+        let myGen = generation
+        let count = big ? 36 : 18
+        let dist: ClosedRange<CGFloat> = big ? 150...250 : 90...150
+
+        // Evenly spread directions with jitter → full circle, organic look
+        particles = (0..<count).map { i in
+            Particle(
+                angle: Double(i) / Double(count) * 2 * .pi + .random(in: -0.25...0.25),
+                distance: .random(in: dist),
+                size: big ? .random(in: 7...16) : .random(in: 5...11),
+                isSparkle: i % 4 == 0
+            )
+        }
+        flying = false
+        shock = false
+
+        // Commit the centered state first, then animate the flight
+        DispatchQueue.main.async {
+            withAnimation(.easeOut(duration: big ? 1.0 : 0.75)) {
+                flying = true
+                shock = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + (big ? 1.1 : 0.85)) {
+                guard myGen == generation else { return }   // a newer burst took over
+                particles = []
+                flying = false
+                shock = false
+            }
         }
     }
 }
