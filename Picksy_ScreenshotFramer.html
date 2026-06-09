@@ -176,12 +176,16 @@
     const prev = shot.style.transform;
     shot.style.transform = 'none';            // capture at full 1320×2868
     await new Promise(r=>requestAnimationFrame(r));
-    const canvas = await html2canvas(shot, {width:1320, height:2868, scale:1, backgroundColor:null, useCORS:true});
+    // Opaque background + JPEG output: App Store rejects any image with an alpha
+    // channel, and a browser canvas PNG is ALWAYS 32-bit RGBA. JPEG has no alpha,
+    // so exporting JPEG (with a solid bg so nothing renders transparent) produces
+    // App-Store-ready files directly — no post-flatten step needed.
+    const canvas = await html2canvas(shot, {width:1320, height:2868, scale:1, backgroundColor:'#0d0d12', useCORS:true});
     shot.style.transform = prev;
     const lang = document.getElementById('lang').value;
     const a = document.createElement('a');
-    a.href = canvas.toDataURL('image/png');
-    a.download = `picksy_${lang}_screen${i+1}.png`;
+    a.href = canvas.toDataURL('image/jpeg', 0.95);
+    a.download = `picksy_${lang}_screen${i+1}.jpg`;
     a.click();
   }
 
