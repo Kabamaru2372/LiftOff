@@ -120,4 +120,35 @@ class AppsViewRefreshTrigger {
         pendingWork.forEach { $0.cancel() }
         pendingWork.removeAll()
     }
+
+    // MARK: - Foreground recovery (blank-report fix)
+    //
+    // After a LONG suspension iOS often kills the DeviceActivityReport extension
+    // process; the hosted report then comes back BLANK and never re-renders on
+    // its own — the user had to tap the manual refresh button. This does that
+    // refresh automatically: ONE deliberate rebuild on foreground, and only when
+    // the app was backgrounded long enough for the extension to have died.
+    // Quick app switches do nothing, so this cannot reintroduce the old
+    // teardown-churn bug (which was caused by timers rebuilding constantly).
+
+    /// When the app last went to background. Set from didEnterBackground.
+    private var backgroundedAt: Date? = nil
+
+    /// Suspensions shorter than this keep the extension alive in practice —
+    /// no rebuild needed. Longer ones get one recovery rebuild.
+    private let recoveryThreshold: TimeInterval = 180
+
+    /// Call from the didEnterBackground observer.
+    func noteBackgrounded() {
+        backgroundedAt = Date()
+    }
+
+    /// Call from the willEnterForeground observer.
+    func foregroundRecovery() {
+        guard let t = backgroundedAt else { return }
+        backgroundedAt = nil
+        guard Date().timeIntervalSince(t) > recoveryThreshold else { return }
+        print("[AppsViewRefresh] 🚑 Long suspension (\(Int(Date().timeIntervalSince(t)))s) — rebuilding report")
+        forceRefresh()
+    }
 }

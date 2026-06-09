@@ -202,9 +202,17 @@ class ScreenUnlockDetector {
     // MARK: - Screen Lock
 
     @objc private func handleScreenLock(_ notification: Notification) {
-        guard let start = sessionStartTime else { return }
-        let duration = max(1, Int(Date().timeIntervalSince(start)))
-        sessionStartTime = nil
+        // Always notify session end so continuous-use alerts get cancelled — even
+        // if we never recorded a start (e.g. the unlock fell inside the pickup
+        // cooldown, which previously left sessionStartTime nil and SKIPPED the
+        // cancel, letting a stale "you've been on your phone" alert fire later).
+        let duration: Int
+        if let start = sessionStartTime {
+            duration = max(1, Int(Date().timeIntervalSince(start)))
+            sessionStartTime = nil
+        } else {
+            duration = 0
+        }
         log("🔒 Screen locked — session duration: \(duration)s")
         DispatchQueue.main.async { [weak self] in
             self?.onScreenSessionEnded?(duration)

@@ -56,6 +56,15 @@ class AppDelegate: NSObject, UIApplicationDelegate {
     ) {
         print("[AppDelegate] 📩 Remote notification received")
 
+        // Widened net for the continuous-use false positive: ANY push that wakes us
+        // is a chance to clear stale "you've been on your phone" alerts when the
+        // screen is actually locked (the lock event can be missed while suspended,
+        // e.g. music playing for hours). Runs for every push type, before routing.
+        if !application.isProtectedDataAvailable {
+            ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
+            print("[AppDelegate] 🔒 Push wake while locked — cancelled pending continuous alerts")
+        }
+
         guard let type = userInfo["type"] as? String,
               type == "silent-refresh" else {
             completionHandler(.noData)
@@ -774,6 +783,10 @@ struct LiftOffApp: App {
             // SAFEGUARD (a): the continuous session ended (screen locked) → cancel any
             // pending continuous-use alerts so they don't fire after the user stopped.
             ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
+            // Re-apply Accurate Mode shields the moment the screen locks (while
+            // we're still alive in the background): any app/category lifted via
+            // the shield's "Open" snaps back to shielded for the next unlock.
+            ShieldManager.shared.refresh()
             // Apple Watch: screen time changed → refresh the score on the wrist.
             syncWatch()
             print("[ScreenTime] ⏱ Session ended: \(seconds)s, total today: \(store.todayTotalSeconds)s, last2h: \(store.screenTimeLastTwoHours)s")
@@ -898,6 +911,9 @@ struct LiftOffApp: App {
             // (typically 2–4× per hour) to sync the pickup count & update the DI
             // even when the app has been suspended beyond the 28s window.
             LiftOffApp.scheduleBackgroundRefresh()
+
+            // Stamp the suspension start for the blank-report recovery check.
+            AppsViewRefreshTrigger.shared.noteBackgrounded()
         }
 
         foregroundObserver = NotificationCenter.default.addObserver(
@@ -911,6 +927,11 @@ struct LiftOffApp: App {
             // app's shield so it can open, so we must re-shield on every foreground
             // to keep counting subsequent opens.
             ShieldManager.shared.refresh()
+
+            // Blank-report fix: after a long suspension the report extension is
+            // usually dead and the Apps/Nudge cards come back empty — rebuild
+            // once, automatically (what the manual refresh button did).
+            AppsViewRefreshTrigger.shared.foregroundRecovery()
 
             // Navigate on foreground — notification taps win, else always home
             DispatchQueue.main.async {
