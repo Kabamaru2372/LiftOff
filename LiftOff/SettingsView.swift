@@ -426,15 +426,15 @@ struct SettingsView: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(t("Exact pickup counting", "Ακριβής μέτρηση σηκωμάτων", "Exakte Griff-Zählung"))
+                        Text(t("Distraction Shield", "Ασπίδα Περισπασμών", "Ablenkungsschutz"))
                             .font(.system(size: 15, weight: .regular, design: .rounded))
                             .foregroundColor(.primary)
                         Text("🛡️").font(.system(size: 13))
                     }
                     Text(t(
-                        "Shows a quick tap screen when you open a tracked app, so pickups are counted exactly — even when Picksy is closed.",
-                        "Δείχνει μια γρήγορη οθόνη όταν ανοίγεις tracked app, ώστε τα σηκώματα να μετρώνται ακριβώς — ακόμα κι όταν το Picksy είναι κλειστό.",
-                        "Zeigt einen kurzen Tipp-Bildschirm beim Öffnen einer verfolgten App, damit Griffe exakt gezählt werden — auch wenn Picksy geschlossen ist."
+                        "Mute and gently block the apps you choose — fewer distractions for you, less mindless scrolling for your kid. Their notifications stay silent while it's on. (Also makes pickup counts exact.)",
+                        "Σίγασε και φρέναρε απαλά τις εφαρμογές που διάλεξες — λιγότεροι περισπασμοί για σένα, λιγότερη άσκοπη περιήγηση για το παιδί σου. Όσο είναι ενεργό, οι ειδοποιήσεις τους μένουν σιωπηλές. (Κάνει και τη μέτρηση σηκωμάτων ακριβή.)",
+                        "Schalte deine ausgewählten Apps stumm und bremse sie sanft — weniger Ablenkung für dich, weniger gedankenloses Scrollen für dein Kind. Solange aktiv, bleiben ihre Benachrichtigungen stumm. (Zählt Griffe außerdem exakt.)"
                     ))
                     .font(.system(size: 12, design: .rounded))
                     .foregroundColor(.secondary)

@@ -5,6 +5,7 @@
 
 import SwiftUI
 import DeviceActivity
+import FamilyControls
 
 // ShareImageItem moved to ShareImageItem.swift so it stays available to the
 // Live Activity extension (which compiles WeeklySummaryView) after DashboardView
@@ -30,6 +31,11 @@ struct DashboardView: View {
     @State private var showCheckInSheet: Bool = false
     @State private var weeklySummaryItem: WeeklySummaryItem? = nil
     @State private var showPaywall: Bool = false
+
+    // Drives the SwiftUI identity of the hosted DeviceActivityReport views below
+    // (Screen Time + Score), shared with AppsView/NudgeView so they all warm up
+    // once and stay rendered. See AppsViewRefreshTrigger.
+    @State private var refreshTrigger = AppsViewRefreshTrigger.shared
 
     private var lang: String { appLanguage }
 
@@ -153,6 +159,9 @@ struct DashboardView: View {
             // Pull the latest Apps-tab total from the App Group so the Screen
             // Time card and Picksy Score match every other surface on entry.
             store.refreshConfirmedScreenTime()
+            // Rebuild the hosted Screen Time / Score reports only if the day or
+            // app selection actually changed since last view (no-op otherwise).
+            refreshTrigger.syncScope()
         }
         .sheet(item: $shareItem) { item in
             ShareStatsSheet(image: item.image, language: appLanguage)
@@ -250,18 +259,14 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 8)
 
-                    // Consistency-first: show the SAME app-measured value the
-                    // duel and Nudge use (store.bestScreenTimeSecs), so every
-                    // screen always agrees. The report extension's exact total is
-                    // accurate but locked (can't be sent to a duel), so we no
-                    // longer render it here — that mismatch (Stats 25 vs duel 17)
-                    // was the source of confusion. Trade-off: may read slightly
-                    // under iOS Settings, but it's identical everywhere in-app.
-                    Text(formatScreenTime(store.bestScreenTimeSecs))
-                        .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundColor(screenTimeDurationColor(store.bestScreenTimeSecs))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                    // Host the SAME DeviceActivityReport the Apps tab renders, so
+                    // the Stats screen-time figure is identical to Apps (the real,
+                    // Apple-measured total). The report extension can't pass the
+                    // number back to the app, so reading store.bestScreenTimeSecs
+                    // here showed 0 whenever the in-app sources were empty — this
+                    // renders the true value directly instead.
+                    DeviceActivityReport(.statsTotalTime, filter: deviceTotalFilter)
+                        .id(refreshTrigger.reportIdentity)
                         .frame(height: 36)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -302,11 +307,11 @@ struct DashboardView: View {
 
                 Spacer()
 
-                Text("\(PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs))")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundColor(statsScoreColor(PicksyScore.value(pickups: store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                // Score is computed inside the report extension from the SAME real
+                // screen-time total + the App Group pickup count, so it always
+                // matches the Screen Time card above (no more "1" from a 0 total).
+                DeviceActivityReport(.statsScore, filter: deviceTotalFilter)
+                    .id(refreshTrigger.reportIdentity)
                     .frame(width: 86, height: 38)
 
                 Spacer()
@@ -330,49 +335,25 @@ struct DashboardView: View {
         }
     }
 
-    /// Whole-device, today filter (no app/category scope) for the hosted
-    /// screen-time total report.
+    /// Today filter for the hosted screen-time + score reports. Scoped to the
+    /// SAME app selection the Apps tab uses, so the Stats card shows the exact
+    /// same total as Apps (the user's source of truth) — not a whole-device
+    /// number that would read higher.
     private var deviceTotalFilter: DeviceActivityFilter {
-        DeviceActivityFilter(
-            segment: .daily(
-                during: Calendar.current.dateInterval(of: .day, for: Date())!
-            ),
+        let interval = Calendar.current.dateInterval(of: .day, for: Date())
+            ?? DateInterval(start: Date(), duration: 86400)
+        let selection = AppSelectionStore.shared.selection
+        return DeviceActivityFilter(
+            segment: .daily(during: interval),
             users: .all,
-            devices: .init([.iPhone])
+            devices: .init([.iPhone]),
+            applications: selection.applicationTokens,
+            categories: selection.categoryTokens
         )
     }
 
     /// Fixed chrome color for the Screen Time card frame.
     private var screenTimeAccentColor: Color { .indigo }
-
-    /// Compact screen-time duration, e.g. "1h 23m" / "45m". Matches the duel and
-    /// the report-extension formatting so every screen reads identically.
-    private func formatScreenTime(_ seconds: Int) -> String {
-        let secs = max(0, seconds)
-        if secs < 60 { return "0m" }
-        let h = secs / 3600
-        let m = (secs % 3600) / 60
-        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
-    }
-
-    /// Duration accent color — mirrors the report extension's thresholds.
-    private func screenTimeDurationColor(_ seconds: Int) -> Color {
-        let mins = seconds / 60
-        if mins == 0  { return .secondary }
-        if mins < 60  { return .green }
-        if mins < 120 { return .blue }
-        if mins < 240 { return .orange }
-        return .red
-    }
-
-    /// Picksy Score accent color — mirrors the report extension's scoreAccentColor.
-    private func statsScoreColor(_ score: Int) -> Color {
-        if score == 0  { return .blue }
-        if score < 5   { return .green }
-        if score < 15  { return .blue }
-        if score < 30  { return .orange }
-        return .red
-    }
 
     // MARK: - Streak Card
 
