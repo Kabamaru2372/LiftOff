@@ -285,6 +285,14 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         if newCount > currentWidgetCount {
             defaults.set(newCount, forKey: "todayPickups")
         }
+        // File mirror — keeps the sealed ShieldConfiguration's count fresh
+        // (its defaults reads can be a stale per-process snapshot).
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupID)?
+            .appendingPathComponent("today_pickups.txt") {
+            try? "\(milestoneTodayKey())|\(max(newCount, currentWidgetCount))"
+                .data(using: .utf8)?.write(to: url, options: .atomic)
+        }
         // Πάντα reload το widget — ακόμα και αν η τιμή δεν άλλαξε,
         // το DataStore μπορεί να έχει γράψει νέο count που χρειάζεται refresh (fix #7)
         WidgetCenter.shared.reloadAllTimelines()

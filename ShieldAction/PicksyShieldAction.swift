@@ -274,6 +274,15 @@ class ShieldActionHandler: ShieldActionDelegate {
         if dayCount > current {
             defaults.set(dayCount, forKey: "todayPickups")
         }
+        // File mirror — keeps the sealed ShieldConfiguration's count fresh
+        // (its defaults reads can be a stale per-process snapshot).
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("today_pickups.txt") {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            try? "\(f.string(from: Date()))|\(max(dayCount, current))"
+                .data(using: .utf8)?.write(to: url, options: .atomic)
+        }
 
         WidgetCenter.shared.reloadAllTimelines()
 

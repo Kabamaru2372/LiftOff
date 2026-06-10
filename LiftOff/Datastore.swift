@@ -419,6 +419,16 @@ class DataStore {
 
     private func saveData() {
         defaults.set(todayPickups, forKey: "todayPickups")
+        // File mirror for the SEALED ShieldConfiguration extension: its
+        // UserDefaults reads come from a per-process prefs snapshot that can
+        // serve a count that's hours stale (shield showed 19 while the app had
+        // 25). File reads always hit disk. Format: "yyyy-MM-dd|count".
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")?
+            .appendingPathComponent("today_pickups.txt") {
+            try? "\(todayDateString())|\(todayPickups)"
+                .data(using: .utf8)?.write(to: url, options: .atomic)
+        }
         defaults.set(todayTotalSeconds, forKey: "todayTotalSeconds")
         defaults.set(currentStreak, forKey: "currentStreak")
         defaults.set(weeklyPickups, forKey: "weeklyPickups")

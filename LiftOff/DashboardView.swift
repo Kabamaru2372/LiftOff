@@ -25,7 +25,10 @@ struct DashboardView: View {
     @Environment(CorrelationStore.self) var correlationStore
     @Environment(HourlyTracker.self) var hourly
     @AppStorage("appLanguage") private var appLanguage: String = "English"
-    @AppStorage("dailyGoal") private var dailyGoal: Int = 15
+    // Default MUST match every other "dailyGoal" reader (Settings/Nudge/Focus
+    // use 50): with no stored value yet, each view shows its own default — the
+    // Stats card said "goal 15" while Settings showed 50.
+    @AppStorage("dailyGoal") private var dailyGoal: Int = 50
 
     @State private var shareItem: ShareImageItem? = nil
     @State private var showCheckInSheet: Bool = false

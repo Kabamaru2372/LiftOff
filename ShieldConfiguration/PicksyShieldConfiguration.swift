@@ -82,7 +82,7 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
 
     private func makeConfiguration(appName: String?) -> ShieldConfiguration {
         let defaults = UserDefaults(suiteName: appGroupID)
-        let pickups  = defaults?.integer(forKey: "todayPickups") ?? 0
+        let pickups  = freshPickupCount(defaults: defaults)
         let language = defaults?.string(forKey: "picksy.appLanguage") ?? "English"
 
         // If today's time limit has been reached, show the "time's up" variant.
@@ -145,37 +145,41 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
     // MARK: - Messages (rotating + context-aware)
 
     private func message(language: String, pickups: Int, appName: String?) -> (String, String) {
-        // Next pickup number if they proceed.
-        let n = pickups + 1
+        // CURRENT pickup number — the unlock that brought the user here was
+        // already counted (opening an app right after unlocking is the SAME
+        // physical pickup; the shared 6s cooldown dedups the tap-through).
+        // The old "+1 / this would be your Nth" framing read like opening the
+        // app was a brand-new pickup, which it isn't.
+        let n = max(pickups, 1)
         let app = appName
 
         switch language {
         case "Ελληνικά":
             var lines: [(String, String)] = [
                 ("Μια ανάσα πριν μπεις 🌿", "Σήκωμα #\(n) σήμερα. Σίγουρα το χρειάζεσαι τώρα;"),
-                ("Στάσου ένα δευτερόλεπτο 🤔", "Θα γίνει το \(n)ο σήκωμά σου σήμερα."),
+                ("Στάσου ένα δευτερόλεπτο 🤔", "Είσαι στο \(n)ο σήκωμά σου για σήμερα."),
                 ("Είσαι παρών; 📱", "Σήκωμα #\(n). Ή μήπως το αφήνεις για μετά;"),
                 ("Σκόπιμα ή απ' τη συνήθεια; 🧠", "Αν το θες πραγματικά, προχώρα."),
             ]
-            if let app { lines.append(("Σίγουρα θες \(app); 👀", "Θα είναι το \(n)ο σήκωμά σου σήμερα.")) }
+            if let app { lines.append(("Σίγουρα θες \(app); 👀", "Είσαι στο \(n)ο σήκωμά σου για σήμερα.")) }
             return lines.randomElement()!
         case "Deutsch":
             var lines: [(String, String)] = [
                 ("Kurz durchatmen 🌿", "Griff #\(n) heute. Brauchst du es gerade wirklich?"),
-                ("Eine Sekunde warten 🤔", "Das wäre dein \(n). Griff heute."),
+                ("Eine Sekunde warten 🤔", "Du bist bei deinem \(n). Griff heute."),
                 ("Bist du präsent? 📱", "Griff #\(n). Oder doch später?"),
                 ("Absicht oder Gewohnheit? 🧠", "Wenn du es wirklich willst, mach weiter."),
             ]
-            if let app { lines.append(("Wirklich \(app)? 👀", "Das wäre dein \(n). Griff heute.")) }
+            if let app { lines.append(("Wirklich \(app)? 👀", "Du bist bei deinem \(n). Griff heute.")) }
             return lines.randomElement()!
         default:
             var lines: [(String, String)] = [
                 ("Take a breath first 🌿", "Pickup #\(n) today. Do you really need it now?"),
-                ("Wait a second 🤔", "This would be your \(ordinal(n)) pickup today."),
+                ("Wait a second 🤔", "You're on your \(ordinal(n)) pickup today."),
                 ("Are you present? 📱", "Pickup #\(n). Or save it for later?"),
                 ("Intention or habit? 🧠", "If you truly want to, go ahead."),
             ]
-            if let app { lines.append(("Really open \(app)? 👀", "This would be your \(ordinal(n)) pickup today.")) }
+            if let app { lines.append(("Really open \(app)? 👀", "You're on your \(ordinal(n)) pickup today.")) }
             return lines.randomElement()!
         }
     }
@@ -217,6 +221,26 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         return f.string(from: Date())
+    }
+
+    /// Today's pickup count, read FILE-FIRST. This sealed extension's process
+    /// can live for hours and its UserDefaults reads come from a per-process
+    /// prefs snapshot — the shield was showing counts hours old (19 vs the
+    /// app's 25). The writers (DataStore, monitor, ShieldAction) mirror the
+    /// count to today_pickups.txt ("yyyy-MM-dd|count"); file reads always hit
+    /// disk. We take the max with defaults as belt-and-braces.
+    private func freshPickupCount(defaults: UserDefaults?) -> Int {
+        let cached = defaults?.integer(forKey: "todayPickups") ?? 0
+        guard let url = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+                .appendingPathComponent("today_pickups.txt"),
+              let raw = try? String(contentsOf: url, encoding: .utf8)
+        else { return cached }
+        let parts = raw.split(separator: "|")
+        guard parts.count == 2, String(parts[0]) == todayKey(),
+              let fileCount = Int(parts[1])
+        else { return cached }
+        return max(fileCount, cached)
     }
 
     private func ordinal(_ n: Int) -> String {
