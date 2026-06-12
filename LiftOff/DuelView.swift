@@ -137,6 +137,23 @@ struct DuelView: View {
                 .multilineTextAlignment(.center)
             }
 
+            // Fairness: the duel counts time only on each player's SELECTED apps.
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "scale.3d")
+                    .font(.system(size: 12))
+                    .foregroundColor(.yellow)
+                Text(t(
+                    "Counts time on your selected apps only — make sure you both track the same categories (ideally all of Social).",
+                    "Μετράει χρόνο μόνο στις επιλεγμένες apps — βεβαιωθείτε ότι μετράτε και οι δύο τις ίδιες κατηγορίες (ιδανικά όλη τη Social).",
+                    "Zählt nur Zeit in den gewählten Apps — stellt sicher, dass ihr beide dieselben Kategorien trackt (ideal: ganz Social)."
+                ))
+                .font(.system(size: 12, design: .rounded))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.yellow.opacity(0.08)))
+
             Button(action: sendDuel) {
                 Label(
                     t("Send Duel", "Αποστολή Duel", "Duell senden"),

@@ -616,9 +616,9 @@ struct OnboardingView: View {
                 .padding(.horizontal, 24)
 
                 Text(t(
-                    "Select the apps you want Picksy to track. We recommend the whole Social & Entertainment categories — that's where most time goes.\n\nYou can change this anytime in Settings.",
-                    "Επίλεξε τις εφαρμογές που θέλεις να παρακολουθεί το Picksy. Σου προτείνουμε ολόκληρες τις κατηγορίες Social & Entertainment — εκεί πάει ο περισσότερος χρόνος.\n\nΜπορείς να το αλλάξεις οποτεδήποτε στις Ρυθμίσεις.",
-                    "Wähle die Apps aus, die Picksy verfolgen soll. Wir empfehlen die ganzen Kategorien Social & Entertainment — dort geht die meiste Zeit hin.\n\nDu kannst dies jederzeit in den Einstellungen ändern."
+                    "Your score and duels count screen time ONLY on the apps you select here. We recommend whole categories — at least Social & Entertainment, where most time goes.\n\nYou can change this anytime in Settings.",
+                    "Το σκορ και οι μονομαχίες μετράνε χρόνο οθόνης ΜΟΝΟ στις εφαρμογές που επιλέγεις εδώ. Σου προτείνουμε ολόκληρες κατηγορίες — τουλάχιστον Social & Entertainment, εκεί πάει ο περισσότερος χρόνος.\n\nΜπορείς να το αλλάξεις οποτεδήποτε στις Ρυθμίσεις.",
+                    "Dein Score und deine Duelle zählen Bildschirmzeit NUR in den Apps, die du hier auswählst. Wir empfehlen ganze Kategorien — mindestens Social & Entertainment, dort geht die meiste Zeit hin.\n\nDu kannst dies jederzeit in den Einstellungen ändern."
                 ))
                 .font(.system(size: 15, weight: .regular, design: .rounded))
                 .foregroundColor(.secondary)
@@ -634,9 +634,9 @@ struct OnboardingView: View {
                     .font(.system(size: 14))
                     .foregroundColor(.yellow)
                 Text(t(
-                    "For fair duels, pick the same categories as your friends — duels compare your screen time on these apps.",
-                    "Για δίκαιες μονομαχίες, διάλεξε τις ίδιες κατηγορίες με τους φίλους σου — η μονομαχία συγκρίνει τον χρόνο οθόνης σε αυτές τις apps.",
-                    "Für faire Duelle wähle dieselben Kategorien wie deine Freunde — Duelle vergleichen deine Bildschirmzeit in diesen Apps."
+                    "Fair duels: you and your friends should select the SAME categories — if one of you tracks fewer apps, their number looks smaller. Easiest rule: everyone picks all of Social.",
+                    "Δίκαιες μονομαχίες: εσύ και οι φίλοι σου πρέπει να επιλέξετε τις ΙΔΙΕΣ κατηγορίες — αν κάποιος μετράει λιγότερες apps, το νούμερό του δείχνει μικρότερο. Απλός κανόνας: όλοι ολόκληρη τη Social.",
+                    "Faire Duelle: Du und deine Freunde solltet DIESELBEN Kategorien wählen — wer weniger Apps zählt, dessen Zahl wirkt kleiner. Einfachste Regel: Alle wählen ganz Social."
                 ))
                 .font(.system(size: 13, weight: .regular, design: .rounded))
                 .foregroundColor(.secondary)
