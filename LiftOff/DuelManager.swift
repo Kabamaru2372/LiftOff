@@ -114,16 +114,20 @@ class DuelManager {
     var demoMode = false
 
     /// Injects a fake active duel where "you" are winning on screen time.
+    /// Started 3 h ago / ends in 6 h → the banner's time-progress fill shows
+    /// ~33% and visibly grows, no matter what time the demo is seeded.
+    /// (The old fixed 23:59 endsAt looked permanently FULL when testing past
+    /// midnight — the window had already expired.)
     func injectDemoDuel() {
         demoMode = true
-        let end = Calendar.current.date(bySettingHour: 23, minute: 59, second: 0, of: Date())
         activeDuels = [DuelRecord(
             id: "demo-duel", challengerId: myDeviceID, opponentId: "demo-opp",
             challengerName: "You", opponentName: "Alex", status: .active,
-            startedAt: Date(), endsAt: end,
+            startedAt: Date().addingTimeInterval(-3 * 3600),
+            endsAt: Date().addingTimeInterval(6 * 3600),
             challengerPickups: 9, opponentPickups: 14,
             challengerScreenTime: 5400, opponentScreenTime: 9300,   // 1h30 vs 2h35
-            winnerId: nil, createdAt: Date()
+            winnerId: nil, createdAt: Date().addingTimeInterval(-3 * 3600)
         )]
     }
 

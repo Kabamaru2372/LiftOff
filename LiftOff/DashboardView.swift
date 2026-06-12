@@ -40,6 +40,13 @@ struct DashboardView: View {
     // once and stay rendered. See AppsViewRefreshTrigger.
     @State private var refreshTrigger = AppsViewRefreshTrigger.shared
 
+    // ── Entrance/idle animation state ─────────────────────────────────────
+    @State private var cascadeIn = false            // staggered section entrance
+    @State private var displayTodayPickups = 0      // rolls up via numericText
+    @State private var displayTotalPickups = 0      // rolls up via numericText
+    @State private var streakRingIn = false         // streak ring fills on entry
+    @State private var flamePulse = false           // 🔥 gentle breathing loop
+
     private var lang: String { appLanguage }
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
@@ -95,13 +102,16 @@ struct DashboardView: View {
                     }
                 }
                 .padding(.top, 20)
+                .cascade(0, on: cascadeIn)
 
                 // Today
                 Text(t("Today", "Σήμερα", "Heute"))
                     .font(.system(size: 13, weight: .regular, design: .rounded))
                     .foregroundColor(.secondary)
+                    .cascade(1, on: cascadeIn)
 
                 todaySection
+                    .cascade(2, on: cascadeIn)
 
                 // Coach Card
                 CoachCardView(
@@ -112,13 +122,16 @@ struct DashboardView: View {
                     worstHours: hourly.worstHours,
                     language: appLanguage
                 )
+                .cascade(3, on: cascadeIn)
 
                 // Active Duel Banner
                 DuelBannerView()
                     .environment(store)
+                    .cascade(4, on: cascadeIn)
 
                 // Mood Timeline
                 moodSection
+                    .cascade(5, on: cascadeIn)
 
                 // This week
                 HStack {
@@ -137,22 +150,28 @@ struct DashboardView: View {
                         .foregroundColor(.blue)
                     }
                 }
+                .cascade(6, on: cascadeIn)
 
                 WeeklyChart(data: store.weeklyPickups, dayNames: dayNames)
                     .frame(height: 120)
+                    .cascade(7, on: cascadeIn)
 
                 // MARK: - Correlation Insights (Pro)
                 CorrelationInsightView(onUnlockTap: { showPaywall = true })
                     .environment(correlationStore)
+                    .cascade(8, on: cascadeIn)
 
                 // MARK: - Heatmap section (NEW!)
                 heatmapSection
+                    .cascade(9, on: cascadeIn)
 
                 // Streak Card
                 streakCard
+                    .cascade(10, on: cascadeIn)
 
                 // Journey Card
                 journeyCard
+                    .cascade(11, on: cascadeIn)
 
                 Spacer().frame(height: 20)
             }
@@ -165,6 +184,43 @@ struct DashboardView: View {
             // Rebuild the hosted Screen Time / Score reports only if the day or
             // app selection actually changed since last view (no-op otherwise).
             refreshTrigger.syncScope()
+
+            // Staggered section entrance (runs once; later visits keep layout)
+            if !cascadeIn {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    cascadeIn = true
+                }
+            }
+            // Count-up rolls: first visit 0 → N, later visits old → new
+            withAnimation(.easeOut(duration: 0.9).delay(0.3)) {
+                displayTodayPickups = store.todayPickups
+                displayTotalPickups = store.totalPickups
+            }
+            // Streak ring fills in; flame breathes while on-screen
+            if !streakRingIn {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    streakRingIn = true
+                }
+            }
+            if !flamePulse {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                    flamePulse = true
+                }
+            }
+        }
+        .onDisappear {
+            // Stop the repeat-forever flame loop while off-screen
+            flamePulse = false
+        }
+        .onChange(of: store.todayPickups) { _, newValue in
+            withAnimation(.bouncy(duration: 0.45)) {
+                displayTodayPickups = newValue
+            }
+        }
+        .onChange(of: store.totalPickups) { _, newValue in
+            withAnimation(.bouncy(duration: 0.45)) {
+                displayTotalPickups = newValue
+            }
         }
         .sheet(item: $shareItem) { item in
             ShareStatsSheet(image: item.image, language: appLanguage)
@@ -232,9 +288,11 @@ struct DashboardView: View {
                     // use Apple's numberOfPickups here — it inflates the count by
                     // treating every notification that lights the lock screen as a
                     // pickup (e.g. 22 overnight notifications showed as 23 pickups).
-                    Text("\(store.todayPickups)")
+                    // Rolls 0 → N on entry via numericText (displayTodayPickups).
+                    Text("\(displayTodayPickups)")
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundColor(pickupsAccentColor)
+                        .contentTransition(.numericText(countsDown: false))
 
                     Spacer()
 
@@ -386,11 +444,13 @@ struct DashboardView: View {
                     .frame(width: 64, height: 64)
                 if store.currentStreak > 0 {
                     Circle()
-                        .trim(from: 0, to: max(progress, 0.05))
+                        // Sweeps from empty to the real progress on entry
+                        .trim(from: 0, to: streakRingIn ? max(progress, 0.05) : 0)
                         .stroke(ringColor, style: StrokeStyle(lineWidth: 5, lineCap: .round))
                         .frame(width: 64, height: 64)
                         .rotationEffect(.degrees(-90))
                         .animation(.easeOut(duration: 0.8), value: progress)
+                        .animation(.easeOut(duration: 0.9).delay(0.35), value: streakRingIn)
                 }
                 VStack(spacing: 0) {
                     Text("\(store.currentStreak)")
@@ -398,6 +458,11 @@ struct DashboardView: View {
                                       weight: .bold, design: .rounded))
                     if store.currentStreak > 0 {
                         Text("🔥").font(.system(size: 10))
+                            .scaleEffect(flamePulse ? 1.22 : 0.92)
+                            .animation(
+                                .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
+                                value: flamePulse
+                            )
                     }
                 }
             }
@@ -451,8 +516,9 @@ struct DashboardView: View {
             }
 
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text("\(store.totalPickups)")
+                Text("\(displayTotalPickups)")
                     .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .contentTransition(.numericText(countsDown: false))
                 Text(t("pickups tracked", "σηκώματα καταγεγραμμένα", "Griffe aufgezeichnet"))
                     .font(.system(size: 14, design: .rounded))
                     .foregroundColor(.secondary)
@@ -682,6 +748,33 @@ struct DashboardView: View {
     }
 }
 
+// MARK: - Cascade entrance modifier
+
+/// Staggered section entrance for the Stats page: each section fades in and
+/// floats up, delayed by its index — content "settles in" top to bottom.
+/// Pure offset/opacity, so layout is never affected.
+private struct CascadeIn: ViewModifier {
+    let index: Int
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(on ? 1 : 0)
+            .offset(y: on ? 0 : 18)
+            .animation(
+                .spring(response: 0.55, dampingFraction: 0.8)
+                    .delay(Double(index) * 0.06),
+                value: on
+            )
+    }
+}
+
+extension View {
+    fileprivate func cascade(_ index: Int, on: Bool) -> some View {
+        modifier(CascadeIn(index: index, on: on))
+    }
+}
+
 // MARK: - Share Card
 
 struct ShareCardView: View {
@@ -830,6 +923,9 @@ struct WeeklyChart: View {
     let data: [Int]
     let dayNames: [String]
 
+    /// Bars grow from the baseline with a small per-day stagger on appear.
+    @State private var grow = false
+
     private var maxValue: Int { max(data.max() ?? 1, 1) }
 
     var body: some View {
@@ -842,7 +938,14 @@ struct WeeklyChart: View {
                 VStack(spacing: 4) {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(isToday ? Color.blue : Color.blue.opacity(0.4))
-                        .frame(height: barHeight(for: data[index], max: maxH))
+                        .frame(height: grow ? barHeight(for: data[index], max: maxH) : 4)
+                        .shadow(color: isToday ? Color.blue.opacity(0.45) : .clear,
+                                radius: 6, y: 2)
+                        .animation(
+                            .spring(response: 0.55, dampingFraction: 0.72)
+                                .delay(Double(index) * 0.05),
+                            value: grow
+                        )
 
                     Text(dayNames[index])
                         .font(.system(size: 11,
@@ -852,6 +955,7 @@ struct WeeklyChart: View {
                 }
             }
         }
+        .onAppear { grow = true }
     }
 
     private func barHeight(for value: Int, max maxValue: Int) -> CGFloat {

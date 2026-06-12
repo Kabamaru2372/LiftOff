@@ -974,6 +974,57 @@ struct SettingsView: View {
                 }
             }
 
+            // Funny sounds preview — άμεση ακρόαση χωρίς να στήνεις σενάριο
+            // (αγνοεί το toggle και τα once-per-day/hour throttles)
+            HStack(spacing: 10) {
+                Button(action: { FunnySFX.shared.previewTrombone() }) {
+                    HStack(spacing: 6) {
+                        Text("🎺").font(.system(size: 12))
+                        Text("Test Trombone").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.orange.opacity(0.85)))
+                }
+
+                Button(action: { FunnySFX.shared.previewOuf() }) {
+                    HStack(spacing: 6) {
+                        Text("😮‍💨").font(.system(size: 12))
+                        Text("Test Ouf").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.indigo.opacity(0.85)))
+                }
+            }
+
+            // Duel result sounds preview
+            HStack(spacing: 10) {
+                Button(action: { FunnySFX.shared.previewVictory() }) {
+                    HStack(spacing: 6) {
+                        Text("🏆").font(.system(size: 12))
+                        Text("Test Victory").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.green.opacity(0.8)))
+                }
+
+                Button(action: { FunnySFX.shared.previewDefeat() }) {
+                    HStack(spacing: 6) {
+                        Text("💀").font(.system(size: 12))
+                        Text("Test Defeat").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.red.opacity(0.75)))
+                }
+            }
+
             Text("These buttons exist only in DEBUG builds and will not appear in the App Store version.")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundColor(.secondary)

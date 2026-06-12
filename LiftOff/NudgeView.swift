@@ -42,6 +42,8 @@ struct NudgeView: View {
 
     // Animations
     @State private var refreshTrigger = AppsViewRefreshTrigger.shared
+    @State private var soundEngine = AmbientSoundEngine.shared
+    @AppStorage("funnySoundsOn") private var funnySoundsOn: Bool = false
     @State private var appeared: Bool = false
     @State private var counterScale: CGFloat = 1.0
     @State private var badgePulse: Bool = false
@@ -56,6 +58,7 @@ struct NudgeView: View {
     @State private var ringPopScale: CGFloat = 1.0
     @State private var ringPopOpacity: Double = 1.0
     @State private var ringBob: Bool = false     // gentle floating-balloon bob
+    @State private var ringShimmer: Bool = false // glint sweeping the filled arc
     /// Date-gate so the balloon pop plays exactly ONCE per day — live if you're
     /// watching when you cross the goal, otherwise replayed on the next open.
     @AppStorage("picksy_balloonpop_date") private var balloonPopDate: String = ""
@@ -84,16 +87,6 @@ struct NudgeView: View {
         case "Deutsch": return de
         default: return en
         }
-    }
-
-    /// Compact screen-time duration, e.g. "1h 23m" / "45m" — same formatting as
-    /// Stats and the duel so every screen reads identically.
-    private func formatNudgeScreenTime(_ seconds: Int) -> String {
-        let secs = max(0, seconds)
-        if secs < 60 { return "0m" }
-        let h = secs / 3600
-        let m = (secs % 3600) / 60
-        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
     }
 
     /// Uncapped progress toward the personal daily goal (can exceed 1.0).
@@ -145,6 +138,98 @@ struct NudgeView: View {
         )
     }
 
+    /// Ο ήχος που ταιριάζει στον ΤΩΡΙΝΟ καιρό (βροχή → βροχή, ήλιος → πουλιά,
+    /// ≥27°C → θάλασσα, νύχτα/συννεφιά → απαλό noise).
+    private func weatherMappedSound() -> AmbientSound {
+        AmbientSoundEngine.soundForWeather(
+            condition: weatherManager.activeCondition,
+            tempC: weatherManager.currentWeather?.temperature,
+            isNight: timeOfDay == .night
+        )
+    }
+
+    /// Speaker FAB + soundscape menu. The Picker inside the Menu gives native
+    /// checkmarks; choosing a sound while stopped also starts playback.
+    /// Picking a sound MANUALLY switches weather mode off — explicit choice wins.
+    private var ambientSoundFAB: some View {
+        Menu {
+            Button(action: {
+                soundEngine.weatherMode.toggle()
+                if soundEngine.weatherMode {
+                    soundEngine.sound = weatherMappedSound()
+                    if !soundEngine.isPlaying { soundEngine.start() }
+                }
+            }) {
+                Label(
+                    t("Match the weather", "Ανάλογα με τον καιρό", "Passend zum Wetter"),
+                    systemImage: soundEngine.weatherMode
+                        ? "checkmark.circle.fill" : "cloud.sun"
+                )
+            }
+
+            Button(action: { funnySoundsOn.toggle() }) {
+                Label(
+                    t("Funny sounds", "Αστείοι ήχοι", "Lustige Töne"),
+                    systemImage: funnySoundsOn
+                        ? "checkmark.circle.fill" : "face.smiling"
+                )
+            }
+
+            Divider()
+
+            Picker("", selection: Binding(
+                get: { soundEngine.sound },
+                set: { newSound in
+                    soundEngine.weatherMode = false
+                    soundEngine.sound = newSound
+                    if !soundEngine.isPlaying { soundEngine.start() }
+                }
+            )) {
+                ForEach(AmbientSound.allCases) { s in
+                    Label(s.displayName(language: appLanguage), systemImage: s.icon)
+                        .tag(s)
+                }
+            }
+
+            Divider()
+
+            Button(action: { soundEngine.toggle() }) {
+                Label(
+                    soundEngine.isPlaying
+                        ? t("Stop sound", "Σταμάτα τον ήχο", "Ton stoppen")
+                        : t("Play", "Αναπαραγωγή", "Abspielen"),
+                    systemImage: soundEngine.isPlaying ? "stop.fill" : "play.fill"
+                )
+            }
+        } label: {
+            Image(systemName: soundEngine.isPlaying
+                  ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(.white.opacity(soundEngine.isPlaying ? 0.95 : 0.55))
+                .symbolEffect(.variableColor.iterative,
+                              options: .repeating,
+                              isActive: soundEngine.isPlaying)
+                .frame(width: 36, height: 36)
+                .background(Circle().fill(.ultraThinMaterial).opacity(0.6))
+        }
+    }
+
+    /// SAME filter the Apps tab and the Stats card use (selected apps +
+    /// categories only) — the screen-time pill hosts a report with this filter
+    /// so all three screens always show the identical figure.
+    private var trackedTotalFilter: DeviceActivityFilter {
+        let interval = Calendar.current.dateInterval(of: .day, for: Date())
+            ?? DateInterval(start: Date(), duration: 86400)
+        let selection = AppSelectionStore.shared.selection
+        return DeviceActivityFilter(
+            segment: .daily(during: interval),
+            users: .all,
+            devices: .init([.iPhone]),
+            applications: selection.applicationTokens,
+            categories: selection.categoryTokens
+        )
+    }
+
     private var shouldShowTopApps: Bool {
         FamilyControlsManager.shared.isAuthorized &&
         AppSelectionStore.shared.hasSelectedApps
@@ -184,6 +269,18 @@ struct NudgeView: View {
             idleContent
 
             WeatherPillFABView()
+
+            // Ambient sound FAB — top-trailing speaker; menu picks the
+            // soundscape (synthesized, plays in background, screen stays on).
+            VStack {
+                HStack {
+                    Spacer()
+                    ambientSoundFAB
+                }
+                .padding(.trailing, 20)
+                .padding(.top, 4)
+                Spacer()
+            }
         }
         .alert(
             t("About pickup count", "Σχετικά με τα σηκώματα", "Über die Griff-Zählung"),
@@ -323,6 +420,17 @@ struct NudgeView: View {
                     ringBob = true
                 }
             }
+            // Ring shimmer sweep — same lifecycle as the bob
+            if !ringShimmer {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                    ringShimmer = true
+                }
+            }
+            // Weather mode: ο καιρός μπορεί να άλλαξε από την τελευταία φορά —
+            // φρεσκάρουμε την αυτόματη επιλογή ήχου (live μετάβαση αν παίζει).
+            if soundEngine.weatherMode {
+                soundEngine.sound = weatherMappedSound()
+            }
             // Ripple wave show: three sweeps that physically carry the title and
             // the cards as the front passes them; the visible rings (RippleField)
             // fade out on their own at the same time (~5s total, then calm).
@@ -359,6 +467,12 @@ struct NudgeView: View {
                     }
                     // Wow FX: once-a-day balloon pop past the goal, burst otherwise
                     maybeFireWowFX()
+                    // Αστείοι ήχοι (opt-in): τρομπόνι στο πέρασμα του στόχου,
+                    // «ουφφφ» στα πολλά σηκώματα μέσα σε μία ώρα
+                    FunnySFX.shared.pickupRecorded(
+                        todayPickups: store.todayPickups,
+                        goal: dailyGoal
+                    )
                     // Update danger zone pulse
                     badgePulse = goalZone == .problematic || goalZone == .heavy
                 }
@@ -371,6 +485,7 @@ struct NudgeView: View {
             titleShimmer = false
             badgePulse = false
             ringBob = false   // stop the bob loop off-screen (mirrors badgePulse)
+            ringShimmer = false
             // C4 fix: use the stored token (closure-based API requires this form)
             if let token = pickupObserverToken {
                 NotificationCenter.default.removeObserver(token)
@@ -379,6 +494,13 @@ struct NudgeView: View {
         }
         .onChange(of: appLanguage) { _, _ in
             currentQuote = ActivityBank.random(weather: weatherManager.activeCondition, categories: activityPrefs.effectiveCategories)
+        }
+        // Weather-mode soundscape follows the live weather (e.g. starts raining
+        // → the ambience switches to rain on the spot, mid-playback).
+        .onChange(of: weatherManager.activeCondition) { _, _ in
+            if soundEngine.weatherMode {
+                soundEngine.sound = weatherMappedSound()
+            }
         }
         // Smooth appearance of topAppsCard when FamilyControls auth resolves
         .animation(.easeOut(duration: 0.35), value: shouldShowTopApps)
@@ -410,20 +532,19 @@ struct NudgeView: View {
             pickupRingCard
 
             // ── Screen Time pill ─────────────────────────────────────
-            // The ring above shows today's pickups (this device). Here we show the
-            // SAME app-measured screen-time value the duel and Stats use
-            // (store.bestScreenTimeSecs), so every screen always agrees. (The
-            // report extension's exact total is accurate but locked — can't be
-            // sent to a duel — so we use the consistent app value everywhere.)
+            // The ring above shows today's pickups (this device). The time is
+            // rendered by the SAME report extension the Apps tab and the Stats
+            // card host (same selected-apps filter), so all three screens always
+            // show the identical, Apple-measured figure. The app-computed
+            // store.bestScreenTimeSecs lags badly when Picksy is suspended (the
+            // 15-min ladder undercounts), so it is no longer displayed here.
             HStack(spacing: 5) {
                 Image(systemName: "hourglass")
                     .font(.system(size: 10))
                     .foregroundColor(.white.opacity(0.55))
-                Text(formatNudgeScreenTime(store.bestScreenTimeSecs))
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                DeviceActivityReport(.nudgeTotalTime, filter: trackedTotalFilter)
+                    .id(refreshTrigger.reportIdentity)
+                    .frame(width: 56, height: 16)
                 Text(t("screen time today", "χρόνος οθόνης σήμερα", "Bildschirmzeit heute"))
                     .font(.system(size: 10, design: .rounded))
                     .foregroundColor(.white.opacity(0.45))
@@ -518,6 +639,31 @@ struct NudgeView: View {
                 .rotationEffect(.degrees(-90))
                 .shadow(color: zoneColor.opacity(0.55), radius: 8)
                 .animation(.spring(response: 0.7, dampingFraction: 0.78), value: goalProgress)
+
+            // ── Shimmer glint ─────────────────────────────────────────────
+            // A bright sliver endlessly sweeping around the ring, masked to
+            // the FILLED part of the arc — reads as light gliding over
+            // polished glass. Driven by the ringShimmer bool (starts in
+            // onAppear, stops off-screen like the other loops).
+            if goalProgress > 0.05 {
+                Circle()
+                    .trim(from: 0, to: 0.07)
+                    .stroke(Color.white.opacity(0.55),
+                            style: StrokeStyle(lineWidth: lineWidth - 4, lineCap: .round))
+                    .rotationEffect(.degrees(ringShimmer ? 270 : -90))
+                    .blur(radius: 2.5)
+                    .blendMode(.screen)
+                    .mask(
+                        Circle()
+                            .trim(from: 0, to: min(goalProgress, 1.0))
+                            .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    )
+                    .animation(
+                        .linear(duration: 3.6).repeatForever(autoreverses: false),
+                        value: ringShimmer
+                    )
+            }
 
             // ── Glowing tip dot ───────────────────────────────────────────
             if goalProgress > 0.02 && goalProgress < 1.0 {
@@ -970,6 +1116,18 @@ struct NudgeView: View {
             // Safety net: pull the latest whole-device total each minute in case
             // the cross-process Darwin notification was missed.
             store.refreshConfirmedScreenTime()
+            // Weather-mode ambience: re-check the weather each minute so the
+            // soundscape follows reality (rain stops → sound switches). The
+            // manager self-throttles to ONE real fetch per 10 min, and while
+            // ambience plays the screen stays awake, so this timer is alive
+            // exactly in the scenario that matters. Re-map directly too —
+            // onChange(of: activeCondition) only fires while this tab is open.
+            if soundEngine.weatherMode, soundEngine.isPlaying {
+                Task { @MainActor in
+                    await weatherManager.fetchWeather()
+                    soundEngine.sound = weatherMappedSound()
+                }
+            }
         }
     }
 }

@@ -43,6 +43,11 @@ struct AppsView: View {
     @State private var currentDate: Date = Date()
     @State private var hasAppeared: Bool = false
 
+    // Cold-start skeleton: the hosted report takes 2–5 s to render on its very
+    // first load — instead of a blank area, show a pulsing placeholder list
+    // that fades away. Only on the FIRST visit; later visits are warm.
+    @State private var skeletonVisible: Bool = false
+
     /// v1.6 FIX: Filter για σήμερα ΚΑΙ μόνο για selected apps/categories.
     /// Παλιά έδειχνε όλες τις apps που είχαν activity, τώρα μόνο τις tracked.
     private var todayFilter: DeviceActivityFilter {
@@ -143,6 +148,11 @@ struct AppsView: View {
                 hasAppeared = true
                 refreshTrigger.refresh()
                 refreshTrigger.refreshAfter(seconds: 20.0)
+                // Cold start → cover the 2–5 s blank with the pulsing skeleton
+                skeletonVisible = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+                    skeletonVisible = false   // fades via .animation(value:)
+                }
             } else {
                 // Two retries: 1.5 s catches a warm extension, 5 s is the safety net
                 // for when the extension process needs more time (2–5 s is normal).
@@ -262,9 +272,40 @@ struct AppsView: View {
     }
 
     private var reportView: some View {
-        DeviceActivityReport(.totalActivity, filter: todayFilter)
-            .id(refreshTrigger.reportIdentity)
-            .padding(.horizontal, 16)
+        ZStack {
+            DeviceActivityReport(.totalActivity, filter: todayFilter)
+                .id(refreshTrigger.reportIdentity)
+                .padding(.horizontal, 16)
+
+            // Opaque skeleton sits ON TOP during the cold start, then fades —
+            // covering both the blank report area and its first paint flicker.
+            // Always in the hierarchy; visibility via opacity so the fade can
+            // never be hijacked by the pulse animation (a repeatForever
+            // .animation captured the removal transition and froze it on top).
+            reportSkeleton
+                .opacity(skeletonVisible ? 1 : 0)
+                .allowsHitTesting(false)
+                .animation(.easeOut(duration: 0.5), value: skeletonVisible)
+        }
+    }
+
+    /// Calm, on-brand cold-start cover: a breathing hourglass + one line of
+    /// text. (The old fake skeleton rows read like "downloading content".)
+    private var reportSkeleton: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "hourglass")
+                .font(.system(size: 36, weight: .light))
+                .foregroundColor(.secondary)
+                .symbolEffect(.pulse, options: .repeating)
+
+            Text(t("Reading today's screen time…",
+                   "Διαβάζω τον σημερινό χρόνο οθόνης…",
+                   "Heutige Bildschirmzeit wird gelesen…"))
+                .font(.system(size: 13, design: .rounded))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
     }
 
     // MARK: - Helpers

@@ -121,6 +121,11 @@ struct DuelResultView: View {
             }
         }
         .onAppear {
+            // Ήχος αποτελέσματος (opt-in από το ηχειάκι του duel banner):
+            // χειροκρότημα στη νίκη, 8-bit «game over» στην ήττα.
+            if !duel.isTie {
+                FunnySFX.shared.duelFinished(won: duel.iWon)
+            }
             withAnimation(.spring(response: 0.55, dampingFraction: 0.65)) {
                 animateHero = true
             }

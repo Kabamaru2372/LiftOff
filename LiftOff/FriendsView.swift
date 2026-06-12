@@ -15,7 +15,8 @@ struct FriendsView: View {
 
     @AppStorage("appLanguage")          private var appLanguage: String = "English"
     @AppStorage("challengeDisplayName") private var challengeDisplayName: String = ""
-    @AppStorage("dailyGoal")            private var dailyGoal: Int = 15
+    @AppStorage("dailyGoal")            private var dailyGoal: Int = 50
+    @AppStorage("duelSoundsOn")         private var duelSoundsOn: Bool = false
 
     private var friendSync: FriendSyncManager { FriendSyncManager.shared }
     private var duelManager: DuelManager      { DuelManager.shared }
@@ -54,6 +55,7 @@ struct FriendsView: View {
     // Taunt / Nudge
     @State private var tauntDuel:    DuelRecord? = nil
     @State private var toastMessage: String?     = nil
+
 
     // 1-second tick for live countdown display
     // H1 fix: was Timer.publish.autoconnect() — leaked polls after navigation.
@@ -283,6 +285,16 @@ struct FriendsView: View {
             HStack(spacing: 4) {
                 Text("⚔️")
                     .font(.system(size: 15))
+                    // Σύντομο "clash" κάθε ~8 s — μικρό σκίρτημα και ησυχία,
+                    // ΟΧΙ συνεχές κούνημα (ζάλιζε). Trigger από το 1s tick.
+                    .phaseAnimator(
+                        [0.0, 12, -10, 7, -4, 0],
+                        trigger: Int(tick.timeIntervalSince1970 / 8)
+                    ) { content, angle in
+                        content.rotationEffect(.degrees(angle))
+                    } animation: { _ in
+                        .easeInOut(duration: 0.12)
+                    }
                 Text(t("ACTIVE DUEL", "ΕΝΕΡΓΗ ΜΟΝΟΜΑΧΙΑ", "AKTIVES DUELL"))
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundColor(.white.opacity(0.75))
@@ -299,6 +311,11 @@ struct FriendsView: View {
                         .foregroundColor(myColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText(countsDown: false))
+                        .animation(.bouncy(duration: 0.5), value: myScore)
+                        // The leader's number radiates — glow only when winning
+                        .shadow(color: myScore < theirScore ? myColor.opacity(0.65) : .clear,
+                                radius: 10)
                 }
                 .frame(maxWidth: .infinity)
 
@@ -325,6 +342,11 @@ struct FriendsView: View {
                         .foregroundColor(theirDisplay == "?" ? .white.opacity(0.4) : theirColor)
                         .lineLimit(1)
                         .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText(countsDown: false))
+                        .animation(.bouncy(duration: 0.5), value: theirScore)
+                        .shadow(color: (theirDisplay != "?" && theirScore < myScore)
+                                ? theirColor.opacity(0.65) : .clear,
+                                radius: 10)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -379,13 +401,77 @@ struct FriendsView: View {
         .padding(20)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(LinearGradient(
-                    colors: [Color(red: 0.28, green: 0.18, blue: 0.52), Color(red: 0.15, green: 0.12, blue: 0.38)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ))
+            // Time-progress fill: η μπάρα γεμίζει με το «κανονικό» μωβ από
+            // αριστερά προς δεξιά όσο κυλά ο χρόνος της μονομαχίας (σαν
+            // loading bar) πάνω σε σκουρότερη βάση. Στατικό κατά τα άλλα.
+            GeometryReader { geo in
+                let progress = duelProgress(duel)
+                ZStack(alignment: .leading) {
+                    // Σκούρα βάση — το «άδειο» μέρος του χρόνου (1-2 τόνους
+                    // σκουρότερη από το μωβ γέμισμα ώστε να ξεχωρίζει καθαρά)
+                    RoundedRectangle(cornerRadius: 20)
+                        .fill(LinearGradient(
+                            colors: [Color(red: 0.09, green: 0.06, blue: 0.18),
+                                     Color(red: 0.05, green: 0.04, blue: 0.12)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+
+                    // Γέμισμα — το αυθεντικό μωβ του banner
+                    Rectangle()
+                        .fill(LinearGradient(
+                            colors: [Color(red: 0.28, green: 0.18, blue: 0.52),
+                                     Color(red: 0.15, green: 0.12, blue: 0.38)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                        .frame(width: geo.size.width * progress)
+                        .animation(.linear(duration: 1.0), value: progress)
+
+                    // Λεπτή φωτεινή ακμή στο μέτωπο του γεμίσματος
+                    if progress > 0.01 && progress < 0.995 {
+                        Rectangle()
+                            .fill(Color.white.opacity(0.30))
+                            .frame(width: 2)
+                            .blur(radius: 1.5)
+                            .offset(x: geo.size.width * progress - 1)
+                            .animation(.linear(duration: 1.0), value: progress)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+            }
         )
+        .shadow(color: Color(red: 0.45, green: 0.30, blue: 0.95).opacity(0.30), radius: 12)
+        .overlay(
+            RoundedRectangle(cornerRadius: 20)
+                .stroke(Color.white.opacity(0.10), lineWidth: 1)
+        )
+        // Ηχειάκι: on/off για τους ήχους αποτελέσματος (χειροκρότημα/ήττα).
+        // Προσωπική προτίμηση — default off, το ανάβει όποιος το θέλει.
+        .overlay(alignment: .topTrailing) {
+            Button(action: { duelSoundsOn.toggle() }) {
+                Image(systemName: duelSoundsOn
+                      ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.white.opacity(duelSoundsOn ? 0.85 : 0.40))
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(Color.white.opacity(0.08)))
+            }
+            .buttonStyle(.plain)
+            .padding(8)
+        }
+    }
+
+    /// Πρόοδος χρόνου της μονομαχίας 0…1 — πόσο κοντά είναι στο τέλος της.
+    /// Υπολογίζεται με βάση το 1s tick ώστε να προχωράει live όσο μένει ορατή.
+    /// Το startedAt μπορεί να λείπει από το sync — πέφτουμε στο createdAt
+    /// (πάντα παρόν) ώστε η μπάρα να μη μένει ποτέ κολλημένη στο 0.
+    private func duelProgress(_ duel: DuelRecord) -> CGFloat {
+        guard let end = duel.endsAt else { return 0 }
+        let start = duel.startedAt ?? duel.createdAt
+        guard end > start else { return 0 }
+        let p = tick.timeIntervalSince(start) / end.timeIntervalSince(start)
+        return CGFloat(min(max(p, 0), 1))
     }
 
     // MARK: - Friends Card
