@@ -323,9 +323,11 @@ class DataStore {
         // Clear shared cooldown key (used by both ScreenUnlockDetector + extension, fix #1)
         defaults.removeObject(forKey: "picksy_last_pickup_timestamp")
 
-        // Reset Apple-confirmed screen time
+        // Reset Apple-confirmed screen time (+ the ladder-restart baseline)
         defaults.set(0, forKey: "picksy_apple_screen_time_secs")
         defaults.removeObject(forKey: "picksy_apple_screen_time_date")
+        defaults.set(0, forKey: "picksy_apple_screen_time_baseline")
+        defaults.removeObject(forKey: "picksy_apple_screen_time_baseline_date")
 
         // Reset report-confirmed screen time (Apps-tab total mirror)
         defaults.set(0, forKey: "picksy_report_screen_time_secs")
@@ -481,9 +483,11 @@ class DataStore {
             hourlyScreenTimeSecs = Array(repeating: 0, count: 24)
             weeklyPickups[currentDayIndex()] = 0
             defaults.removeObject(forKey: todayPickupsKey())
-            // Reset Apple-confirmed screen time for the new day.
+            // Reset Apple-confirmed screen time for the new day (+ ladder baseline).
             defaults.set(0, forKey: "picksy_apple_screen_time_secs")
             defaults.removeObject(forKey: "picksy_apple_screen_time_date")
+            defaults.set(0, forKey: "picksy_apple_screen_time_baseline")
+            defaults.removeObject(forKey: "picksy_apple_screen_time_baseline_date")
             // Reset report-confirmed total for the new day.
             defaults.set(0, forKey: "picksy_report_screen_time_secs")
             defaults.removeObject(forKey: "picksy_report_screen_time_date")

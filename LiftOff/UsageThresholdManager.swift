@@ -11,6 +11,7 @@
 //  - Strict: 30min/1h/1.5h
 //
 
+import CryptoKit
 import Foundation
 import DeviceActivity
 import FamilyControls
@@ -183,10 +184,45 @@ class UsageThresholdManager {
         }
 
         let preset = ThresholdPreset.current
+        let limitMinutes = UserDefaults.standard.integer(forKey: "picksy_timelimit_minutes")
 
         // Always mirror preset to App Group so the extension has the current value.
         let sharedDefaults = UserDefaults(suiteName: "group.fotiospongas.picksy")
         sharedDefaults?.set(preset.rawValue, forKey: "picksyThresholdPreset_shared")
+
+        // ── Skip needless restarts ──────────────────────────────────────────────
+        // stopMonitoring + startMonitoring resets Apple's usage accumulation to
+        // ZERO for these events. LiftOffApp calls startMonitoring on every launch,
+        // so an unconditional restart wiped the confirmed-time ladder several
+        // times a day — the duel score showed only the usage since the last
+        // launch (e.g. 2h15 while the Apps tab showed 9h07). When monitoring is
+        // already active with an unchanged config, leave the ladder untouched.
+        let fingerprint = Self.monitoringFingerprint(
+            selection: selection, preset: preset, limitMinutes: limitMinutes
+        )
+        let monitored = Set(center.activities.map(\.rawValue))
+        if monitored.contains(Self.activityName.rawValue),
+           monitored.contains(Self.scoreActivityName.rawValue),
+           sharedDefaults?.string(forKey: "picksy_monitoring_fingerprint") == fingerprint {
+            log("⏭️ Monitoring already active with unchanged config — keeping ladder intact")
+            return
+        }
+
+        // ── Ladder restart baseline ─────────────────────────────────────────────
+        // A genuine restart (changed selection/preset, or first start after boot)
+        // still resets the accumulation — every rung that fires afterwards reports
+        // time since the RESTART, not since midnight. Stamp today's best-known
+        // confirmed time as a baseline; the monitor extension adds it to each rung
+        // so the recorded total remains real time-of-day usage.
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let today = f.string(from: Date())
+        let confirmed = sharedDefaults?.string(forKey: "picksy_apple_screen_time_date") == today
+            ? (sharedDefaults?.integer(forKey: "picksy_apple_screen_time_secs") ?? 0) : 0
+        sharedDefaults?.set(confirmed, forKey: "picksy_apple_screen_time_baseline")
+        sharedDefaults?.set(today,     forKey: "picksy_apple_screen_time_baseline_date")
+        if confirmed > 0 {
+            log("📐 Ladder baseline stamped: \(confirmed / 60)min (restart mid-day)")
+        }
 
         let schedule = DeviceActivitySchedule(
             intervalStart: DateComponents(hour: 0, minute: 0),
@@ -207,7 +243,6 @@ class UsageThresholdManager {
         // Optional daily time-limit event: fires once when cumulative usage of the
         // tracked apps crosses the user's chosen limit. The monitor then applies a
         // "time's up" shield. 0 = off.
-        let limitMinutes = UserDefaults.standard.integer(forKey: "picksy_timelimit_minutes")
         if limitMinutes > 0 {
             events[DeviceActivityEvent.Name("picksy.timelimit")] = DeviceActivityEvent(
                 applications: selection.applicationTokens,
@@ -266,6 +301,31 @@ class UsageThresholdManager {
         } catch {
             log("❌ Failed to start score ladder: \(error.localizedDescription)")
         }
+
+        // Remember this config so the next launch can skip the restart when
+        // nothing changed (see the fingerprint check at the top).
+        sharedDefaults?.set(fingerprint, forKey: "picksy_monitoring_fingerprint")
+    }
+
+    /// Stable digest of everything that affects the monitoring config. Token sets
+    /// are encoded individually and sorted so the digest doesn't depend on set
+    /// iteration order (which varies between launches).
+    private static func monitoringFingerprint(
+        selection: FamilyActivitySelection,
+        preset: ThresholdPreset,
+        limitMinutes: Int
+    ) -> String {
+        let encoder = JSONEncoder()
+        let appParts = selection.applicationTokens.compactMap {
+            (try? encoder.encode($0))?.base64EncodedString()
+        }.sorted()
+        let catParts = selection.categoryTokens.compactMap {
+            (try? encoder.encode($0))?.base64EncodedString()
+        }.sorted()
+        let joined = "\(preset.rawValue)|\(limitMinutes)|\(scoreLadderStepMinutes)|\(scoreLadderMaxMinutes)|"
+            + appParts.joined(separator: ",") + "|" + catParts.joined(separator: ",")
+        let digest = SHA256.hash(data: Data(joined.utf8))
+        return digest.map { String(format: "%02x", $0) }.joined()
     }
 
     func stopMonitoring() {

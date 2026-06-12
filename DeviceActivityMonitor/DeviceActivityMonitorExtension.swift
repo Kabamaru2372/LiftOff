@@ -83,6 +83,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 sharedDefaults?.set(0, forKey: "picksy_apple_screen_time_secs")
                 sharedDefaults?.set(0, forKey: "picksy_report_screen_time_secs")
                 sharedDefaults?.removeObject(forKey: "picksy_report_screen_time_date")
+                // The ladder-restart baseline belongs to yesterday's usage too.
+                sharedDefaults?.set(0, forKey: "picksy_apple_screen_time_baseline")
+                sharedDefaults?.removeObject(forKey: "picksy_apple_screen_time_baseline_date")
                 log("📊 Screen-time accumulator reset for new day")
             } else {
                 log("📊 Screen-time accumulator kept (mid-day re-arm, date unchanged)")
@@ -592,20 +595,30 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         guard secs > 0, let defaults = sharedDefaults else { return }
 
         let today = milestoneTodayKey()   // "yyyy-MM-dd"
-        let storedDate = defaults.string(forKey: "picksy_apple_screen_time_date")
-        // New day → baseline is 0 (ignore yesterday's stored value).
-        let current = (storedDate == today) ? defaults.integer(forKey: "picksy_apple_screen_time_secs") : 0
-        guard secs > current else { return }
 
-        defaults.set(secs, forKey: "picksy_apple_screen_time_secs")
+        // Rung thresholds count usage since the ladder's last (re)start — NOT
+        // since midnight. UsageThresholdManager stamps the already-confirmed
+        // total as a baseline at every restart; adding it here keeps the
+        // recorded value equal to real time-of-day usage across restarts.
+        let baseline = defaults.string(forKey: "picksy_apple_screen_time_baseline_date") == today
+            ? defaults.integer(forKey: "picksy_apple_screen_time_baseline") : 0
+        let total = baseline + secs
+
+        let storedDate = defaults.string(forKey: "picksy_apple_screen_time_date")
+        // New day → stored value is stale (ignore yesterday's).
+        let current = (storedDate == today) ? defaults.integer(forKey: "picksy_apple_screen_time_secs") : 0
+        guard total > current else { return }
+
+        defaults.set(total, forKey: "picksy_apple_screen_time_secs")
         defaults.set(today, forKey: "picksy_apple_screen_time_date")
-        log("📊 Apple screen time confirmed: ≥\(secs / 60)min (\(source))")
+        log("📊 Apple screen time confirmed: ≥\(total / 60)min (\(source), baseline \(baseline / 60)min)")
 
         // ── Duel screen-time sync (background — no app open needed) ────────────
         // Screen time is the duel metric. Pushing it here, from Apple's background
         // process, keeps the opponent's view of our screen time accurate even when
         // the main app is suspended — the whole reason the duel uses screen time.
-        syncScreenTimeToDuel(secs: secs)
+        // Always the baseline-included total, never the raw rung value.
+        syncScreenTimeToDuel(secs: total)
 
         // Tell the main app to re-read so the Nudge/Stats score refreshes live.
         CFNotificationCenterPostNotification(
