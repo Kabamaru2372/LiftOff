@@ -99,11 +99,13 @@ struct ContentView: View {
             }
 
             // ── Floating taunt / nudge bubble ────────────────────
+            // Respects the top safe area: with .ignoresSafeArea the bubble was
+            // drawn from y=0 of the SCREEN — on top of the clock/battery and
+            // half-hidden behind the Dynamic Island.
             VStack {
                 TauntBubbleOverlay()
                 Spacer()
             }
-            .ignoresSafeArea(edges: .top)
 
             // ── Reward popup ─────────────────────────────────────
             if proManager.isPro, let reward = rewardManager.pendingReward {
