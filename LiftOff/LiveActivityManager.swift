@@ -17,6 +17,18 @@ class LiveActivityManager {
 
     private var currentActivity: Activity<LiftOffActivityAttributes>?
 
+    /// Today's best-known screen time (seconds) for the duel DI — the freshest of
+    /// the App-Group accumulators and the Supabase-synced value. The DI must show
+    /// the same number the duel is judged on (screen time), never pickups.
+    private func myDuelSecs(_ duel: DuelRecord) -> Int {
+        let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let today = f.string(from: Date())
+        let appleSecs = suite.string(forKey: "picksy_apple_screen_time_date") == today
+            ? suite.integer(forKey: "picksy_apple_screen_time_secs") : 0
+        return max(max(suite.integer(forKey: "todayTotalSeconds"), appleSecs), duel.myScreenTime)
+    }
+
     private(set) var pushToken: String? {
         didSet {
             if let token = pushToken {
@@ -160,8 +172,8 @@ class LiveActivityManager {
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: duel?.theirName,
-            duelMyPickups: duel != nil ? pickupCount : 0,
-            duelTheirPickups: duel?.theirPickups ?? 0
+            duelMySecs: duel.map { myDuelSecs($0) } ?? 0,
+            duelTheirSecs: duel?.theirScreenTime ?? 0
         )
 
         let content = ActivityContent(
@@ -202,8 +214,8 @@ class LiveActivityManager {
                 focusEndTime: nil,
                 focusPickupCount: 0,
                 duelOpponentName: duel.theirName,
-                duelMyPickups: pickupCount,       // caller always passes the current local count
-                duelTheirPickups: duel.theirPickups
+                duelMySecs: myDuelSecs(duel),
+                duelTheirSecs: duel.theirScreenTime
             )
             let content = ActivityContent(
                 state: state,
@@ -222,8 +234,8 @@ class LiveActivityManager {
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: nil,
-            duelMyPickups: 0,
-            duelTheirPickups: 0
+            duelMySecs: 0,
+            duelTheirSecs: 0
         )
         let content = ActivityContent(
             state: state,
@@ -244,8 +256,8 @@ class LiveActivityManager {
             focusEndTime: focusEndTime,
             focusPickupCount: focusPickupCount,
             duelOpponentName: nil,
-            duelMyPickups: 0,
-            duelTheirPickups: 0
+            duelMySecs: 0,
+            duelTheirSecs: 0
         )
         let content = ActivityContent(
             state: state,
@@ -257,7 +269,7 @@ class LiveActivityManager {
 
     // MARK: - Duel Update
 
-    func updateForDuel(pickupCount: Int, opponentName: String, myPickups: Int, theirPickups: Int) {
+    func updateForDuel(pickupCount: Int, opponentName: String, mySecs: Int, theirSecs: Int) {
         guard let activity = currentActivity else { return }
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
@@ -266,8 +278,8 @@ class LiveActivityManager {
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: opponentName,
-            duelMyPickups: myPickups,
-            duelTheirPickups: theirPickups
+            duelMySecs: mySecs,
+            duelTheirSecs: theirSecs
         )
         let content = ActivityContent(
             state: state,
@@ -298,8 +310,8 @@ class LiveActivityManager {
                 focusEndTime: nil,
                 focusPickupCount: 0,
                 duelOpponentName: duel.theirName,
-                duelMyPickups: pickupCount,
-                duelTheirPickups: duel.theirPickups
+                duelMySecs: myDuelSecs(duel),
+                duelTheirSecs: duel.theirScreenTime
             )
             let content = ActivityContent(
                 state: state,
@@ -316,8 +328,8 @@ class LiveActivityManager {
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: nil,
-            duelMyPickups: 0,
-            duelTheirPickups: 0
+            duelMySecs: 0,
+            duelTheirSecs: 0
         )
         let content = ActivityContent(
             state: state,
@@ -336,8 +348,8 @@ class LiveActivityManager {
             focusEndTime: focusEndTime,
             focusPickupCount: focusPickupCount,
             duelOpponentName: nil,
-            duelMyPickups: 0,
-            duelTheirPickups: 0
+            duelMySecs: 0,
+            duelTheirSecs: 0
         )
         let content = ActivityContent(
             state: state,
@@ -359,8 +371,8 @@ class LiveActivityManager {
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: nil,
-            duelMyPickups: 0,
-            duelTheirPickups: 0
+            duelMySecs: 0,
+            duelTheirSecs: 0
         )
 
         let content = ActivityContent(state: state, staleDate: nil)

@@ -151,6 +151,9 @@ class DuelManager {
     private var lastPollDate: Date = .distantPast
     /// Last pickup count successfully pushed to Supabase (avoids redundant PATCHes)
     private var lastSyncedPickups: Int = -1
+    /// Last screen time (seconds) pushed to Supabase. Screen time is the duel
+    /// metric, so changes here must trigger a sync even when pickups are unchanged.
+    private var lastSyncedScreenTime: Int = -1
 
     /// Duel IDs currently being finalized — prevents duplicate push notifications
     /// when multiple concurrent polls both see the same expired duel.
@@ -181,6 +184,18 @@ class DuelManager {
 
     var myDeviceID: String { FriendSyncManager.shared.deviceID }
 
+    /// Date-guarded read of today's best-known screen time straight from the App
+    /// Group — same semantics as DataStore.bestScreenTimeSecs, but usable from
+    /// contexts without a DataStore reference (poll discovery, BG refresh).
+    static func suiteBestScreenTimeSecs() -> Int {
+        let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let today = f.string(from: Date())
+        let appleSecs = suite.string(forKey: "picksy_apple_screen_time_date") == today
+            ? suite.integer(forKey: "picksy_apple_screen_time_secs") : 0
+        return max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
+    }
+
     private init() {}
 
     // MARK: - Public API
@@ -208,7 +223,10 @@ class DuelManager {
             "status":             "active",
             "started_at":         isoFrac.string(from: now),
             "ends_at":            isoFrac.string(from: endOfDay),
-            "challenger_pickups": myCurrentPickups
+            "challenger_pickups": myCurrentPickups,
+            // Duel metric = TODAY'S total screen time: seed it at creation so the
+            // opponent never sees "?" while waiting for our first sync.
+            "challenger_screen_time": Self.suiteBestScreenTimeSecs()
         ]
 
         var req = makeRequest(url: url, method: "POST")
@@ -272,9 +290,17 @@ class DuelManager {
     @MainActor
     func updateMyPickups(_ pickups: Int, screenTimeSeconds: Int = 0) async {
         guard !activeDuels.isEmpty else { return }
-        // Skip if nothing changed — avoids hammering Supabase on every timer tick
-        guard pickups != lastSyncedPickups else { return }
+        // Effective screen time: never let a 0/stale parameter wipe the real value
+        // in Supabase — take the freshest of the caller's value and the App-Group
+        // accumulators. (Callers without a DataStore pass 0; before this guard,
+        // that PATCHed screen_time=0 and the opponent saw "?" until the next sync.)
+        let secs = max(screenTimeSeconds, Self.suiteBestScreenTimeSecs())
+        // Sync when EITHER metric changed. Screen time is the duel metric — the old
+        // pickups-only check skipped real screen-time updates, so the opponent's
+        // view went stale whenever pickups happened to be unchanged.
+        guard pickups != lastSyncedPickups || secs != lastSyncedScreenTime else { return }
         lastSyncedPickups = pickups
+        lastSyncedScreenTime = secs
 
         for duel in activeDuels where duel.status == .active {
             let pickupsField    = duel.amChallenger ? "challenger_pickups"     : "opponent_pickups"
@@ -284,7 +310,7 @@ class DuelManager {
             req.setValue("return=representation", forHTTPHeaderField: "Prefer")
             req.httpBody = try? JSONSerialization.data(withJSONObject: [
                 pickupsField:    pickups,
-                screenTimeField: screenTimeSeconds
+                screenTimeField: secs
             ])
 
             if let (data, resp) = try? await URLSession.shared.data(for: req),

@@ -11,6 +11,33 @@ import ActivityKit
 import WidgetKit
 import SwiftUI
 
+// MARK: - Duel time formatting
+//
+// Duel metric = screen time (seconds). Three sizes for the three DI densities:
+//   full    "2h 05m" / "13m"   — lock screen & expanded regions
+//   compact "2h05"   / "13m"   — compact leading/trailing pills
+//   minimal "2h" / "13"        — the tiny circle
+
+private func duelTimeFull(_ secs: Int) -> String {
+    let m = secs / 60
+    return m < 60 ? "\(m)m" : String(format: "%dh %02dm", m / 60, m % 60)
+}
+
+private func duelTimeCompact(_ secs: Int) -> String {
+    let m = secs / 60
+    return m < 60 ? "\(m)m" : String(format: "%dh%02d", m / 60, m % 60)
+}
+
+private func duelTimeMinimal(_ secs: Int) -> String {
+    let m = secs / 60
+    return m < 60 ? "\(m)" : "\(m / 60)h"
+}
+
+/// Winner-coloring: less screen time = winning (green), more = losing (red).
+private func duelColor(mine: Int, theirs: Int, winning: Color, losing: Color, neutral: Color) -> Color {
+    mine < theirs ? winning : (mine > theirs ? losing : neutral)
+}
+
 struct LiftOffLiveLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LiftOffActivityAttributes.self) { context in
@@ -47,20 +74,23 @@ struct LiftOffLiveLiveActivity: Widget {
                 .activityBackgroundTint(Color(red: 0.12, green: 0.12, blue: 0.14))
 
             } else if let opponent = context.state.duelOpponentName {
-                // — Duel mode lock screen —
+                // — Duel mode lock screen (screen time, lower wins) —
                 HStack(spacing: 0) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("You")
                             .font(.system(size: 12, design: .rounded))
                             .foregroundColor(.white.opacity(0.7))
-                        Text("\(context.state.duelMyPickups)")
-                            .font(.system(size: 32, weight: .semibold, design: .rounded))
-                            .foregroundColor(
-                                context.state.duelMyPickups < context.state.duelTheirPickups
-                                    ? Color(red: 0.4, green: 1.0, blue: 0.6)
-                                    : context.state.duelMyPickups > context.state.duelTheirPickups
-                                        ? Color(red: 1.0, green: 0.35, blue: 0.35) : .white
-                            )
+                        Text(duelTimeFull(context.state.duelMySecs))
+                            .font(.system(size: 28, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .foregroundColor(duelColor(
+                                mine: context.state.duelMySecs,
+                                theirs: context.state.duelTheirSecs,
+                                winning: Color(red: 0.4, green: 1.0, blue: 0.6),
+                                losing: Color(red: 1.0, green: 0.35, blue: 0.35),
+                                neutral: .white
+                            ))
                     }
                     Spacer()
                     Text("⚔️")
@@ -71,14 +101,17 @@ struct LiftOffLiveLiveActivity: Widget {
                             .font(.system(size: 12, design: .rounded))
                             .foregroundColor(.white.opacity(0.7))
                             .lineLimit(1)
-                        Text("\(context.state.duelTheirPickups)")
-                            .font(.system(size: 32, weight: .semibold, design: .rounded))
-                            .foregroundColor(
-                                context.state.duelTheirPickups < context.state.duelMyPickups
-                                    ? Color(red: 0.4, green: 1.0, blue: 0.6)
-                                    : context.state.duelTheirPickups > context.state.duelMyPickups
-                                        ? Color(red: 1.0, green: 0.35, blue: 0.35) : .white
-                            )
+                        Text(duelTimeFull(context.state.duelTheirSecs))
+                            .font(.system(size: 28, weight: .semibold, design: .rounded))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                            .foregroundColor(duelColor(
+                                mine: context.state.duelTheirSecs,
+                                theirs: context.state.duelMySecs,
+                                winning: Color(red: 0.4, green: 1.0, blue: 0.6),
+                                losing: Color(red: 1.0, green: 0.35, blue: 0.35),
+                                neutral: .white
+                            ))
                     }
                 }
                 .padding(16)
@@ -129,14 +162,15 @@ struct LiftOffLiveLiveActivity: Widget {
                             Text("You")
                                 .font(.system(size: 12, design: .rounded))
                                 .foregroundStyle(.secondary)
-                            Text("\(context.state.duelMyPickups)")
-                                .font(.system(size: 28, weight: .semibold, design: .rounded))
-                                .foregroundStyle(
-                                    context.state.duelMyPickups < context.state.duelTheirPickups
-                                        ? Color.green
-                                        : context.state.duelMyPickups > context.state.duelTheirPickups
-                                            ? Color.red : Color.primary
-                                )
+                            Text(duelTimeFull(context.state.duelMySecs))
+                                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .foregroundStyle(duelColor(
+                                    mine: context.state.duelMySecs,
+                                    theirs: context.state.duelTheirSecs,
+                                    winning: .green, losing: .red, neutral: .primary
+                                ))
                         }
                         .padding(.leading, 4)
                     } else {
@@ -169,14 +203,15 @@ struct LiftOffLiveLiveActivity: Widget {
                                 .font(.system(size: 12, design: .rounded))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
-                            Text("\(context.state.duelTheirPickups)")
-                                .font(.system(size: 28, weight: .semibold, design: .rounded))
-                                .foregroundStyle(
-                                    context.state.duelTheirPickups < context.state.duelMyPickups
-                                        ? Color.green
-                                        : context.state.duelTheirPickups > context.state.duelMyPickups
-                                            ? Color.red : Color.primary
-                                )
+                            Text(duelTimeFull(context.state.duelTheirSecs))
+                                .font(.system(size: 22, weight: .semibold, design: .rounded))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                                .foregroundStyle(duelColor(
+                                    mine: context.state.duelTheirSecs,
+                                    theirs: context.state.duelMySecs,
+                                    winning: .green, losing: .red, neutral: .primary
+                                ))
                         }
                         .padding(.trailing, 4)
                     } else {
@@ -201,7 +236,7 @@ struct LiftOffLiveLiveActivity: Widget {
                             .lineLimit(1)
                             .padding(.top, 4)
                     } else if context.state.duelOpponentName != nil {
-                        Text("⚔️ Pickup Duel · fewer pickups wins")
+                        Text("⚔️ Screen-time duel · less by midnight wins")
                             .font(.system(size: 12, weight: .regular, design: .rounded))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -221,14 +256,13 @@ struct LiftOffLiveLiveActivity: Widget {
                         .font(.system(size: 12))
                         .foregroundStyle(.orange)
                 } else if context.state.duelOpponentName != nil {
-                    Text("\(context.state.duelMyPickups)")
-                        .font(.system(size: 14, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(
-                            context.state.duelMyPickups < context.state.duelTheirPickups
-                                ? Color.green
-                                : context.state.duelMyPickups > context.state.duelTheirPickups
-                                    ? Color.red : Color.primary
-                        )
+                    Text(duelTimeCompact(context.state.duelMySecs))
+                        .font(.system(size: 13, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(duelColor(
+                            mine: context.state.duelMySecs,
+                            theirs: context.state.duelTheirSecs,
+                            winning: .green, losing: .red, neutral: .primary
+                        ))
                         .padding(.leading, 2)
                 } else {
                     Image(systemName: "hand.raised.fill")
@@ -243,14 +277,13 @@ struct LiftOffLiveLiveActivity: Widget {
                         .foregroundStyle(.orange)
                         .frame(maxWidth: 60)
                 } else if context.state.duelOpponentName != nil {
-                    Text("\(context.state.duelTheirPickups)")
-                        .font(.system(size: 14, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(
-                            context.state.duelTheirPickups < context.state.duelMyPickups
-                                ? Color.green
-                                : context.state.duelTheirPickups > context.state.duelMyPickups
-                                    ? Color.red : Color.primary
-                        )
+                    Text(duelTimeCompact(context.state.duelTheirSecs))
+                        .font(.system(size: 13, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(duelColor(
+                            mine: context.state.duelTheirSecs,
+                            theirs: context.state.duelMySecs,
+                            winning: .green, losing: .red, neutral: .primary
+                        ))
                         .padding(.trailing, 2)
                 } else {
                     Text("\(context.state.pickupCount)")
@@ -266,15 +299,14 @@ struct LiftOffLiveLiveActivity: Widget {
                         .font(.system(size: 12))
                         .foregroundStyle(.orange)
                 } else if context.state.duelOpponentName != nil {
-                    // Show user's own score — fits in the circle, more useful than ⚔️
-                    Text("\(context.state.duelMyPickups)")
-                        .font(.system(size: 13, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(
-                            context.state.duelMyPickups < context.state.duelTheirPickups
-                                ? Color.green
-                                : context.state.duelMyPickups > context.state.duelTheirPickups
-                                    ? Color.red : Color.white
-                        )
+                    // Show user's own screen time — fits in the circle, more useful than ⚔️
+                    Text(duelTimeMinimal(context.state.duelMySecs))
+                        .font(.system(size: 12, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(duelColor(
+                            mine: context.state.duelMySecs,
+                            theirs: context.state.duelTheirSecs,
+                            winning: .green, losing: .red, neutral: .white
+                        ))
                 } else {
                     Text("\(context.state.pickupCount)")
                         .font(.system(size: 12, weight: .medium, design: .rounded))

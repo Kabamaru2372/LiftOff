@@ -351,8 +351,8 @@ struct LiftOffApp: App {
                             liveActivity.updateForDuel(
                                 pickupCount: store.todayPickups,
                                 opponentName: duel.theirName,
-                                myPickups: duel.myPickups,
-                                theirPickups: duel.theirPickups
+                                mySecs: store.bestScreenTimeSecs,
+                                theirSecs: duel.theirScreenTime
                             )
                         } else {
                             liveActivity.update(pickupCount: store.todayPickups)
@@ -423,15 +423,17 @@ struct LiftOffApp: App {
             rescheduleTimeBasedNotifications(pickupCount: pickups)
 
             // Live Activity via APNs push — include duel state if active (fix #5 partial)
+            // Duel metric = screen time: send seconds, not pickups.
             let isDuelActive = sharedDefaults.bool(forKey: "picksy_duel_active")
             let opponentName = sharedDefaults.string(forKey: "picksy_duel_opponent")
-            let theirPickups = sharedDefaults.integer(forKey: "picksy_duel_their_pickups")
+            let theirSecs    = sharedDefaults.integer(forKey: "picksy_duel_their_secs")
+            let mySecs       = DuelManager.suiteBestScreenTimeSecs()
 
             await PushNotificationManager.shared.pushLiveActivityUpdate(
                 pickupCount: pickups,
                 duelOpponentName: isDuelActive ? opponentName : nil,
-                duelMyPickups:    isDuelActive ? pickups : 0,
-                duelTheirPickups: isDuelActive ? theirPickups : 0
+                duelMySecs:    isDuelActive ? mySecs : 0,
+                duelTheirSecs: isDuelActive ? theirSecs : 0
             )
 
             task.setTaskCompleted(success: true)
@@ -552,13 +554,15 @@ struct LiftOffApp: App {
         guard let shared = UserDefaults(suiteName: "group.fotiospongas.picksy") else { return }
         let active = duels.filter { $0.status == .active }
         if let first = active.first {
-            shared.set(true,                forKey: "picksy_duel_active")
-            shared.set(first.theirName,     forKey: "picksy_duel_opponent")
-            shared.set(first.theirPickups,  forKey: "picksy_duel_their_pickups")
+            shared.set(true,                   forKey: "picksy_duel_active")
+            shared.set(first.theirName,        forKey: "picksy_duel_opponent")
+            shared.set(first.theirPickups,     forKey: "picksy_duel_their_pickups")
+            shared.set(first.theirScreenTime,  forKey: "picksy_duel_their_secs")
         } else {
             shared.set(false, forKey: "picksy_duel_active")
             shared.removeObject(forKey: "picksy_duel_opponent")
             shared.removeObject(forKey: "picksy_duel_their_pickups")
+            shared.removeObject(forKey: "picksy_duel_their_secs")
         }
 
         // Also store duel IDs + role so the DeviceActivity extension can PATCH
@@ -654,8 +658,8 @@ struct LiftOffApp: App {
                 liveActivity.updateForDuel(
                     pickupCount: store.todayPickups,
                     opponentName: duel.theirName,
-                    myPickups: store.todayPickups,
-                    theirPickups: duel.theirPickups
+                    mySecs: store.bestScreenTimeSecs,
+                    theirSecs: duel.theirScreenTime
                 )
             } else {
                 // No active duel — clear any stale duel state the DI may be showing
@@ -748,8 +752,8 @@ struct LiftOffApp: App {
                         await PushNotificationManager.shared.pushLiveActivityUpdate(
                             pickupCount: pickups,
                             duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
-                            duelMyPickups:    isDuelActive ? pickups : 0,   // fix #8: live count, not stale Supabase value
-                            duelTheirPickups: isDuelActive ? (activeDuel?.theirPickups ?? 0) : 0
+                            duelMySecs:    isDuelActive ? store.bestScreenTimeSecs : 0,
+                            duelTheirSecs: isDuelActive ? (activeDuel?.theirScreenTime ?? 0) : 0
                         )
                     }
                 }
@@ -960,8 +964,8 @@ struct LiftOffApp: App {
                     liveActivity.updateForDuel(
                         pickupCount: store.todayPickups,
                         opponentName: duel.theirName,
-                        myPickups: duel.myPickups,
-                        theirPickups: duel.theirPickups
+                        mySecs: store.bestScreenTimeSecs,
+                        theirSecs: duel.theirScreenTime
                     )
                 } else {
                     liveActivity.update(pickupCount: store.todayPickups)
@@ -1000,8 +1004,8 @@ struct LiftOffApp: App {
                     liveActivity.updateForDuel(
                         pickupCount: store.todayPickups,
                         opponentName: duel.theirName,
-                        myPickups: duel.myPickups,
-                        theirPickups: duel.theirPickups
+                        mySecs: store.bestScreenTimeSecs,
+                        theirSecs: duel.theirScreenTime
                     )
                 }
                 // Refresh pre-computed milestone messages in the App Group so the

@@ -71,10 +71,22 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             // the max(), making the duel/score show a stale, inflated value.
             // Previously only the main app reset this (checkNewDay), which fails if
             // the app stays closed across the day boundary.
-            sharedDefaults?.set(0, forKey: "picksy_apple_screen_time_secs")
-            sharedDefaults?.set(0, forKey: "picksy_report_screen_time_secs")
-            sharedDefaults?.removeObject(forKey: "picksy_report_screen_time_date")
-            log("📊 Screen-time accumulator reset for new day")
+            //
+            // DATE-GUARDED: intervalDidStart("daily") also fires when monitoring is
+            // RE-ARMED mid-day (app update/relaunch → startMonitoring). An
+            // unconditional zero here wiped today's real accumulated time and the
+            // duel score visibly DROPPED (e.g. 2h → 13m) until thresholds re-fired.
+            // Only zero when the stored value is actually from a previous day.
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            let today = f.string(from: Date())
+            if sharedDefaults?.string(forKey: "picksy_apple_screen_time_date") != today {
+                sharedDefaults?.set(0, forKey: "picksy_apple_screen_time_secs")
+                sharedDefaults?.set(0, forKey: "picksy_report_screen_time_secs")
+                sharedDefaults?.removeObject(forKey: "picksy_report_screen_time_date")
+                log("📊 Screen-time accumulator reset for new day")
+            } else {
+                log("📊 Screen-time accumulator kept (mid-day re-arm, date unchanged)")
+            }
 
             // New day → lift yesterday's time-limit shield + clear its flag.
             let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
@@ -465,9 +477,13 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         guard let url = URL(string: "\(Self.supabaseURL)/functions/v1/update-live-activity") else { return }
 
         // Fix #5: Read duel state written by LiftOffApp.syncDuelStateToAppGroup()
+        // Duel metric = screen time: the DI shows seconds, not pickups.
         let isDuelActive  = defaults.bool(forKey: "picksy_duel_active")
         let opponentName  = defaults.string(forKey: "picksy_duel_opponent") ?? ""
-        let theirPickups  = defaults.integer(forKey: "picksy_duel_their_pickups")
+        let theirSecs     = defaults.integer(forKey: "picksy_duel_their_secs")
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let mySecs = defaults.string(forKey: "picksy_apple_screen_time_date") == f.string(from: Date())
+            ? defaults.integer(forKey: "picksy_apple_screen_time_secs") : 0
 
         var body: [String: Any] = [
             "device_id":    deviceID,
@@ -475,8 +491,8 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         ]
         if isDuelActive {
             body["duel_opponent_name"] = opponentName
-            body["duel_my_pickups"]    = pickupCount
-            body["duel_their_pickups"] = theirPickups
+            body["duel_my_secs"]       = mySecs
+            body["duel_their_secs"]    = theirSecs
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }

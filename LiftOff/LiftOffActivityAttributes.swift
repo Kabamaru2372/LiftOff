@@ -26,13 +26,14 @@ struct LiftOffActivityAttributes: ActivityAttributes {
         var lastPickupTime: Date
         var focusEndTime: Date?       // nil = not in focus mode
         var focusPickupCount: Int     // pickups during this focus session
-        // Duel mode — nil opponentName means no active duel
+        // Duel mode — nil opponentName means no active duel.
+        // Duel metric = SCREEN TIME (seconds), same as DuelRecord.myScore —
+        // the DI/Lock Screen must show the number the duel is judged on.
         var duelOpponentName: String? // e.g. "Alex"
-        var duelMyPickups:    Int     // my pickups in the duel
-        var duelTheirPickups: Int     // opponent's pickups in the duel
+        var duelMySecs:    Int        // my screen time in the duel (seconds)
+        var duelTheirSecs: Int        // opponent's screen time (seconds)
     }
-    
+
     // Στατικά δεδομένα (δεν αλλάζουν κατά τη διάρκεια)
     var dailyGoal: Int
 }
-

@@ -108,8 +108,8 @@ class PushNotificationManager {
                 await self.pushLiveActivityUpdate(
                     pickupCount:      pickups,
                     duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
-                    duelMyPickups:    isDuelActive ? (activeDuel?.myPickups    ?? 0) : 0,
-                    duelTheirPickups: isDuelActive ? (activeDuel?.theirPickups ?? 0) : 0
+                    duelMySecs:    isDuelActive ? store.bestScreenTimeSecs : 0,
+                    duelTheirSecs: isDuelActive ? (activeDuel?.theirScreenTime ?? 0) : 0
                 )
 
                 // If we're in an active duel, upload our pickup count immediately
@@ -138,8 +138,8 @@ class PushNotificationManager {
     func pushLiveActivityUpdate(
         pickupCount: Int,
         duelOpponentName: String? = nil,
-        duelMyPickups: Int = 0,
-        duelTheirPickups: Int = 0
+        duelMySecs: Int = 0,
+        duelTheirSecs: Int = 0
     ) async {
         guard let url = URL(string: "\(Self.supabaseURL)/functions/v1/update-live-activity") else { return }
 
@@ -148,9 +148,9 @@ class PushNotificationManager {
             "pickup_count": pickupCount
         ]
         if let name = duelOpponentName {
-            body["duel_opponent_name"]  = name
-            body["duel_my_pickups"]     = duelMyPickups
-            body["duel_their_pickups"]  = duelTheirPickups
+            body["duel_opponent_name"] = name
+            body["duel_my_secs"]       = duelMySecs
+            body["duel_their_secs"]    = duelTheirSecs
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }

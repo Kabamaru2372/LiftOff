@@ -6,6 +6,78 @@
 
 import SwiftUI
 import Combine
+import CoreMotion
+
+// MARK: - Duel banner liquid fill
+
+/// Παρακολουθεί το roll της συσκευής ώστε η «επιφάνεια» του γεμίσματος στο duel
+/// banner να γέρνει σαν υγρό όταν γέρνει το κινητό. Low-pass φιλτραρισμένο για
+/// ομαλή κίνηση· clamped ώστε το γέμισμα να μη φεύγει ποτέ από τη θέση του.
+@Observable
+final class DuelMotionTilt {
+    private let motion = CMMotionManager()
+    var rollDegrees: Double = 0
+
+    func start() {
+        guard motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
+        motion.deviceMotionUpdateInterval = 1.0 / 30.0
+        motion.startDeviceMotionUpdates(to: .main) { [weak self] data, _ in
+            guard let self, let roll = data?.attitude.roll else { return }
+            let deg = max(-14.0, min(14.0, roll * 180 / .pi))
+            // Low-pass: το υγρό «κυλάει» αντί να τρέμει με κάθε μικροκίνηση
+            self.rollDegrees = self.rollDegrees * 0.85 + deg * 0.15
+        }
+    }
+
+    func stop() { motion.stopDeviceMotionUpdates() }
+}
+
+/// Το γέμισμα της μπάρας με κεκλιμένο μέτωπο — η κλίση (slant) ακολουθεί το
+/// roll της συσκευής ώστε η επιφάνεια να συμπεριφέρεται σαν στάθμη υγρού.
+private struct LiquidFillShape: Shape {
+    var progress: CGFloat   // 0…1 — πόσο γεμάτη είναι η μπάρα
+    var slant: CGFloat      // οριζόντια απόκλιση (pt) πάνω/κάτω άκρης του μετώπου
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(progress, slant) }
+        set { progress = newValue.first; slant = newValue.second }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let x = rect.width * progress
+        // Κράτα το μέτωπο μέσα στα όρια ώστε το slant να μην «ξεχειλίζει»
+        let top    = min(max(x + slant, 0), rect.width)
+        let bottom = min(max(x - slant, 0), rect.width)
+        var p = Path()
+        p.move(to: CGPoint(x: 0, y: 0))
+        p.addLine(to: CGPoint(x: top, y: 0))
+        p.addLine(to: CGPoint(x: bottom, y: rect.height))
+        p.addLine(to: CGPoint(x: 0, y: rect.height))
+        p.closeSubpath()
+        return p
+    }
+}
+
+/// Η φωτεινή ακμή στο μέτωπο του γεμίσματος — ίδια γεωμετρία με το LiquidFillShape.
+private struct LiquidEdgeShape: Shape {
+    var progress: CGFloat
+    var slant: CGFloat
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(progress, slant) }
+        set { progress = newValue.first; slant = newValue.second }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let x = rect.width * progress
+        let top    = min(max(x + slant, 0), rect.width)
+        let bottom = min(max(x - slant, 0), rect.width)
+        var p = Path()
+        p.move(to: CGPoint(x: top, y: 0))
+        p.addLine(to: CGPoint(x: bottom, y: rect.height))
+        return p
+    }
+}
 
 struct FriendsView: View {
 
@@ -55,6 +127,9 @@ struct FriendsView: View {
     // Taunt / Nudge
     @State private var tauntDuel:    DuelRecord? = nil
     @State private var toastMessage: String?     = nil
+
+    // Fluid tilt για το γέμισμα του duel banner — ενεργό μόνο όσο φαίνεται το banner
+    @State private var motionTilt = DuelMotionTilt()
 
 
     // 1-second tick for live countdown display
@@ -401,11 +476,13 @@ struct FriendsView: View {
         .padding(20)
         .frame(maxWidth: .infinity)
         .background(
-            // Time-progress fill: η μπάρα γεμίζει με το «κανονικό» μωβ από
-            // αριστερά προς δεξιά όσο κυλά ο χρόνος της μονομαχίας (σαν
-            // loading bar) πάνω σε σκουρότερη βάση. Στατικό κατά τα άλλα.
+            // Day-progress liquid fill: η μπάρα γεμίζει με το «κανονικό» μωβ από
+            // αριστερά προς δεξιά όσο πλησιάζουν τα μεσάνυχτα (πρόοδος ημέρας,
+            // όχι μονομαχίας) πάνω σε σκουρότερη βάση. Το μέτωπο γέρνει σαν
+            // στάθμη υγρού ακολουθώντας το roll της συσκευής (DuelMotionTilt).
             GeometryReader { geo in
                 let progress = duelProgress(duel)
+                let slant = CGFloat(tan(motionTilt.rollDegrees * .pi / 180)) * geo.size.height / 2
                 ZStack(alignment: .leading) {
                     // Σκούρα βάση — το «άδειο» μέρος του χρόνου (1-2 τόνους
                     // σκουρότερη από το μωβ γέμισμα ώστε να ξεχωρίζει καθαρά)
@@ -417,25 +494,24 @@ struct FriendsView: View {
                             endPoint: .bottomTrailing
                         ))
 
-                    // Γέμισμα — το αυθεντικό μωβ του banner
-                    Rectangle()
+                    // Γέμισμα — το αυθεντικό μωβ του banner, με υγρό μέτωπο
+                    LiquidFillShape(progress: progress, slant: slant)
                         .fill(LinearGradient(
                             colors: [Color(red: 0.28, green: 0.18, blue: 0.52),
                                      Color(red: 0.15, green: 0.12, blue: 0.38)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ))
-                        .frame(width: geo.size.width * progress)
                         .animation(.linear(duration: 1.0), value: progress)
+                        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: slant)
 
                     // Λεπτή φωτεινή ακμή στο μέτωπο του γεμίσματος
                     if progress > 0.01 && progress < 0.995 {
-                        Rectangle()
-                            .fill(Color.white.opacity(0.30))
-                            .frame(width: 2)
+                        LiquidEdgeShape(progress: progress, slant: slant)
+                            .stroke(Color.white.opacity(0.30), lineWidth: 2)
                             .blur(radius: 1.5)
-                            .offset(x: geo.size.width * progress - 1)
                             .animation(.linear(duration: 1.0), value: progress)
+                            .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: slant)
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: 20))
@@ -460,17 +536,19 @@ struct FriendsView: View {
             .buttonStyle(.plain)
             .padding(8)
         }
+        // Fluid tilt: ενεργό μόνο όσο το banner είναι ορατό — το gyroscope
+        // καταναλώνει ενέργεια, δεν το αφήνουμε να τρέχει σε άλλα tabs.
+        .onAppear { motionTilt.start() }
+        .onDisappear { motionTilt.stop() }
     }
 
-    /// Πρόοδος χρόνου της μονομαχίας 0…1 — πόσο κοντά είναι στο τέλος της.
+    /// Πρόοδος της ΗΜΕΡΑΣ 0…1 — πόσο κοντά είμαστε στις 24:00, το τέλος κάθε
+    /// μονομαχίας. Ανεξάρτητη από την ώρα έναρξης: μονομαχία που ξεκινά το
+    /// μεσημέρι δείχνει την μπάρα ήδη μισογεμάτη — γεμίζει πλήρως τα μεσάνυχτα.
     /// Υπολογίζεται με βάση το 1s tick ώστε να προχωράει live όσο μένει ορατή.
-    /// Το startedAt μπορεί να λείπει από το sync — πέφτουμε στο createdAt
-    /// (πάντα παρόν) ώστε η μπάρα να μη μένει ποτέ κολλημένη στο 0.
     private func duelProgress(_ duel: DuelRecord) -> CGFloat {
-        guard let end = duel.endsAt else { return 0 }
-        let start = duel.startedAt ?? duel.createdAt
-        guard end > start else { return 0 }
-        let p = tick.timeIntervalSince(start) / end.timeIntervalSince(start)
+        let startOfDay = Calendar.current.startOfDay(for: tick)
+        let p = tick.timeIntervalSince(startOfDay) / 86_400
         return CGFloat(min(max(p, 0), 1))
     }
 

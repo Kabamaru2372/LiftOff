@@ -18,8 +18,10 @@
 //   device_id          string   — anonymous device UUID
 //   pickup_count       number   — new total pickup count
 //   duel_opponent_name string?  — present only during an active duel
-//   duel_my_pickups    number?
-//   duel_their_pickups number?
+//   duel_my_secs       number?  — my screen time in seconds (duel metric)
+//   duel_their_secs    number?  — opponent's screen time in seconds
+//   duel_my_pickups    number?  — legacy (pre-2.1 clients)
+//   duel_their_pickups number?  — legacy (pre-2.1 clients)
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { importPKCS8, SignJWT } from "https://deno.land/x/jose@v4.15.5/index.ts";
@@ -63,6 +65,8 @@ async function sendLiveActivityPush(
   isProduction: boolean,
   pickupCount: number,
   duelOpponentName: string | null,
+  duelMySecs: number,
+  duelTheirSecs: number,
   duelMyPickups: number,
   duelTheirPickups: number
 ): Promise<{ ok: boolean; status: number; body: string }> {
@@ -72,7 +76,10 @@ async function sendLiveActivityPush(
 
   const nowSwift = Date.now() / 1000 - SWIFT_REF_DATE;
 
-  // content-state must match LiftOffActivityAttributes.ContentState (Codable, camelCase)
+  // content-state must match LiftOffActivityAttributes.ContentState (Codable, camelCase).
+  // Both NEW (duelMySecs — screen time, the duel metric) and LEGACY (duelMyPickups)
+  // field sets are included: JSONDecoder ignores unknown keys, so activities started
+  // by either app version decode this payload correctly during the transition.
   const contentState: Record<string, unknown> = {
     pickupCount,
     currentQuote: duelOpponentName
@@ -82,6 +89,8 @@ async function sendLiveActivityPush(
     focusEndTime:     null,       // Optional<Date> → null
     focusPickupCount: 0,
     duelOpponentName: duelOpponentName,  // Optional<String>
+    duelMySecs,
+    duelTheirSecs,
     duelMyPickups,
     duelTheirPickups,
   };
@@ -122,6 +131,8 @@ Deno.serve(async (req) => {
     device_id: string;
     pickup_count: number;
     duel_opponent_name?: string | null;
+    duel_my_secs?: number;
+    duel_their_secs?: number;
     duel_my_pickups?: number;
     duel_their_pickups?: number;
   };
@@ -166,7 +177,9 @@ Deno.serve(async (req) => {
     is_production,
     input.pickup_count,
     input.duel_opponent_name ?? null,
-    input.duel_my_pickups   ?? 0,
+    input.duel_my_secs       ?? 0,
+    input.duel_their_secs    ?? 0,
+    input.duel_my_pickups    ?? 0,
     input.duel_their_pickups ?? 0
   );
 
