@@ -47,6 +47,52 @@ enum PickupZone: String, CaseIterable {
         }
     }
 
+    // MARK: - Goal-relative mapping (home-screen ring)
+
+    /// Maps progress toward the user's *personal* daily goal (pickups / goal)
+    /// to a zone, so the home-screen ring color + badge reflect how close they
+    /// are to their own target — not the absolute research zones.
+    ///
+    /// Reuses the same 5-color palette:
+    ///   < 40%  green   • 40–70% soft green • 70–90% yellow
+    ///   90–100% orange • ≥ 100% red
+    static func goalZone(progress: Double) -> PickupZone {
+        switch progress {
+        case ..<0.40: return .excellent
+        case ..<0.70: return .good
+        case ..<0.90: return .average
+        case ..<1.00: return .heavy
+        default:      return .problematic
+        }
+    }
+
+    /// Goal-relative badge label — kinder than the absolute research labels
+    /// (e.g. someone 1 pickup over a tight self-set goal shouldn't read
+    /// "Problematic").
+    func goalDisplayName(language: String) -> String {
+        switch (self, language) {
+        case (.excellent, "Ελληνικά"):    return "Άνετα"
+        case (.excellent, "Deutsch"):      return "Locker"
+        case (.excellent, _):              return "Comfortable"
+
+        case (.good, "Ελληνικά"):          return "Καλά"
+        case (.good, "Deutsch"):           return "Gut"
+        case (.good, _):                   return "On track"
+
+        case (.average, "Ελληνικά"):       return "Προσοχή"
+        case (.average, "Deutsch"):        return "Achtung"
+        case (.average, _):                return "Heads up"
+
+        case (.heavy, "Ελληνικά"):         return "Κοντά στο όριο"
+        case (.heavy, "Deutsch"):          return "Nahe am Limit"
+        case (.heavy, _):                  return "Near limit"
+
+        case (.problematic, "Ελληνικά"):   return "Πάνω από στόχο"
+        case (.problematic, "Deutsch"):    return "Über dem Ziel"
+        case (.problematic, _):            return "Over goal"
+        }
+    }
+
     // MARK: - Range Display
 
     /// Lower bound of the zone (inclusive).

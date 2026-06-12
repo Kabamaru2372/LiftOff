@@ -80,20 +80,105 @@ class PushNotificationManager {
         print("[PushManager] 🔔 Silent push received")
 
         store?.syncWithDeviceActivity()
+        ScreenUnlockDetector.shared.startMonitoring()
 
-        if let store = store, let liveActivity = liveActivity {
-            liveActivity.update(pickupCount: store.todayPickups)
-            print("[PushManager] ✅ Synced. Pickups: \(store.todayPickups)")
+        // H14 fix: guarantee completionHandler is called within iOS's ~30s deadline.
+        // The original code only called it inside a Task, which iOS could kill before
+        // completion, and also only when store AND liveActivity were both non-nil.
+        // The timeout item fires at 25s as a safety net; the Task cancels it on success.
+        let timeoutItem = DispatchWorkItem { completionHandler(.newData) }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 25, execute: timeoutItem)
+
+        Task {
+            await DuelManager.shared.forcePoll()
+
+            if let store = store, let liveActivity = liveActivity {
+                let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
+                let dailyGoal = goal > 0 ? goal : 50
+                let pickups = store.todayPickups
+
+                if liveActivity.isRunning {
+                    liveActivity.update(pickupCount: pickups)
+                } else {
+                    liveActivity.start(pickupCount: pickups, dailyGoal: dailyGoal)
+                }
+
+                let activeDuel    = DuelManager.shared.activeDuel
+                let isDuelActive  = activeDuel?.status == .active
+                await self.pushLiveActivityUpdate(
+                    pickupCount:      pickups,
+                    duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
+                    duelMyPickups:    isDuelActive ? (activeDuel?.myPickups    ?? 0) : 0,
+                    duelTheirPickups: isDuelActive ? (activeDuel?.theirPickups ?? 0) : 0
+                )
+
+                // If we're in an active duel, upload our pickup count immediately
+                // so the challenger can see it without waiting for us to open the app.
+                // The DeviceActivity extension keeps todayPickups current in the App Group
+                // even when the app is closed, so this background upload is accurate.
+                if isDuelActive {
+                    await DuelManager.shared.updateMyPickups(pickups, screenTimeSeconds: store.bestScreenTimeSecs)
+                    print("[PushManager] 📤 Duel stats synced in background: pickups=\(pickups) screenTime=\(store.bestScreenTimeSecs)s")
+                }
+
+                print("[PushManager] ✅ Live Activity refreshed via silent push. Pickups: \(pickups)")
+            }
+            // Cancel timeout before calling — prevents a rare double-call if Task
+            // finishes just as the timeout fires.
+            timeoutItem.cancel()
+            completionHandler(.newData)
+        }
+    }
+
+    // MARK: - Live Activity Remote Update
+
+    /// Calls the Supabase `update-live-activity` edge function, which sends an APNs
+    /// Live Activity push directly to the Dynamic Island — works even when the app
+    /// is fully suspended (same mechanism as live-score apps).
+    func pushLiveActivityUpdate(
+        pickupCount: Int,
+        duelOpponentName: String? = nil,
+        duelMyPickups: Int = 0,
+        duelTheirPickups: Int = 0
+    ) async {
+        guard let url = URL(string: "\(Self.supabaseURL)/functions/v1/update-live-activity") else { return }
+
+        var body: [String: Any] = [
+            "device_id":    FriendSyncManager.shared.deviceID,
+            "pickup_count": pickupCount
+        ]
+        if let name = duelOpponentName {
+            body["duel_opponent_name"]  = name
+            body["duel_my_pickups"]     = duelMyPickups
+            body["duel_their_pickups"]  = duelTheirPickups
         }
 
-        ScreenUnlockDetector.shared.startMonitoring()
-        completionHandler(.newData)
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(Self.supabaseAnonKey, forHTTPHeaderField: "apikey")
+        request.setValue("Bearer \(Self.supabaseAnonKey)", forHTTPHeaderField: "Authorization")
+        request.httpBody = jsonData
+        request.timeoutInterval = 8
+
+        do {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            if let http = response as? HTTPURLResponse {
+                print("[PushManager] 🎯 LiveActivity push → \(http.statusCode)")
+            }
+        } catch {
+            print("[PushManager] ⚠️ LiveActivity push failed: \(error.localizedDescription)")
+        }
     }
 
     // MARK: - Supabase Registration
 
     private func registerTokenWithSupabase(token: String, type: String) async {
-        guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/device_tokens") else {
+        // `on_conflict=token` tells PostgREST which column to use for conflict detection.
+        // The Prefer header alone is not enough — PostgREST needs the column name to upsert.
+        guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/device_tokens?on_conflict=token") else {
             return
         }
 
@@ -105,6 +190,7 @@ class PushNotificationManager {
             "is_production": isProduction,
             "is_active": true,
             "token_type": type,  // "device" ή "live_activity"
+            "device_id": FriendSyncManager.shared.deviceID,  // anonymous UUID for friend sync
             "updated_at": ISO8601DateFormatter().string(from: Date())
         ]
 

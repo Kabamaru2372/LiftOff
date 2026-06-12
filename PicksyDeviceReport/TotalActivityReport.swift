@@ -17,6 +17,18 @@ import SwiftUI
 extension DeviceActivityReport.Context {
     static let totalActivity = Self("Total Activity")
     static let top3Activity = Self("Top 3 Activity")
+    /// Compact whole-device total, styled white for the Nudge pill.
+    static let nudgeTotalTime = Self("Nudge Total Time")
+    /// Compact whole-device total, styled large/accent for the Stats card.
+    static let statsTotalTime = Self("Stats Total Time")
+    /// Picksy Score (computed from the total), white for the Nudge pill.
+    static let nudgeScore = Self("Nudge Score")
+    /// Picksy Score (computed from the total), large/accent for the Stats card.
+    static let statsScore = Self("Stats Score")
+    /// Apple's REAL pickup count (numberOfPickups), large/accent for the Stats card.
+    static let statsPickups = Self("Stats Pickups")
+    /// Apple's REAL pickup count, big number for the Nudge ring center.
+    static let nudgePickups = Self("Nudge Pickups")
 }
 
 // MARK: - Data Model
@@ -33,6 +45,7 @@ struct AppUsageData: Identifiable {
 /// Όλα τα δεδομένα του report
 struct ActivityReport {
     let totalDuration: TimeInterval
+    let totalPickups: Int
     let apps: [AppUsageData]
 }
 
@@ -40,6 +53,7 @@ struct ActivityReport {
 
 private func extractReport(from data: DeviceActivityResults<DeviceActivityData>, limit: Int? = nil) async -> ActivityReport {
     var totalDuration: TimeInterval = 0
+    var totalPickups = 0
     var apps: [AppUsageData] = []
 
     for await activityData in data {
@@ -48,6 +62,11 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
 
             for await category in segment.categories {
                 for await application in category.applications {
+                    // Apple's REAL pickup count (per app) — summed across all apps
+                    // ≈ total device pickups shown in Settings → Screen Time. Counted
+                    // before the duration guard so apps with pickups but ~0 time count.
+                    totalPickups += application.numberOfPickups
+
                     let duration = application.totalActivityDuration
                     guard duration > 0 else { continue }
 
@@ -68,11 +87,17 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
 
     apps.sort { $0.duration > $1.duration }
 
+    // NOTE: We do NOT write this total to the App Group. The DeviceActivityReport
+    // extension is heavily sandboxed by Apple and cannot share data back to the
+    // main app (UserDefaults/App Group writes are silently discarded on device).
+    // The total can only be DISPLAYED via a hosted DeviceActivityReport view —
+    // which is exactly how the Nudge and Stats screen-time figures now render.
+
     if let limit = limit {
         apps = Array(apps.prefix(limit))
     }
 
-    return ActivityReport(totalDuration: totalDuration, apps: apps)
+    return ActivityReport(totalDuration: totalDuration, totalPickups: totalPickups, apps: apps)
 }
 
 // MARK: - Total Activity Report (full list)
@@ -94,6 +119,66 @@ struct Top3ActivityReport: DeviceActivityReportScene {
 
     func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
         await extractReport(from: data, limit: 3)
+    }
+}
+
+// MARK: - Compact total-time reports (whole-device screen time)
+//
+// These render ONLY the formatted total duration. Because the report extension
+// can't pass the number back to the app, the Nudge pill and Stats card host
+// these tiny reports to display the same total the Apps tab shows.
+
+struct NudgeTotalTimeReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .nudgeTotalTime
+    let content: (ActivityReport) -> TotalTimeLabelView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct StatsTotalTimeReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .statsTotalTime
+    let content: (ActivityReport) -> StatsTotalTimeView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct NudgeScoreReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .nudgeScore
+    let content: (ActivityReport) -> NudgeScoreView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct StatsScoreReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .statsScore
+    let content: (ActivityReport) -> StatsScoreView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct StatsPickupsReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .statsPickups
+    let content: (ActivityReport) -> StatsPickupsView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
+    }
+}
+
+struct NudgePickupsReport: DeviceActivityReportScene {
+    let context: DeviceActivityReport.Context = .nudgePickups
+    let content: (ActivityReport) -> NudgePickupsView
+
+    func makeConfiguration(representing data: DeviceActivityResults<DeviceActivityData>) async -> ActivityReport {
+        await extractReport(from: data)
     }
 }
 

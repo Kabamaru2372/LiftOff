@@ -11,9 +11,10 @@ import SwiftUI
 @main
 struct PicksyWidgetBundle: WidgetBundle {
     var body: some Widget {
-        PicksyWidget()
-        // PicksyWidgetControl() — αφαιρέθηκε, δεν χρειάζεται
-        // PicksyWidgetLiveActivity() — αφαιρέθηκε, έχουμε ήδη UnPluqLiveExtension
+        PicksyWidget()           // Home screen: small + medium
+#if os(iOS)
+        PicksyLockScreenWidget() // Lock screen: circular + rectangular + inline (iOS 16+)
+#endif
     }
 }
 

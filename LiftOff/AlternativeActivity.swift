@@ -112,7 +112,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 30,
             descriptionEN: "take a refreshing walk in nature",
-            descriptionGR: "πάς για έναν ωραίο περίπατο στη φύση",
+            descriptionGR: "πήγαινε για έναν ωραίο περίπατο στη φύση",
             descriptionDE: "einen erfrischenden Spaziergang in der Natur machen",
             linkEN: "https://www.alltrails.com",
             linkGR: "https://www.alltrails.com/explore/greece",
@@ -125,47 +125,47 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 30,
             descriptionEN: "listen to a meaningful podcast episode",
-            descriptionGR: "ακούς ένα ενδιαφέρον podcast",
+            descriptionGR: "άκουσε ένα ενδιαφέρον podcast",
             descriptionDE: "eine spannende Podcast-Folge hören",
-            linkEN: "https://open.spotify.com/genre/podcasts-page",
-            linkGR: "https://open.spotify.com/genre/podcasts-page",
-            linkDE: "https://open.spotify.com/genre/podcasts-page",
-            linkLabelEN: "Browse podcasts",
-            linkLabelGR: "Ανακάλυψε podcasts",
-            linkLabelDE: "Podcasts entdecken"
+            linkEN: "https://podcasts.apple.com",
+            linkGR: "https://podcasts.apple.com",
+            linkDE: "https://podcasts.apple.com",
+            linkLabelEN: "Browse on Apple Podcasts",
+            linkLabelGR: "Ανακάλυψε στο Apple Podcasts",
+            linkLabelDE: "Apple Podcasts entdecken"
         ),
 
         AlternativeActivity(
             durationMinutes: 30,
             descriptionEN: "do a quick workout at home — no gym needed",
-            descriptionGR: "κάνεις γρήγορη γυμναστική στο σπίτι",
+            descriptionGR: "κάνε γρήγορη γυμναστική στο σπίτι",
             descriptionDE: "ein schnelles Training zu Hause machen",
             linkEN: "https://www.nike.com/ntc-app",
             linkGR: "https://www.freeletics.com",
-            linkDE: "https://www.runtastic.com",
+            linkDE: "https://www.adidas.com/us/running-app",
             linkLabelEN: "Nike Training Club (free)",
             linkLabelGR: "Freeletics — γυμναστική στο σπίτι",
-            linkLabelDE: "Runtastic — Training"
+            linkLabelDE: "Adidas Running App"
         ),
 
         AlternativeActivity(
             durationMinutes: 30,
             descriptionEN: "write in your journal and reflect on your day",
-            descriptionGR: "γράφεις σκέψεις στο ημερολόγιο σου",
+            descriptionGR: "γράψε σκέψεις στο ημερολόγιο σου",
             descriptionDE: "in dein Tagebuch schreiben und den Tag reflektieren"
         ),
 
         AlternativeActivity(
             durationMinutes: 30,
             descriptionEN: "call someone you love and catch up",
-            descriptionGR: "παίρνεις τηλέφωνο κάποιον αγαπημένο",
+            descriptionGR: "πάρε τηλέφωνο κάποιον αγαπημένο",
             descriptionDE: "jemanden anrufen, den du liebst"
         ),
 
         AlternativeActivity(
             durationMinutes: 35,
             descriptionEN: "read a chapter of a great book",
-            descriptionGR: "διαβάζεις ένα κεφάλαιο από βιβλίο",
+            descriptionGR: "διάβασε ένα κεφάλαιο από βιβλίο",
             descriptionDE: "ein Kapitel eines guten Buches lesen",
             linkEN: "https://www.goodreads.com",
             linkGR: "https://www.biblionet.gr",
@@ -182,24 +182,24 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 60,
             descriptionEN: "cook something delicious from scratch",
-            descriptionGR: "φτιάχνεις κάτι νόστιμο από την αρχή",
+            descriptionGR: "φτιάξε κάτι νόστιμο από την αρχή",
             descriptionDE: "etwas Leckeres von Grund auf kochen",
             linkEN: "https://www.allrecipes.com",
-            linkGR: "https://www.sintages.gr",
+            linkGR: "https://www.argiro.gr",
             linkDE: "https://www.chefkoch.de",
             linkLabelEN: "Get a recipe on Allrecipes",
-            linkLabelGR: "Βρες συνταγή στο Sintages.gr",
+            linkLabelGR: "Βρες συνταγή στο Argiro.gr",
             linkLabelDE: "Rezept finden auf Chefkoch.de"
         ),
 
         AlternativeActivity(
             durationMinutes: 60,
             descriptionEN: "go for a proper run or workout",
-            descriptionGR: "πάς για τρέξιμο ή προπόνηση",
+            descriptionGR: "πήγαινε για τρέξιμο ή προπόνηση",
             descriptionDE: "richtig joggen oder trainieren gehen",
             linkEN: "https://www.nike.com/ntc-app",
             linkGR: "https://www.freeletics.com",
-            linkDE: "https://www.runtastic.com",
+            linkDE: "https://www.adidas.com/us/running-app",
             linkLabelEN: "Nike Training Club",
             linkLabelGR: "Freeletics",
             linkLabelDE: "Runtastic"
@@ -208,21 +208,21 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 60,
             descriptionEN: "watch a sunset without distractions",
-            descriptionGR: "βλέπεις το ηλιοβασίλεμα χωρίς distractions",
+            descriptionGR: "δες το ηλιοβασίλεμα χωρίς distractions",
             descriptionDE: "einen Sonnenuntergang ohne Ablenkung genießen"
         ),
 
         AlternativeActivity(
             durationMinutes: 60,
             descriptionEN: "have a meaningful conversation with a friend",
-            descriptionGR: "κάνεις μια ουσιαστική κουβέντα με φίλο",
+            descriptionGR: "κάνε μια ουσιαστική κουβέντα με φίλο",
             descriptionDE: "ein tiefes Gespräch mit einem Freund führen"
         ),
 
         AlternativeActivity(
             durationMinutes: 60,
             descriptionEN: "tidy and reorganize your space",
-            descriptionGR: "τακτοποιείς και οργανώνεις τον χώρο σου",
+            descriptionGR: "τακτοποίησε και οργάνωσε τον χώρο σου",
             descriptionDE: "deinen Raum aufräumen und neu organisieren"
         ),
 
@@ -233,10 +233,10 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 90,
             descriptionEN: "cook a complete meal from scratch",
-            descriptionGR: "μαγειρεύεις ένα ολόκληρο γεύμα",
+            descriptionGR: "μαγείρεψε ένα ολόκληρο γεύμα",
             descriptionDE: "ein komplettes Essen von Grund auf kochen",
             linkEN: "https://www.allrecipes.com",
-            linkGR: "https://www.sintages.gr",
+            linkGR: "https://www.argiro.gr",
             linkDE: "https://www.chefkoch.de",
             linkLabelEN: "Find a recipe",
             linkLabelGR: "Βρες συνταγή",
@@ -246,7 +246,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 90,
             descriptionEN: "have a proper hike in nature",
-            descriptionGR: "κάνεις πεζοπορία στη φύση",
+            descriptionGR: "κάνε πεζοπορία στη φύση",
             descriptionDE: "eine richtige Wanderung in der Natur machen",
             linkEN: "https://www.alltrails.com",
             linkGR: "https://www.alltrails.com/explore/greece",
@@ -259,7 +259,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 90,
             descriptionEN: "visit a museum or gallery nearby",
-            descriptionGR: "επισκέπτεσαι ένα μουσείο ή γκαλερί",
+            descriptionGR: "επισκέψου ένα μουσείο ή γκαλερί",
             descriptionDE: "ein Museum oder eine Galerie besuchen"
         ),
 
@@ -270,7 +270,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 120,
             descriptionEN: "watch a full film with full attention",
-            descriptionGR: "βλέπεις μια ολόκληρη ταινία με πλήρη προσοχή",
+            descriptionGR: "δες μια ολόκληρη ταινία με πλήρη προσοχή",
             descriptionDE: "einen kompletten Film mit voller Aufmerksamkeit schauen",
             linkEN: "https://www.justwatch.com",
             linkGR: "https://www.justwatch.com/gr",
@@ -283,14 +283,14 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 120,
             descriptionEN: "visit your parents or a close friend",
-            descriptionGR: "επισκέπτεσαι τους γονείς σου ή έναν στενό φίλο",
+            descriptionGR: "επισκέψου τους γονείς σου ή έναν στενό φίλο",
             descriptionDE: "deine Eltern oder einen engen Freund besuchen"
         ),
 
         AlternativeActivity(
             durationMinutes: 120,
             descriptionEN: "finish that project you've been postponing",
-            descriptionGR: "ολοκληρώνεις ένα project που αναβάλλεις",
+            descriptionGR: "ολοκλήρωσε ένα project που αναβάλλεις",
             descriptionDE: "das Projekt fertigstellen, das du aufgeschoben hast"
         ),
 
@@ -302,7 +302,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 90,
             descriptionEN: "watch a film tonight — something worth your time",
-            descriptionGR: "βλέπεις μια ταινία απόψε που αξίζει τον χρόνο σου",
+            descriptionGR: "δες μια ταινία απόψε που αξίζει τον χρόνο σου",
             descriptionDE: "heute Abend einen Film schauen, der deine Zeit wert ist",
             linkEN: "https://www.justwatch.com",
             linkGR: "https://www.justwatch.com/gr",
@@ -316,10 +316,10 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 60,
             descriptionEN: "cook a nice dinner and enjoy it slowly",
-            descriptionGR: "φτιάχνεις ένα ωραίο βραδινό και το απολαμβάνεις",
+            descriptionGR: "φτιάξε ένα ωραίο βραδινό και απόλαυσέ το",
             descriptionDE: "ein schönes Abendessen kochen und langsam genießen",
             linkEN: "https://www.allrecipes.com",
-            linkGR: "https://www.sintages.gr",
+            linkGR: "https://www.argiro.gr",
             linkDE: "https://www.chefkoch.de",
             linkLabelEN: "Tonight's recipe on Allrecipes",
             linkLabelGR: "Συνταγή για απόψε στο Sintages.gr",
@@ -330,7 +330,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 30,
             descriptionEN: "read a few chapters before bed",
-            descriptionGR: "διαβάζεις λίγα κεφάλαια πριν κοιμηθείς",
+            descriptionGR: "διάβασε λίγα κεφάλαια πριν κοιμηθείς",
             descriptionDE: "vor dem Schlafengehen ein paar Kapitel lesen",
             linkEN: "https://www.goodreads.com",
             linkGR: "https://www.biblionet.gr",
@@ -344,7 +344,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 45,
             descriptionEN: "call a friend and catch up properly",
-            descriptionGR: "παίρνεις τηλέφωνο έναν φίλο για τα νέα",
+            descriptionGR: "πάρε τηλέφωνο έναν φίλο για τα νέα",
             descriptionDE: "einen Freund anrufen und richtig plaudern",
             isEveningActivity: true
         ),
@@ -352,7 +352,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 60,
             descriptionEN: "go for an evening walk — clear your head",
-            descriptionGR: "πάς για βραδινό περίπατο — ξεκάθαρο μυαλό",
+            descriptionGR: "πήγαινε για βραδινό περίπατο — ξεκάθαρο μυαλό",
             descriptionDE: "einen Abendspaziergang machen — den Kopf frei bekommen",
             linkEN: "https://www.alltrails.com",
             linkGR: "https://www.alltrails.com/explore/greece",
@@ -366,7 +366,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 30,
             descriptionEN: "write down 3 good things that happened today",
-            descriptionGR: "γράφεις 3 καλά πράγματα που έγιναν σήμερα",
+            descriptionGR: "γράψε 3 καλά πράγματα που έγιναν σήμερα",
             descriptionDE: "3 gute Dinge aufschreiben, die heute passiert sind",
             isEveningActivity: true
         ),
@@ -374,7 +374,7 @@ enum AlternativeActivityBank {
         AlternativeActivity(
             durationMinutes: 90,
             descriptionEN: "plan something to look forward to this week",
-            descriptionGR: "σχεδιάζεις κάτι να ανυπομονείς αυτή την εβδομάδα",
+            descriptionGR: "σχεδίασε κάτι να ανυπομονείς αυτή την εβδομάδα",
             descriptionDE: "etwas planen, worauf du dich diese Woche freuen kannst",
             isEveningActivity: true
         ),

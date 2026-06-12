@@ -9,7 +9,11 @@ import SwiftUI
 struct WeeklySummaryView: View {
     let summary: WeeklySummary
     @Environment(\.dismiss) private var dismiss
+    @Environment(ProManager.self) private var proManager
     @AppStorage("appLanguage") private var appLanguage: String = "English"
+
+    /// Callback fired when the locked Pro card is tapped — caller presents the paywall.
+    var onUnlockTap: (() -> Void)? = nil
 
     @State private var shareItem: ShareImageItem? = nil
     @State private var showStats: Bool = false
@@ -49,7 +53,7 @@ struct WeeklySummaryView: View {
                     .padding(.top, 40)
 
                     if showStats {
-                        // Total pickups
+                        // ALWAYS shown — Total pickups headline
                         summaryCard(
                             icon: "hand.raised.fill",
                             iconColor: .blue,
@@ -63,68 +67,78 @@ struct WeeklySummaryView: View {
                         )
                         .transition(.slide.combined(with: .opacity))
 
-                        // Best & Worst day
-                        HStack(spacing: 12) {
-                            miniCard(
-                                emoji: "🏆",
-                                title: t("Best day", "Καλύτερη", "Bester Tag"),
-                                value: summary.bestDay.name,
-                                subtitle: "\(summary.bestDay.pickups) " + t("pickups", "σηκώματα", "Griffe")
-                            )
-
-                            miniCard(
-                                emoji: "📱",
-                                title: t("Worst day", "Χειρότερη", "Schlechtester Tag"),
-                                value: summary.worstDay.name,
-                                subtitle: "\(summary.worstDay.pickups) " + t("pickups", "σηκώματα", "Griffe")
-                            )
-                        }
-                        .transition(.slide.combined(with: .opacity))
-
-                        // Mood overview
-                        if summary.daysWithCheckIn > 0 {
-                            VStack(alignment: .leading, spacing: 12) {
-                                Text(t("How you felt", "Πώς ένιωσες", "Wie du dich gefühlt hast"))
-                                    .font(.system(size: 16, weight: .medium, design: .rounded))
-
-                                HStack(spacing: 16) {
-                                    moodPill(emoji: "🟢", count: summary.greatDays, label: t("Great", "Τέλεια", "Großartig"))
-                                    moodPill(emoji: "🟡", count: summary.okayDays, label: t("Okay", "Μέτρια", "Okay"))
-                                    moodPill(emoji: "🔴", count: summary.roughDays, label: t("Rough", "Δύσκολα", "Schwierig"))
-                                }
-                            }
-                            .padding(20)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
-                            .transition(.slide.combined(with: .opacity))
-                        }
-
-                        // Streak
-                        if summary.streak > 0 {
-                            summaryCard(
-                                icon: "flame.fill",
-                                iconColor: .orange,
-                                title: t("Current streak", "Τρέχον σερί", "Aktuelle Serie"),
-                                value: "\(summary.streak)",
-                                subtitle: t(
-                                    "days under your goal",
-                                    "μέρες κάτω από τον στόχο",
-                                    "Tage unter deinem Ziel"
+                        if proManager.isPro {
+                            // PRO — Best & Worst day comparison
+                            HStack(spacing: 12) {
+                                miniCard(
+                                    emoji: "🏆",
+                                    title: t("Best day", "Καλύτερη", "Bester Tag"),
+                                    value: summary.bestDay.name,
+                                    subtitle: "\(summary.bestDay.pickups) " + t("pickups", "σηκώματα", "Griffe")
                                 )
-                            )
+
+                                miniCard(
+                                    emoji: "📱",
+                                    title: t("Worst day", "Χειρότερη", "Schlechtester Tag"),
+                                    value: summary.worstDay.name,
+                                    subtitle: "\(summary.worstDay.pickups) " + t("pickups", "σηκώματα", "Griffe")
+                                )
+                            }
                             .transition(.slide.combined(with: .opacity))
+
+                            // PRO — Mood overview
+                            if summary.daysWithCheckIn > 0 {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(t("How you felt", "Πώς ένιωσες", "Wie du dich gefühlt hast"))
+                                        .font(.system(size: 16, weight: .medium, design: .rounded))
+
+                                    HStack(spacing: 16) {
+                                        moodPill(emoji: "🟢", count: summary.greatDays, label: t("Great", "Τέλεια", "Großartig"))
+                                        moodPill(emoji: "🟡", count: summary.okayDays, label: t("Okay", "Μέτρια", "Okay"))
+                                        moodPill(emoji: "🔴", count: summary.roughDays, label: t("Rough", "Δύσκολα", "Schwierig"))
+                                    }
+                                }
+                                .padding(20)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
+                                .transition(.slide.combined(with: .opacity))
+                            }
+
+                            // PRO — Streak card
+                            if summary.streak > 0 {
+                                summaryCard(
+                                    icon: "flame.fill",
+                                    iconColor: .orange,
+                                    title: t("Current streak", "Τρέχον σερί", "Aktuelle Serie"),
+                                    value: "\(summary.streak)",
+                                    subtitle: t(
+                                        "days under your goal",
+                                        "μέρες κάτω από τον στόχο",
+                                        "Tage unter deinem Ziel"
+                                    )
+                                )
+                                .transition(.slide.combined(with: .opacity))
+                            }
+
+                            // PRO — Phone Personality Type
+                            personalityCard
+                                .transition(.slide.combined(with: .opacity))
+
+                            // PRO — Personalized motivational message
+                            Text(motivationalMessage)
+                                .font(.system(size: 15, weight: .regular, design: .rounded))
+                                .foregroundColor(.secondary)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 16)
+                                .transition(.opacity)
+                        } else {
+                            // FREE — Locked Pro card showing what they unlock
+                            lockedProCard
+                                .transition(.slide.combined(with: .opacity))
                         }
 
-                        // Motivational message
-                        Text(motivationalMessage)
-                            .font(.system(size: 15, weight: .regular, design: .rounded))
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 32)
-                            .padding(.vertical, 16)
-                            .transition(.opacity)
-
-                        // Share button
+                        // ALWAYS — Share button (drives organic growth)
                         Button(action: { generateAndShare() }) {
                             HStack(spacing: 8) {
                                 Image(systemName: "square.and.arrow.up").font(.system(size: 14))
@@ -192,6 +206,126 @@ struct WeeklySummaryView: View {
         }
     }
 
+    // MARK: - Phone Personality Type Card
+
+    private var personalityCard: some View {
+        let type = summary.personalityType
+        return VStack(spacing: 14) {
+            HStack(spacing: 10) {
+                Text(type.emoji)
+                    .font(.system(size: 32))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Your phone personality", "Η προσωπικότητά σου", "Deine Handy-Persönlichkeit"))
+                        .font(.system(size: 12, weight: .regular, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Text(type.name(language: appLanguage))
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                }
+                Spacer()
+            }
+            Text(type.description(language: appLanguage))
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(20)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
+    }
+
+    // MARK: - Locked Pro Card (Free users)
+
+    private var lockedProCard: some View {
+        Button(action: {
+            // Dismiss the weekly summary first, then trigger paywall after
+            // the cover animation so the two presentations don't stack awkwardly.
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                onUnlockTap?()
+            }
+        }) {
+            VStack(spacing: 20) {
+
+                // Header
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 18))
+                        .foregroundColor(.blue)
+                    Text(t(
+                        "Unlock your full weekly story",
+                        "Ξεκλείδωσε όλη την εβδομαδιαία ιστορία",
+                        "Schalte deine volle Wochengeschichte frei"
+                    ))
+                    .font(.system(size: 17, weight: .semibold, design: .rounded))
+                    .multilineTextAlignment(.center)
+                    .foregroundColor(.primary)
+                }
+
+                // Feature list
+                VStack(alignment: .leading, spacing: 12) {
+                    proFeatureRow(icon: "chart.bar.xaxis", text: t(
+                        "Best & worst day comparison",
+                        "Σύγκριση καλύτερης & χειρότερης μέρας",
+                        "Bester & schlechtester Tag im Vergleich"
+                    ))
+                    proFeatureRow(icon: "face.smiling", text: t(
+                        "Mood patterns across your week",
+                        "Μοτίβα διάθεσης μέσα στην εβδομάδα",
+                        "Stimmungsmuster durch die Woche"
+                    ))
+                    proFeatureRow(icon: "flame.fill", text: t(
+                        "Streak progress and motivation",
+                        "Πρόοδος σερί και κίνητρα",
+                        "Serien-Fortschritt und Motivation"
+                    ))
+                    proFeatureRow(icon: "sparkle", text: t(
+                        "Personalized weekly insights",
+                        "Εξατομικευμένα εβδομαδιαία insights",
+                        "Personalisierte Wocheneinblicke"
+                    ))
+                    proFeatureRow(icon: "person.fill.questionmark", text: t(
+                        "Your phone personality type",
+                        "Ο τύπος κινητοφίλου σου",
+                        "Dein Handy-Persönlichkeitstyp"
+                    ))
+                }
+                .padding(.horizontal, 4)
+
+                // CTA
+                HStack(spacing: 8) {
+                    Image(systemName: "lock.open.fill").font(.system(size: 14))
+                    Text(t(
+                        "Unlock with Picksy Pro",
+                        "Ξεκλείδωσε με Picksy Pro",
+                        "Mit Picksy Pro freischalten"
+                    ))
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(Capsule().fill(Color.blue))
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity)
+            .background(RoundedRectangle(cornerRadius: 20).fill(Color(.systemBackground)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func proFeatureRow(icon: String, text: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(.blue)
+                .frame(width: 22)
+            Text(text)
+                .font(.system(size: 14, weight: .regular, design: .rounded))
+                .foregroundColor(.primary)
+            Spacer()
+        }
+    }
+
     // MARK: - Helper Views
 
     private func summaryCard(icon: String, iconColor: Color, title: String, value: String, subtitle: String) -> some View {
@@ -253,7 +387,7 @@ struct WeeklySummaryView: View {
     @MainActor
     private func generateAndShare() {
         let card = WeeklyShareCardView(summary: summary, language: appLanguage)
-            .frame(width: 400, height: 700)
+            .frame(width: 400, height: 750)
 
         let renderer = ImageRenderer(content: card)
         renderer.scale = 3.0
@@ -342,6 +476,18 @@ struct WeeklyShareCardView: View {
             }
 
             Spacer()
+
+            // Personality type badge
+            HStack(spacing: 8) {
+                Text(summary.personalityType.emoji)
+                    .font(.system(size: 20))
+                Text(summary.personalityType.name(language: language))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundColor(.primary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(Capsule().fill(Color.blue.opacity(0.12)))
 
             // Footer
             VStack(spacing: 4) {

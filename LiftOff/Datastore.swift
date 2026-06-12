@@ -22,14 +22,87 @@ class DataStore {
     var totalPickups: Int = 0
     var totalDaysTracked: Int = 0
 
+    /// Screen time in seconds per hour today (index 0–23 = hour of day).
+    /// Updated every time addUsageTime() is called.
+    var hourlyScreenTimeSecs: [Int] = Array(repeating: 0, count: 24)
+
+    /// Total screen time in seconds for the current + previous hour (rolling 2-hour window).
+    /// Wraps to hour 23 at midnight to avoid double-counting hour 0.
+    var screenTimeLastTwoHours: Int {
+        let hour = Calendar.current.component(.hour, from: Date())
+        let prev = hour > 0 ? hour - 1 : 23
+        return hourlyScreenTimeSecs[hour] + hourlyScreenTimeSecs[prev]
+    }
+
+    /// Bumped every time an extension reports a new confirmed screen-time value
+    /// (via the Darwin "screenTimeUpdated" notification, foreground, onAppear,
+    /// or the Nudge timer). The confirmed-time computed properties below read
+    /// this tick so that mutating it forces @Observable-tracked views to
+    /// re-evaluate — a plain UserDefaults read is NOT observable on its own, so
+    /// without this a cross-process write would never refresh the UI.
+    private var screenTimeRefreshTick: Int = 0
+
+    /// Screen time confirmed by Apple's DeviceActivity threshold events.
+    /// These fire in the background even when Picksy is suspended — unlike
+    /// ScreenUnlockDetector which only works while the app is alive.
+    ///
+    /// Computed (live read) so it can never get stuck at a stale 0: it always
+    /// reflects whatever the extension last wrote to the App Group. The tick
+    /// read makes the access @Observable so views refresh on cross-process
+    /// writes.
+    var appleConfirmedScreenTimeSecs: Int {
+        _ = screenTimeRefreshTick
+        // Date-guarded: the extension writes this "only-increasing" within a day.
+        // Without the guard, a value from a previous day persists when the app
+        // isn't opened across midnight, and bestScreenTimeSecs' max() would keep
+        // showing yesterday's (higher) total instead of today's real one.
+        let storedDate = defaults.string(forKey: "picksy_apple_screen_time_date")
+        guard storedDate == todayDateString() else { return 0 }
+        return defaults.integer(forKey: "picksy_apple_screen_time_secs")
+    }
+
+    /// The whole-device screen-time total written to the App Group by the
+    /// DeviceActivityReport extension (`PicksyDeviceReport`) — the same number
+    /// the Apps tab shows. Date-guarded so a value from a previous day is never
+    /// shown. Returns 0 only until the report has rendered at least once today.
+    var reportConfirmedScreenTimeSecs: Int {
+        _ = screenTimeRefreshTick
+        let storedDate = defaults.string(forKey: "picksy_report_screen_time_date")
+        guard storedDate == todayDateString() else { return 0 }
+        return defaults.integer(forKey: "picksy_report_screen_time_secs")
+    }
+
+    /// Best-estimate total screen time for today — the single source of truth
+    /// for EVERY screen-time display in the app (Stats tab, Nudge, Watch,
+    /// Friends/Duel scores), kept consistent with the Apps tab.
+    ///
+    /// Takes the maximum of:
+    ///   • reportConfirmedScreenTimeSecs (whole-device total — matches Apps tab)
+    ///   • appleConfirmedScreenTimeSecs (Apple threshold events — lower bound,
+    ///     available even before the report has rendered)
+    ///   • todayTotalSeconds (ScreenUnlockDetector — accurate only while alive)
+    var bestScreenTimeSecs: Int {
+        max(todayTotalSeconds, max(appleConfirmedScreenTimeSecs, reportConfirmedScreenTimeSecs))
+    }
+
+    /// Forces the confirmed-time computed properties to re-publish so any
+    /// on-screen view picks up a fresh cross-process write. Safe to call often;
+    /// it just bumps the observable tick (the actual values are read live).
+    func refreshConfirmedScreenTime() {
+        screenTimeRefreshTick &+= 1
+    }
+
     private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
     private var midnightTimer: Timer?
+    // H5 fix: store the observer opaque pointer so deinit can remove it and prevent UAF crashes.
+    private var darwinObserver: UnsafeMutableRawPointer? = nil
 
     init() {
         loadData()
         startMidnightTimer()
         observeForeground()
         observeDeviceActivityPickups()
+        observeScreenTimeUpdates()
 
         // Initial sync με DeviceActivity data
         syncWithDeviceActivity()
@@ -46,8 +119,14 @@ class DataStore {
         if let saved = defaults.array(forKey: "weeklyPickups") as? [Int] {
             weeklyPickups = saved
         }
+        if let saved = defaults.array(forKey: "hourlyScreenTimeSecs") as? [Int], saved.count == 24 {
+            hourlyScreenTimeSecs = saved
+        }
 
         checkNewDay()
+
+        // Seed the confirmed screen-time values from the App Group on launch.
+        refreshConfirmedScreenTime()
     }
 
     func recordPickup() {
@@ -63,6 +142,9 @@ class DataStore {
 
     func addUsageTime(seconds: Int) {
         todayTotalSeconds += seconds
+        // Also track in the per-hour bucket for friend sync
+        let hour = Calendar.current.component(.hour, from: Date())
+        hourlyScreenTimeSecs[hour] += seconds
         saveData()
     }
 
@@ -83,11 +165,18 @@ class DataStore {
 
             ZoneNotificationManager.shared.checkAndNotify(currentPickups: todayPickups)
         }
+
+        // Also pull the latest confirmed screen-time totals on every sync.
+        refreshConfirmedScreenTime()
     }
 
     private func observeDeviceActivityPickups() {
         let name = "dev.fotiospongas.picksy.pickupRecorded" as CFString
+        // H5 fix: store the observer pointer so deinit can remove it.
+        // Without removal, DataStore deallocation leaves a dangling opaque pointer
+        // in the Darwin notification center, causing a Use-After-Free crash.
         let observer = Unmanaged.passUnretained(self).toOpaque()
+        darwinObserver = observer
 
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
@@ -103,6 +192,106 @@ class DataStore {
             nil,
             .deliverImmediately
         )
+    }
+
+    /// Observes the Darwin notification posted by the DeviceActivityReport and
+    /// DeviceActivityMonitor extensions whenever they write a new confirmed
+    /// screen-time value to the App Group. Without this, those cross-process
+    /// writes never reach SwiftUI and screens (e.g. Nudge) keep a stale total.
+    private func observeScreenTimeUpdates() {
+        let name = "dev.fotiospongas.picksy.screenTimeUpdated" as CFString
+        // Reuse the same opaque self pointer as the pickup observer; removal in
+        // deinit is keyed by notification name, so one pointer serves both.
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            observer,
+            { (_, observer, _, _, _) in
+                guard let observer = observer else { return }
+                let store = Unmanaged<DataStore>.fromOpaque(observer).takeUnretainedValue()
+                DispatchQueue.main.async {
+                    store.refreshConfirmedScreenTime()
+                }
+            },
+            name,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    // MARK: - Reset today only
+
+    /// Μηδενίζει μόνο τα σημερινά σηκώματα.
+    /// Αφαιρεί το σημερινό count από το totalPickups ώστε να παραμείνει συνεπές.
+    /// Το streak, η εβδομαδιαία ιστορία (εκτός σήμερα) και τα achievements δεν επηρεάζονται.
+    #if DEBUG
+    /// Fills the app with realistic demo data for App Store screenshots.
+    /// Pair with DuelManager.injectDemoDuel() + a seeded friends list.
+    func seedDemoData() {
+        todayPickups      = 12
+        totalPickups      = 487
+        currentStreak     = 7
+        totalDaysTracked  = 23
+        todayTotalSeconds = 5400            // 1h 30m → Nudge/Stats screen time
+        weeklyPickups     = [22, 18, 25, 14, 19, 9, 12]
+        hourlyScreenTimeSecs = [0,0,0,0,0,0,300,900,1200,800,600,1500,2000,1100,700,900,1300,1800,2400,2100,1600,900,400,100]
+
+        defaults.set(12, forKey: "todayPickups")
+        defaults.set(5400, forKey: "picksy_apple_screen_time_secs")
+        defaults.set(todayDateString(), forKey: "picksy_apple_screen_time_date")
+
+        saveData()
+        refreshConfirmedScreenTime()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+
+    /// Clears the demo data (back to empty) after screenshots.
+    func clearDemoData() {
+        todayPickups = 0; totalPickups = 0; currentStreak = 0; totalDaysTracked = 0
+        todayTotalSeconds = 0
+        weeklyPickups = Array(repeating: 0, count: 7)
+        hourlyScreenTimeSecs = Array(repeating: 0, count: 24)
+
+        defaults.set(0, forKey: "todayPickups")
+        defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+        defaults.removeObject(forKey: "picksy_apple_screen_time_date")
+
+        saveData()
+        refreshConfirmedScreenTime()
+        WidgetCenter.shared.reloadAllTimelines()
+    }
+    #endif
+
+    func resetTodayPickups() {
+        let todayCount = todayPickups
+
+        // Αφαίρεσε το σημερινό count από το all-time total
+        totalPickups = max(0, totalPickups - todayCount)
+
+        // Μηδένισε σήμερα
+        todayPickups = 0
+        weeklyPickups[currentDayIndex()] = 0
+
+        // Persist
+        defaults.set(totalPickups, forKey: "totalPickups")
+        defaults.set(0, forKey: "todayPickups")
+        defaults.set(weeklyPickups, forKey: "weeklyPickups")
+
+        // Καθάρισε το DeviceActivity shared key για σήμερα
+        defaults.removeObject(forKey: todayPickupsKey())
+
+        // Άσε το ScreenUnlockDetector να μετρήσει το επόμενο unlock
+        UserDefaults.standard.removeObject(forKey: "ScreenUnlockDetector.lastPickupTime")
+        ScreenUnlockDetector.shared.sessionPickupCount = 0
+
+        // Άσε τις zone notifications να ξανατριγκάρουν από 0
+        ZoneNotificationManager.shared.resetForNewDay()
+
+        // Ανανέωσε widgets
+        WidgetCenter.shared.reloadAllTimelines()
+
+        print("🔄 Today's pickups reset (was \(todayCount), total adjusted to \(totalPickups))")
     }
 
     // MARK: - Reset all stats
@@ -131,8 +320,20 @@ class DataStore {
         // Reset DeviceActivity shared key
         defaults.removeObject(forKey: todayPickupsKey())
 
-        // v1.6: Clear ScreenUnlockDetector persisted state
-        UserDefaults.standard.removeObject(forKey: "ScreenUnlockDetector.lastPickupTime")
+        // Clear shared cooldown key (used by both ScreenUnlockDetector + extension, fix #1)
+        defaults.removeObject(forKey: "picksy_last_pickup_timestamp")
+
+        // Reset Apple-confirmed screen time
+        defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+        defaults.removeObject(forKey: "picksy_apple_screen_time_date")
+
+        // Reset report-confirmed screen time (Apps-tab total mirror)
+        defaults.set(0, forKey: "picksy_report_screen_time_secs")
+        defaults.removeObject(forKey: "picksy_report_screen_time_date")
+
+        // Values are read live from the (now-zeroed) App Group; bump the tick
+        // so any on-screen view re-publishes immediately.
+        screenTimeRefreshTick &+= 1
 
         // v1.6: Clear last pickup timestamp στο NudgeView
         UserDefaults.standard.removeObject(forKey: "lastPickupTimestamp")
@@ -146,12 +347,24 @@ class DataStore {
         // Reload all widgets και Live Activity
         WidgetCenter.shared.reloadAllTimelines()
 
+        // Note: we do NOT reset achievements — they're permanent
+
         print("🔄 All Picksy stats reset")
     }
 
     var averageMinutes: Int {
         guard todayPickups > 0 else { return 0 }
         return (todayTotalSeconds / todayPickups) / 60
+    }
+
+    /// Human-readable average session length: shows seconds when < 60s to avoid "0m".
+    var averageSessionLabel: String {
+        guard todayPickups > 0, todayTotalSeconds > 0 else { return "—" }
+        let avgSecs = todayTotalSeconds / todayPickups
+        if avgSecs < 60 { return "\(avgSecs)s" }
+        let mins = avgSecs / 60
+        let secs = avgSecs % 60
+        return secs > 0 ? "\(mins)m \(secs)s" : "\(mins)m"
     }
 
     var averageDailyPickups: Int {
@@ -206,11 +419,22 @@ class DataStore {
 
     private func saveData() {
         defaults.set(todayPickups, forKey: "todayPickups")
+        // File mirror for the SEALED ShieldConfiguration extension: its
+        // UserDefaults reads come from a per-process prefs snapshot that can
+        // serve a count that's hours stale (shield showed 19 while the app had
+        // 25). File reads always hit disk. Format: "yyyy-MM-dd|count".
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")?
+            .appendingPathComponent("today_pickups.txt") {
+            try? "\(todayDateString())|\(todayPickups)"
+                .data(using: .utf8)?.write(to: url, options: .atomic)
+        }
         defaults.set(todayTotalSeconds, forKey: "todayTotalSeconds")
         defaults.set(currentStreak, forKey: "currentStreak")
         defaults.set(weeklyPickups, forKey: "weeklyPickups")
         defaults.set(totalPickups, forKey: "totalPickups")
         defaults.set(totalDaysTracked, forKey: "totalDaysTracked")
+        defaults.set(hourlyScreenTimeSecs, forKey: "hourlyScreenTimeSecs")
         defaults.set(todayDateString(), forKey: "lastActiveDate")
         let language = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
         defaults.set(language, forKey: "appLanguage")
@@ -226,17 +450,46 @@ class DataStore {
             let dailyGoal = defaults.integer(forKey: "dailyGoal")
             let goal = dailyGoal > 0 ? dailyGoal : 50
 
-            if todayPickups <= goal && todayPickups > 0 {
+            if todayPickups > 0 && todayPickups <= goal {
                 currentStreak += 1
-            } else if todayPickups > goal {
+            } else if todayPickups > goal || todayPickups == 0 {
+                // H6 fix: 0 pickups (phone not opened) also resets streak —
+                // previously a day with 0 pickups silently skipped the streak check.
                 currentStreak = 0
             }
 
             if todayPickups > 0 { totalDaysTracked += 1 }
 
+            // Save previous day pickups for Big Drop badge calculation
+            let previousPickups = defaults.integer(forKey: "ach_previousDayPickups")
+            defaults.set(todayPickups, forKey: "ach_previousDayPickups")
+
+            // Notify AchievementManager before resetting
+            AchievementManager.shared.onDayCompleted(
+                pickups: todayPickups,
+                goal: goal,
+                streak: currentStreak,
+                totalDays: totalDaysTracked,
+                previousDayPickups: previousPickups
+            )
+
+            // Record weather correlation snapshot for the day that just ended
+            CorrelationStore.shared.recordDayEnd(pickups: todayPickups, date: lastDate)
+
             todayPickups = 0
             todayTotalSeconds = 0
+            hourlyScreenTimeSecs = Array(repeating: 0, count: 24)
             weeklyPickups[currentDayIndex()] = 0
+            defaults.removeObject(forKey: todayPickupsKey())
+            // Reset Apple-confirmed screen time for the new day.
+            defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+            defaults.removeObject(forKey: "picksy_apple_screen_time_date")
+            // Reset report-confirmed total for the new day.
+            defaults.set(0, forKey: "picksy_report_screen_time_secs")
+            defaults.removeObject(forKey: "picksy_report_screen_time_date")
+            // Values are read live from the (now-zeroed) App Group; bump the
+            // tick so any on-screen view re-publishes at midnight.
+            screenTimeRefreshTick &+= 1
             saveData()
             WidgetCenter.shared.reloadAllTimelines()
         } else if lastDate == "" {
@@ -261,6 +514,22 @@ class DataStore {
 
     deinit {
         midnightTimer?.invalidate()
+        // H5 fix: remove the Darwin notification observers before deallocation.
+        if let observer = darwinObserver {
+            let center = CFNotificationCenterGetDarwinNotifyCenter()
+            CFNotificationCenterRemoveObserver(
+                center,
+                observer,
+                CFNotificationName("dev.fotiospongas.picksy.pickupRecorded" as CFString),
+                nil
+            )
+            CFNotificationCenterRemoveObserver(
+                center,
+                observer,
+                CFNotificationName("dev.fotiospongas.picksy.screenTimeUpdated" as CFString),
+                nil
+            )
+        }
     }
 }
 

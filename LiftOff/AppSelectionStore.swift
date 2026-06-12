@@ -17,8 +17,13 @@ class AppSelectionStore {
 
     // MARK: - State
 
-    /// Οι επιλεγμένες apps του user
-    var selection: FamilyActivitySelection = FamilyActivitySelection() {
+    /// Οι επιλεγμένες apps του user.
+    /// includeEntireCategory:true → ticking a category in the picker expands it
+    /// to the category's CURRENT apps as individual tokens, so shielding stays
+    /// per-app (precise tap-through lifting — a category-token policy can't tell
+    /// which app was opened). Trade-off: apps installed later into a ticked
+    /// category aren't auto-added until the user re-opens the picker.
+    var selection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true) {
         didSet {
             // Σώζουμε ΜΟΝΟ αν αυτή η αλλαγή δεν προέρχεται από load
             guard !isLoading else { return }
@@ -89,7 +94,27 @@ class AppSelectionStore {
 
         do {
             isLoading = true
-            selection = try JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+            var decoded = try JSONDecoder().decode(FamilyActivitySelection.self, from: data)
+
+            // Migration: selections saved before includeEntireCategory was on.
+            // Rebuild with the flag set (app tokens carry over) so future
+            // category ticks expand to per-app tokens. A bare category token
+            // from the old format can't be expanded retroactively — the user
+            // re-ticks the category once in the picker to expand it.
+            if !decoded.includeEntireCategory {
+                var migrated = FamilyActivitySelection(includeEntireCategory: true)
+                migrated.applicationTokens = decoded.applicationTokens
+                migrated.categoryTokens = decoded.categoryTokens
+                decoded = migrated
+                // Persist directly — saveSelection()'s monitoring refresh must
+                // not run here (singleton init; PickupScheduler reads us back).
+                if let migratedData = try? JSONEncoder().encode(migrated) {
+                    defaults.set(migratedData, forKey: selectionKey)
+                }
+                print("🔁 App selection migrated to includeEntireCategory format")
+            }
+
+            selection = decoded
             isLoading = false
             print("✅ App selection loaded: \(selectedAppsCount) apps, \(selectedCategoriesCount) categories")
         } catch {
@@ -100,6 +125,6 @@ class AppSelectionStore {
 
     /// Καθαρίζει την επιλογή
     func clearSelection() {
-        selection = FamilyActivitySelection()
+        selection = FamilyActivitySelection(includeEntireCategory: true)
     }
 }

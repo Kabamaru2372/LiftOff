@@ -32,6 +32,10 @@ enum ThresholdPreset: String, CaseIterable {
 
     static func save(_ preset: ThresholdPreset) {
         UserDefaults.standard.set(preset.rawValue, forKey: storageKey)
+        // Mirror to the shared App Group so the DeviceActivityMonitor extension
+        // can read the preset when recording Apple-confirmed screen time.
+        let shared = UserDefaults(suiteName: "group.fotiospongas.picksy")
+        shared?.set(preset.rawValue, forKey: "picksyThresholdPreset_shared")
     }
 
     func displayName(language: String) -> String {
@@ -122,6 +126,17 @@ class UsageThresholdManager {
 
     static let isTestMode = false
     static let activityName = DeviceActivityName("picksy.usageThresholds")
+    /// Separate activity for the score's hourly confirmed-time ladder, isolated
+    /// from the notification thresholds above.
+    static let scoreActivityName = DeviceActivityName("picksy.scoreLadder")
+
+    /// Confirmed-time score ladder granularity. Events fire every
+    /// `scoreLadderStepMinutes` of cumulative usage, up to `scoreLadderMaxMinutes`.
+    /// Finer steps → the in-app Picksy Score (and the duel score we sync) tracks
+    /// the real screen time more closely (≈ within one step + Apple's delivery
+    /// delay). 15 min × up to 10h = 40 events — well under DeviceActivity's limit.
+    static let scoreLadderStepMinutes = 15
+    static let scoreLadderMaxMinutes  = 10 * 60
 
     enum ThresholdLevel: String, CaseIterable {
         case level1 = "picksy.threshold.level1"
@@ -169,6 +184,10 @@ class UsageThresholdManager {
 
         let preset = ThresholdPreset.current
 
+        // Always mirror preset to App Group so the extension has the current value.
+        let sharedDefaults = UserDefaults(suiteName: "group.fotiospongas.picksy")
+        sharedDefaults?.set(preset.rawValue, forKey: "picksyThresholdPreset_shared")
+
         let schedule = DeviceActivitySchedule(
             intervalStart: DateComponents(hour: 0, minute: 0),
             intervalEnd: DateComponents(hour: 23, minute: 59),
@@ -182,6 +201,18 @@ class UsageThresholdManager {
                 applications: selection.applicationTokens,
                 categories: selection.categoryTokens,
                 threshold: level.duration(preset: preset)
+            )
+        }
+
+        // Optional daily time-limit event: fires once when cumulative usage of the
+        // tracked apps crosses the user's chosen limit. The monitor then applies a
+        // "time's up" shield. 0 = off.
+        let limitMinutes = UserDefaults.standard.integer(forKey: "picksy_timelimit_minutes")
+        if limitMinutes > 0 {
+            events[DeviceActivityEvent.Name("picksy.timelimit")] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                threshold: DateComponents(minute: limitMinutes)
             )
         }
 
@@ -200,10 +231,45 @@ class UsageThresholdManager {
         } catch {
             log("❌ Failed to start monitoring: \(error.localizedDescription)")
         }
+
+        // Confirmed-time ladder for the Picksy Score, in a SEPARATE activity so it
+        // can't affect the notification thresholds above. Each event fires as the
+        // user's SELECTED apps+categories cross a time mark; the monitor extension
+        // records it (no notification) so the in-app score reflects real usage.
+        //
+        // Measured against the user's selection (applications + categories) —
+        // category tokens DO track reliably (unlike empty/whole-device events,
+        // which fire all-at-once). If the user selects ALL CATEGORIES, this ≈ the
+        // whole-device total and stays accurate, so the duel score (synced from
+        // this) matches Nudge/Stats and is fair (both players on the same basis).
+        var ladderEvents: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        var minutes = Self.scoreLadderStepMinutes
+        while minutes <= Self.scoreLadderMaxMinutes {
+            let name = DeviceActivityEvent.Name("picksy.usagemin.\(minutes)")
+            ladderEvents[name] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                threshold: DateComponents(minute: minutes)
+            )
+            minutes += Self.scoreLadderStepMinutes
+        }
+
+        center.stopMonitoring([Self.scoreActivityName])
+
+        do {
+            try center.startMonitoring(
+                Self.scoreActivityName,
+                during: schedule,
+                events: ladderEvents
+            )
+            log("✅ Started score ladder monitoring (every \(Self.scoreLadderStepMinutes)min up to \(Self.scoreLadderMaxMinutes / 60)h, \(ladderEvents.count) events)")
+        } catch {
+            log("❌ Failed to start score ladder: \(error.localizedDescription)")
+        }
     }
 
     func stopMonitoring() {
-        center.stopMonitoring([Self.activityName])
+        center.stopMonitoring([Self.activityName, Self.scoreActivityName])
         log("🛑 Stopped threshold monitoring")
     }
 

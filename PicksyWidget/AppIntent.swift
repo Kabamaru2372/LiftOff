@@ -4,15 +4,9 @@
 //
 //  Created by Fotios Pongas on 09.04.26.
 //
+//  Note: ConfigurationAppIntent (Xcode template boilerplate) removed —
+//  PicksyWidget uses StaticConfiguration and needs no configurable parameters.
+//
 
 import WidgetKit
 import AppIntents
-
-struct ConfigurationAppIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource { "Configuration" }
-    static var description: IntentDescription { "This is an example widget." }
-
-    // An example configurable parameter.
-    @Parameter(title: "Favorite Emoji", default: "😃")
-    var favoriteEmoji: String
-}

@@ -25,13 +25,43 @@ enum TimeOfDay {
     case sunset
     case night
 
-    static func from(date: Date = Date()) -> TimeOfDay {
+    /// Υπολογίζει το TimeOfDay χρησιμοποιώντας πραγματικά δεδομένα ηλιανατολής/δύσης.
+    /// Αν δεν υπάρχουν (nil), χρησιμοποιεί fallback με ώρα ρολογιού.
+    static func from(date: Date = Date(), sunrise: Date? = nil, sunset: Date? = nil) -> TimeOfDay {
+
+        // Solar path — χρησιμοποιεί πραγματικές ώρες ηλιανατολής/δύσης.
+        // Guard: sunrise must be from the same calendar day as `date` — stale weather data
+        // from a previous day would have yesterday's sunset already passed, causing false .night.
+        let cal = Calendar.current
+        if let sr = sunrise, let ss = sunset, sr < ss,
+           cal.isDate(sr, inSameDayAs: date) || cal.isDate(ss, inSameDayAs: date) {
+            let now = date.timeIntervalSinceReferenceDate
+            let srT  = sr.timeIntervalSinceReferenceDate
+            let ssT  = ss.timeIntervalSinceReferenceDate
+            let dayLength = ssT - srT
+
+            // Νύχτα: πριν 30λ πριν ανατολή ή μετά 30λ μετά δύση
+            if now < srT - 1800 || now > ssT + 1800 { return .night }
+
+            // Sunrise: από 30λ πριν ανατολή έως 45λ μετά
+            if now < srT + 2700 { return .sunrise }
+
+            // Sunset: από 90λ πριν δύση έως 30λ μετά
+            if now >= ssT - 5400 { return .sunset }
+
+            // Morning → Midday στο 45% της ημέρας (solar noon ≈ 50%)
+            if now < srT + dayLength * 0.45 { return .morning }
+
+            return .midday
+        }
+
+        // Fallback: ώρα ρολογιού (χρησιμοποιείται πριν έρθουν τα weather data)
         let hour = Calendar.current.component(.hour, from: date)
         switch hour {
         case 5..<8:   return .sunrise
         case 8..<12:  return .morning
         case 12..<17: return .midday
-        case 17..<20: return .sunset
+        case 17..<21: return .sunset
         default:      return .night
         }
     }
@@ -143,26 +173,53 @@ enum TimeOfDay {
         return self == .night
     }
 
-    /// Horizontal position — κινείται κατά τη διάρκεια της μέρας
+    /// Horizontal position ήλιου — κινείται κατά τη διάρκεια της μέρας
     var celestialX: Double {
         switch self {
         case .sunrise: return 0.20
         case .morning: return 0.50
         case .midday:  return 0.75
         case .sunset:  return 0.85
-        case .night:   return 0.75
+        case .night:   return TimeOfDay.moonCelestialPosition().x
         }
     }
 
-    /// Vertical position — πάνω στον ουρανό
+    /// Vertical position ήλιου — πάνω στον ουρανό
     var celestialY: Double {
         switch self {
         case .sunrise: return 0.45
         case .morning: return 0.25
         case .midday:  return 0.20
         case .sunset:  return 0.45
-        case .night:   return 0.22
+        case .night:   return TimeOfDay.moonCelestialPosition().y
         }
+    }
+
+    /// Θέση φεγγαριού βάσει ώρας — τόξο από δεξιά (21:00) προς αριστερά (06:00)
+    static func moonCelestialPosition(for date: Date = Date()) -> (x: Double, y: Double) {
+        let cal = Calendar.current
+        let hour   = Double(cal.component(.hour,   from: date))
+        let minute = Double(cal.component(.minute, from: date))
+        let totalMinutes = hour * 60 + minute
+
+        // Νύχτα: 21:00 → 06:00 (9 ώρες = 540 λεπτά)
+        let nightStart = 21.0 * 60   // 1260
+        let nightDuration = 9.0 * 60 // 540
+
+        let progress: Double
+        if totalMinutes >= nightStart {
+            progress = (totalMinutes - nightStart) / nightDuration
+        } else {
+            progress = (totalMinutes + (24 * 60 - nightStart)) / nightDuration
+        }
+        let p = max(0, min(1, progress))
+
+        // x: ανατέλλει δεξιά (0.82) → δύει αριστερά (0.12)
+        let x = 0.82 - p * 0.70
+        // y: τόξο — χαμηλά στις άκρες, ψηλά στα μεσάνυχτα
+        let y = 0.42 - sin(p * .pi) * 0.28
+
+        return (x: x, y: y)
     }
 }
 
@@ -178,7 +235,8 @@ struct WeatherBackground: View {
     }
 
     private var animationSpeed: Double {
-        isDimmed ? 0.5 : 1.0
+        if condition == .windy { return isDimmed ? 1.5 : 3.0 }
+        return isDimmed ? 0.5 : 1.0
     }
 
     /// Aurora εμφανίζεται όταν είναι νύχτα και όχι rainy/cloudy/snow
@@ -189,20 +247,20 @@ struct WeatherBackground: View {
         !lowPowerMode
     }
 
-    /// Heavy weather conditions όπου ο ήλιος δεν φαίνεται
+    /// Weather conditions όπου ο ήλιος κρύβεται
     private var heavyWeather: Bool {
-        condition == .rainy || condition == .thunderstorm || condition == .snow
+        condition == .rainy || condition == .thunderstorm ||
+        condition == .snow  || condition == .cloudy       ||
+        condition == .foggy
     }
 
     var body: some View {
         ZStack {
-            // Layer 1: Atmospheric sky gradient
-            LinearGradient(
-                colors: timeOfDay.gradientColors,
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            // Layer 1: Atmospheric sky — animated MeshGradient that slowly
+            // "breathes" (control points drift), giving the sky a living,
+            // organic feel. Falls back to a static mesh in Low Power Mode.
+            AnimatedSkyMesh(timeOfDay: timeOfDay, lowPower: lowPowerMode)
+                .ignoresSafeArea()
 
             // Layer 2: Aurora (νύχτα με καλό καιρό)
             if shouldShowAurora {
@@ -267,6 +325,14 @@ struct WeatherBackground: View {
             }
             .ignoresSafeArea()
 
+            // Layer 4.5: Ambient sky life — birds gliding across by day,
+            // shooting stars streaking by night (clear weather only).
+            // Drawn BEHIND the mountains so they vanish behind peaks.
+            if !lowPowerMode {
+                AmbientLifeLayer(mode: .sky, timeOfDay: timeOfDay, condition: condition)
+                    .opacity(isDimmed ? 0.6 : 1.0)
+            }
+
             // Layer 5: Atmospheric haze για depth
             atmosphericHaze
 
@@ -293,6 +359,13 @@ struct WeatherBackground: View {
 
             // Layer 10: Foreground με detailed trees
             ForegroundLayer(color: timeOfDay.foregroundColor)
+
+            // Layer 10.5: Fireflies drifting over the dark hills on clear
+            // nights — drawn IN FRONT of the foreground for a magical depth cue.
+            if !lowPowerMode {
+                AmbientLifeLayer(mode: .ground, timeOfDay: timeOfDay, condition: condition)
+                    .opacity(isDimmed ? 0.6 : 1.0)
+            }
 
             // Layer 11: Weather particles
             if !lowPowerMode {
@@ -354,7 +427,7 @@ struct WeatherBackground: View {
 
     private var shouldShowClouds: Bool {
         switch condition {
-        case .partlyCloudy, .cloudy, .rainy, .snow: return true
+        case .partlyCloudy, .cloudy, .rainy, .snow, .windy: return true
         default: return false
         }
     }
@@ -365,6 +438,7 @@ struct WeatherBackground: View {
         case .cloudy:       return 6
         case .rainy:        return 7
         case .snow:         return 5
+        case .windy:        return 4
         default:            return 0
         }
     }
@@ -418,6 +492,9 @@ struct WeatherBackground: View {
             SnowLayer(speed: animationSpeed)
                 .opacity(isDimmed ? 0.7 : 1.0)
             #endif
+        case .windy:
+            WindLayer()
+                .opacity(isDimmed ? 0.6 : 1.0)
         default:
             EmptyView()
         }
@@ -868,6 +945,217 @@ struct ForegroundLayer: View {
             }
         }
         .ignoresSafeArea()
+    }
+}
+
+// MARK: - Animated Sky Mesh
+
+/// The sky as a 3×3 MeshGradient whose interior control points drift slowly
+/// (lissajous-style), so the colour bands morph organically — the sky feels
+/// alive instead of a frozen gradient. Colours come straight from the existing
+/// `TimeOfDay.gradientColors` palette, so the overall look (and the smooth
+/// cross-fade on time/weather change) is preserved.
+///
+/// Battery: 12 fps is plenty for motion this slow; in Low Power Mode the mesh
+/// renders once, statically (still prettier than a flat LinearGradient).
+struct AnimatedSkyMesh: View {
+    let timeOfDay: TimeOfDay
+    let lowPower: Bool
+
+    var body: some View {
+        if lowPower {
+            mesh(at: 0)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 12.0)) { timeline in
+                mesh(at: timeline.date.timeIntervalSinceReferenceDate)
+            }
+        }
+    }
+
+    private func mesh(at t: TimeInterval) -> some View {
+        // Sample the palette into 4 anchor tones (works for 4- and 5-colour
+        // palettes alike): a = top, b/m = middle bands, d = bottom.
+        let c = timeOfDay.gradientColors
+        let a = c[0]
+        let b = c[min(1, c.count - 1)]
+        let m = c[c.count / 2]
+        let d = c[c.count - 1]
+
+        // Interior points drift on slow, incommensurate frequencies so the
+        // motion never visibly repeats. Edge points stay ON their edge
+        // (MeshGradient requirement); corners stay pinned.
+        let cx  = Float(0.5 + 0.07 * sin(t * 0.050))
+        let cy  = Float(0.5 + 0.06 * sin(t * 0.083 + 0.7))
+        let top = Float(0.5 + 0.06 * sin(t * 0.070 + 2.1))
+        let bot = Float(0.5 + 0.05 * sin(t * 0.061 + 4.0))
+        let lft = Float(0.5 + 0.04 * sin(t * 0.110 + 1.0))
+        let rgt = Float(0.5 + 0.04 * cos(t * 0.090))
+
+        return MeshGradient(
+            width: 3, height: 3,
+            points: [
+                [0, 0],   [top, 0], [1, 0],
+                [0, lft], [cx, cy], [1, rgt],
+                [0, 1],   [bot, 1], [1, 1]
+            ],
+            colors: [
+                a, b, a,
+                b, m, b,
+                d, d, d
+            ]
+        )
+    }
+}
+
+// MARK: - Ambient Life Layer (birds / shooting stars / fireflies)
+
+/// Pure-Canvas ambient creatures, all deterministic functions of time — no
+/// state, no timers to leak, ~20 fps. Two placements:
+///   • `.sky`    — birds gliding across by day, shooting stars by night
+///                 (hosted behind the mountain layers)
+///   • `.ground` — fireflies blinking and drifting over the dark hills at
+///                 night (hosted in front of the foreground)
+/// Only renders in clear-ish weather; heavy weather hides it entirely.
+struct AmbientLifeLayer: View {
+    enum Mode { case sky, ground }
+
+    let mode: Mode
+    let timeOfDay: TimeOfDay
+    let condition: WeatherCondition
+
+    private var isNight: Bool { timeOfDay == .night }
+
+    private var clearish: Bool {
+        condition == .sunny || condition == .partlyCloudy ||
+        condition == .cold  || condition == .unknown
+    }
+
+    private var active: Bool {
+        guard clearish else { return false }
+        switch mode {
+        case .sky:    return true          // birds by day, meteors by night
+        case .ground: return isNight       // fireflies only at night
+        }
+    }
+
+    var body: some View {
+        if active {
+            TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { timeline in
+                Canvas { ctx, size in
+                    let t = timeline.date.timeIntervalSinceReferenceDate
+                    switch mode {
+                    case .sky:
+                        if isNight { drawShootingStar(ctx, size, t) }
+                        else       { drawBirds(ctx, size, t) }
+                    case .ground:
+                        drawFireflies(ctx, size, t)
+                    }
+                }
+            }
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+        }
+    }
+
+    // Classic deterministic hash → [0, 1) — stable "randomness" per cycle.
+    private func hash(_ n: Double) -> Double {
+        let x = sin(n * 12.9898) * 43758.5453
+        return x - x.rounded(.down)
+    }
+
+    // ── Fireflies ─────────────────────────────────────────────────────────
+    // 9 warm dots over the hills (lower third), each on its own lissajous
+    // drift + slow blink. Drawn as 3 concentric fills (cheap fake glow).
+    private func drawFireflies(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double) {
+        let color = Color(red: 0.85, green: 1.0, blue: 0.55)
+        for i in 0..<9 {
+            let fi = Double(i)
+            let x0 = (fi * 0.618 + 0.07).truncatingRemainder(dividingBy: 1.0)
+            let y0 = 0.66 + 0.26 * hash(fi + 31)
+            let x = (x0 + 0.028 * sin(t * 0.31 + fi * 2.1)) * size.width
+            let y = (y0 + 0.020 * sin(t * 0.23 + fi * 1.3)) * size.height
+            // Blink: squared half-sine → mostly dim, periodic soft flashes
+            let blink = max(0, sin(t * 0.9 + fi * 2.7))
+            let glow = blink * blink
+            guard glow > 0.02 else { continue }
+
+            for (radius, alpha) in [(6.0, 0.10), (3.0, 0.28), (1.3, 0.95)] {
+                let rect = CGRect(x: x - radius, y: y - radius,
+                                  width: radius * 2, height: radius * 2)
+                ctx.fill(Path(ellipseIn: rect),
+                         with: .color(color.opacity(alpha * glow)))
+            }
+        }
+    }
+
+    // ── Shooting star ─────────────────────────────────────────────────────
+    // One meteor every ~17 s: bright head + gradient tail streaking down-right
+    // for ~0.8 s, start point hashed from the cycle index.
+    private func drawShootingStar(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double) {
+        let period = 17.0
+        let cycle = (t / period).rounded(.down)
+        let phase = t - cycle * period
+        let life = 0.8
+        guard phase < life else { return }
+
+        let p = phase / life                          // 0 → 1 over the streak
+        let startX = (0.10 + 0.55 * hash(cycle)) * size.width
+        let startY = (0.06 + 0.18 * hash(cycle + 7)) * size.height
+        let dir = CGVector(dx: 0.912, dy: 0.410)      // ~24° downwards
+        let travel = 260.0
+
+        let head = CGPoint(x: startX + dir.dx * travel * p,
+                           y: startY + dir.dy * travel * p)
+        let tailLen = 78.0 * (1.0 - 0.35 * p)
+        let tail = CGPoint(x: head.x - dir.dx * tailLen,
+                           y: head.y - dir.dy * tailLen)
+        let fade = sin(p * .pi)                       // ease in & out
+
+        var path = Path()
+        path.move(to: tail)
+        path.addLine(to: head)
+        ctx.stroke(
+            path,
+            with: .linearGradient(
+                Gradient(colors: [.clear, .white.opacity(0.85 * fade)]),
+                startPoint: tail, endPoint: head
+            ),
+            style: StrokeStyle(lineWidth: 1.6, lineCap: .round)
+        )
+        let r = 2.2
+        ctx.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r,
+                                        width: r * 2, height: r * 2)),
+                 with: .color(.white.opacity(fade)))
+    }
+
+    // ── Birds ─────────────────────────────────────────────────────────────
+    // 3 distant silhouettes crossing left→right on staggered ~26 s loops,
+    // wings flapping via a quad-curve "∿" that bends with sin(t).
+    private func drawBirds(_ ctx: GraphicsContext, _ size: CGSize, _ t: Double) {
+        let silhouette = timeOfDay == .sunset
+            ? Color.black.opacity(0.55)
+            : Color(red: 0.12, green: 0.18, blue: 0.26).opacity(0.50)
+
+        for i in 0..<3 {
+            let fi = Double(i)
+            let period = 26.0
+            let p = ((t + fi * 9.3) / period).truncatingRemainder(dividingBy: 1.0)
+            let x = (-0.10 + 1.20 * p) * size.width
+            let y = (0.14 + 0.07 * fi + 0.018 * sin(t * 0.7 + fi * 2)) * size.height
+            let s = 7.0 - fi * 1.2                    // farther birds smaller
+            let flap = sin(t * 9 + fi * 2.4)          // wing beat
+            let wingTipY = y + flap * s * 0.45
+            let wingPeak = y - s * 0.85 * max(0.25, flap)
+
+            var path = Path()
+            path.move(to: CGPoint(x: x - s, y: wingTipY))
+            path.addQuadCurve(to: CGPoint(x: x, y: y),
+                              control: CGPoint(x: x - s * 0.5, y: wingPeak))
+            path.addQuadCurve(to: CGPoint(x: x + s, y: wingTipY),
+                              control: CGPoint(x: x + s * 0.5, y: wingPeak))
+            ctx.stroke(path, with: .color(silhouette),
+                       style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+        }
     }
 }
 

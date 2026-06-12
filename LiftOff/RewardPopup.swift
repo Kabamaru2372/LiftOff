@@ -43,6 +43,8 @@ struct RewardPopup: View {
             // "You earned this" message
             Text(language == "Ελληνικά"
                  ? "Τα κατάφερες! Βελτιώθηκες."
+                 : language == "Deutsch"
+                 ? "Geschafft! Du hast dich verbessert."
                  : "You did it! You improved.")
                 .font(.system(size: 13, weight: .regular, design: .rounded))
                 .foregroundColor(.secondary)
@@ -64,7 +66,7 @@ struct RewardPopup: View {
             
             // Dismiss
             Button(action: onDismiss) {
-                Text(language == "Ελληνικά" ? "Αργότερα" : "Later")
+                Text(language == "Ελληνικά" ? "Αργότερα" : language == "Deutsch" ? "Später" : "Later")
                     .font(.system(size: 14, weight: .regular, design: .rounded))
                     .foregroundColor(.secondary)
             }

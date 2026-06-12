@@ -43,6 +43,9 @@ struct AboutScienceView: View {
                     // MARK: - Zone breakdown
                     zonesSection
 
+                    // MARK: - Picksy Score
+                    picksyScoreSection
+
                     // MARK: - Why it matters
                     whyItMattersSection
 
@@ -176,6 +179,77 @@ struct AboutScienceView: View {
         }
     }
 
+    // MARK: - Picksy Score
+
+    private var picksyScoreSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionHeader(t("How the Picksy Score works", "Πώς υπολογίζεται το Picksy Score", "Wie der Picksy Score berechnet wird"))
+
+            VStack(alignment: .leading, spacing: 14) {
+                Text(t(
+                    "The Picksy Score combines two metrics that research links to digital wellbeing: how often you pick up your phone AND how long you use it.",
+                    "Το Picksy Score συνδυάζει δύο μετρικές που η έρευνα συνδέει με ψηφιακή ευεξία: πόσο συχνά σηκώνεις το κινητό ΚΑΙ πόση ώρα το χρησιμοποιείς.",
+                    "Der Picksy Score kombiniert zwei Kennzahlen, die die Forschung mit digitalem Wohlbefinden verknüpft: wie oft du das Handy aufnimmst UND wie lange du es nutzt."
+                ))
+                .font(.system(size: 13, design: .rounded))
+                .foregroundColor(.secondary)
+                .lineSpacing(3)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(t("Formula", "Τύπος", "Formel"))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Text("Score = (pickups + screen-time min × 5) ÷ 20")
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .foregroundColor(.primary)
+                        .padding(10)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 8).fill(Color(.systemGray6)))
+                    Text(t(
+                        "Lower = better. Screen time is weighted 5× more because duration of use is the stronger predictor of anxiety and depression.",
+                        "Χαμηλότερο = καλύτερο. Ο χρόνος χρήσης βαρύνει 5× περισσότερο γιατί η διάρκεια χρήσης είναι ο ισχυρότερος προγνωστικός παράγοντας άγχους και κατάθλιψης.",
+                        "Niedriger = besser. Die Bildschirmzeit wird 5× stärker gewichtet, da die Nutzungsdauer der stärkere Prädiktor für Angst und Depression ist."
+                    ))
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .lineSpacing(3)
+                }
+
+                Divider()
+
+                bulletRow(
+                    icon: "📊",
+                    text: t(
+                        "Twenge et al. (2018, JAMA): Screen time duration (not just frequency) predicts depressive symptoms in adolescents — especially above 2h/day.",
+                        "Twenge et al. (2018, JAMA): Η διάρκεια χρήσης (όχι μόνο η συχνότητα) προβλέπει καταθλιπτικά συμπτώματα — ιδίως πάνω από 2ω/μέρα.",
+                        "Twenge et al. (2018, JAMA): Die Dauer der Bildschirmnutzung (nicht nur die Häufigkeit) sagt depressive Symptome voraus — besonders über 2h/Tag."
+                    )
+                )
+                bulletRow(
+                    icon: "🔬",
+                    text: t(
+                        "Przybylski & Weinstein (2017, Psychological Science): Both frequency AND duration independently predict reduced well-being — combining both metrics gives a more complete picture.",
+                        "Przybylski & Weinstein (2017, Psychological Science): Συχνότητα ΚΑΙ διάρκεια προβλέπουν ανεξάρτητα μειωμένη ευεξία — ο συνδυασμός δίνει πληρέστερη εικόνα.",
+                        "Przybylski & Weinstein (2017, Psychological Science): Sowohl Häufigkeit als auch Dauer sagen unabhängig verringerte Wohlbefinden voraus — die Kombination gibt ein vollständigeres Bild."
+                    )
+                )
+                bulletRow(
+                    icon: "⏱️",
+                    text: t(
+                        "Kushlev & Dunn (2015, Computers in Human Behavior): Reducing phone checking frequency reduced stress — but sessions lasting 30+ min had additional independent impact.",
+                        "Kushlev & Dunn (2015, Computers in Human Behavior): Λιγότερα σηκώματα μείωσαν το άγχος — αλλά sessions 30+ λεπτά είχαν επιπλέον ανεξάρτητη επίδραση.",
+                        "Kushlev & Dunn (2015, Computers in Human Behavior): Weniger Griffe reduzierten Stress — aber Sessions von 30+ Minuten hatten zusätzliche unabhängige Auswirkungen."
+                    )
+                )
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(UIColor.secondarySystemBackground))
+            )
+        }
+    }
+
     // MARK: - Why it matters
 
     private var whyItMattersSection: some View {
@@ -229,6 +303,36 @@ struct AboutScienceView: View {
     private var sourcesSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionHeader(t("Sources", "Πηγές", "Quellen"))
+
+            sourceCard(
+                title: "Twenge, J.M. et al. (2018)",
+                subtitle: t(
+                    "\"Increases in depressive symptoms linked to screen time\" — JAMA Pediatrics",
+                    "\"Αύξηση καταθλιπτικών συμπτωμάτων σχετίζεται με screen time\" — JAMA Pediatrics",
+                    "\"Anstieg depressiver Symptome im Zusammenhang mit Bildschirmzeit\" — JAMA Pediatrics"
+                ),
+                url: "https://jamanetwork.com/journals/jamapediatrics/fullarticle/2737909"
+            )
+
+            sourceCard(
+                title: "Przybylski, A.K. & Weinstein, N. (2017)",
+                subtitle: t(
+                    "\"A Large-Scale Test of the Goldilocks Hypothesis\" — Psychological Science",
+                    "\"Μεγάλης κλίμακας τεστ της υπόθεσης Goldilocks\" — Psychological Science",
+                    "\"Großangelegter Test der Goldilocks-Hypothese\" — Psychological Science"
+                ),
+                url: "https://journals.sagepub.com/doi/10.1177/0956797616678438"
+            )
+
+            sourceCard(
+                title: "Kushlev, K. & Dunn, E.W. (2015)",
+                subtitle: t(
+                    "\"Checking email less frequently reduces stress\" — Computers in Human Behavior",
+                    "\"Λιγότερος έλεγχος email μειώνει το άγχος\" — Computers in Human Behavior",
+                    "\"Weniger E-Mail-Checks reduzieren Stress\" — Computers in Human Behavior"
+                ),
+                url: "https://www.sciencedirect.com/science/article/pii/S074756321400283X"
+            )
 
             sourceCard(
                 title: "Rosen, L.D. et al. (2016)",

@@ -16,6 +16,7 @@ struct WeeklySummary {
     let roughDays: Int
     let daysWithCheckIn: Int
     let streak: Int
+    let personalityType: PhonePersonalityType
 }
 
 @Observable
@@ -27,6 +28,7 @@ class WeeklySummaryManager {
     /// Επιστρέφει summary για την τρέχουσα εβδομάδα
     func computeSummary(
         weeklyPickups: [Int],
+        hourlyScreenTimeSecs: [Int] = Array(repeating: 0, count: 24),
         checkInManager: CheckInManager,
         streak: Int,
         dayNames: [String]
@@ -58,6 +60,11 @@ class WeeklySummaryManager {
         let rough = moods.filter { $0 == .rough }.count
         let checked = moods.compactMap { $0 }.count
 
+        let personality = PhonePersonalityType.detect(
+            weeklyPickups: weeklyPickups,
+            hourlyScreenTimeSecs: hourlyScreenTimeSecs
+        )
+
         return WeeklySummary(
             totalPickups: total,
             dailyAverage: average,
@@ -67,7 +74,8 @@ class WeeklySummaryManager {
             okayDays: okay,
             roughDays: rough,
             daysWithCheckIn: checked,
-            streak: streak
+            streak: streak,
+            personalityType: personality
         )
     }
 

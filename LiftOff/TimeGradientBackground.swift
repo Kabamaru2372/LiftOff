@@ -12,8 +12,13 @@ import SwiftUI
 
 struct TimeGradientBackground: View {
 
+    @Environment(WeatherManager.self) private var weatherManager
+
     private var timeOfDay: TimeOfDay {
-        TimeOfDay.from()
+        TimeOfDay.from(
+            sunrise: weatherManager.currentWeather?.sunrise,
+            sunset:  weatherManager.currentWeather?.sunset
+        )
     }
 
     /// Μίξη των time-based colors με το system background για απαλότερο look
@@ -62,4 +67,5 @@ extension View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .timeGradientBackground()
+    .environment(WeatherManager())
 }

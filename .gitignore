@@ -90,8 +90,11 @@ tmp/
 # Screenshots folder (not used currently)
 Screenshots/
 
-# Screenshots folder (not used currently)
-Screenshots/
+# Supabase CLI tooling state
+supabase/.temp/
 
-# Screenshots folder (not used currently)
-Screenshots/
+# Local AI tooling & generated artifacts (not part of the app)
+.claude/
+CLAUDE.md
+graphify-out/
+.cache/

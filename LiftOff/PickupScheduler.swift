@@ -33,6 +33,17 @@ class PickupScheduler {
     /// Maximum apps που μπορούμε να trackάρουμε ταυτόχρονα
     static let maxTrackedApps = 20
 
+    /// Thresholds (in seconds) per tracked app.
+    /// Each threshold = one potential pickup detection (with 30s cooldown in the extension).
+    /// 10 thresholds × up to 20 apps = 200 events — well within Apple's limits.
+    /// With the extension's cooldown, rapid consecutive crossings (same session) count as 1.
+    static let pickupThresholds: [Int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+    /// Increment this when changing the events schema (e.g. adding thresholds).
+    /// Forces a monitoring restart on the next app launch to apply the new events.
+    private static let monitoringVersion = 2
+    private static let monitoringVersionKey = "picksy_monitoring_version"
+
     // MARK: - State
 
     /// True αν το monitoring είναι ενεργό
@@ -83,13 +94,26 @@ class PickupScheduler {
 
         let center = DeviceActivityCenter()
 
-        // Stop any existing monitoring first για clean state
-        center.stopMonitoring([Self.dailyActivityName])
+        // Αν τρέχει ήδη, ελέγχουμε αν η έκδοση των events είναι ενημερωμένη.
+        // Αν όχι (π.χ. πρώτη εκκίνηση μετά από update που πρόσθεσε νέα thresholds),
+        // κάνουμε restart ώστε να εφαρμοστούν τα νέα events.
+        let savedVersion = sharedDefaults?.integer(forKey: Self.monitoringVersionKey) ?? 0
+        if center.activities.contains(Self.dailyActivityName) {
+            if savedVersion >= Self.monitoringVersion {
+                log("ℹ️ Monitoring already active (v\(savedVersion)), skipping restart")
+                isMonitoring = true
+                currentTrackedAppsCount = Array(selection.applicationTokens.prefix(Self.maxTrackedApps)).count
+                return
+            }
+            // Outdated monitoring version → stop and restart with new events
+            log("🔄 Monitoring version outdated (saved: \(savedVersion), current: \(Self.monitoringVersion)) — restarting")
+            center.stopMonitoring([Self.dailyActivityName])
+        }
 
         // Schedule: από 00:00 μέχρι 23:59 κάθε μέρα
         let schedule = DeviceActivitySchedule(
             intervalStart: DateComponents(hour: 0, minute: 0),
-            intervalEnd: DateComponents(hour: 23, minute: 59),
+            intervalEnd: DateComponents(hour: 23, minute: 59, second: 59), // fix #6: closer to midnight
             repeats: true
         )
 
@@ -101,25 +125,27 @@ class PickupScheduler {
             log("⚠️ User selected \(appTokens.count) apps, tracking only first \(Self.maxTrackedApps)")
         }
 
-        // Δημιούργησε ένα event για κάθε app
-        // Each event: 1 second threshold, monitors single app token
+        // Δημιούργησε πολλαπλά events για κάθε app — ένα ανά threshold.
+        // Κάθε threshold crossing → extension πυρώνει → pickup detected (με 30s cooldown).
+        // 10 thresholds × ≤20 apps = ≤200 events (well within Apple DeviceActivity limits).
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
 
         for (index, token) in tokensArray.enumerated() {
-            // Unique event name per app (πχ "app_0", "app_1", ...)
-            let eventName = DeviceActivityEvent.Name("app_\(index)")
+            for threshold in Self.pickupThresholds {
+                // Event name: "app_0_t1", "app_0_t2", ... "app_1_t1", etc.
+                let eventName = DeviceActivityEvent.Name("app_\(index)_t\(threshold)")
 
-            // Save bundle ID mapping στο App Group για το extension
-            // Το extension θα χρησιμοποιήσει το event name για να βρει το token
-            saveTokenMapping(token: token, eventName: eventName.rawValue)
+                // Save token mapping μόνο για το πρώτο threshold (για debugging)
+                if threshold == 1 {
+                    saveTokenMapping(token: token, eventName: "app_\(index)")
+                }
 
-            // Create event με 1 second threshold
-            let event = DeviceActivityEvent(
-                applications: [token],
-                threshold: DateComponents(second: 1)
-            )
-
-            events[eventName] = event
+                let event = DeviceActivityEvent(
+                    applications: [token],
+                    threshold: DateComponents(second: threshold)
+                )
+                events[eventName] = event
+            }
         }
 
         // Save tracked apps count για το extension
@@ -136,8 +162,9 @@ class PickupScheduler {
             isMonitoring = true
             currentTrackedAppsCount = trackedCount
             lastError = nil
+            sharedDefaults?.set(Self.monitoringVersion, forKey: Self.monitoringVersionKey)
 
-            log("✅ Started event-based monitoring for \(trackedCount) apps")
+            log("✅ Started event-based monitoring for \(trackedCount) apps (\(events.count) events total, v\(Self.monitoringVersion))")
         } catch {
             isMonitoring = false
             currentTrackedAppsCount = 0

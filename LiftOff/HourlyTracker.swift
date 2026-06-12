@@ -13,7 +13,8 @@ class HourlyTracker {
     // Index 0 = σήμερα, 1 = χθες, ... 6 = πριν 6 μέρες
     var hourlyData: [[Int]] = Array(repeating: Array(repeating: 0, count: 24), count: 7)
 
-    private let defaults = UserDefaults.standard
+    // H4 fix: use App Group suite so the extension and widget can read this data.
+    private let defaults = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
     private let storageKey = "hourlyPickupData"
     private let lastDateKey = "hourlyLastDate"
 
@@ -121,6 +122,23 @@ class HourlyTracker {
         let flat = hourlyData.flatMap { $0 }
         defaults.set(flat, forKey: storageKey)
     }
+
+    #if DEBUG
+    /// Fills the 7×24 heatmap with a realistic daily pattern (for screenshots).
+    func seedDemo() {
+        let base = [0,0,0,0,0,0,1,2,3,2,1,3,4,2,1,2,3,4,5,4,3,2,1,0]
+        let dayBoost = [2,1,3,0,2,1,2]
+        hourlyData = (0..<7).map { day in
+            base.map { $0 == 0 ? 0 : min(9, $0 + dayBoost[day]) }
+        }
+        saveData()
+    }
+
+    func clearDemo() {
+        hourlyData = Array(repeating: Array(repeating: 0, count: 24), count: 7)
+        saveData()
+    }
+    #endif
 
     private func loadData() {
         guard let flat = defaults.array(forKey: storageKey) as? [Int],

@@ -12,6 +12,7 @@ import SwiftUI
 import UserNotifications
 import StoreKit
 import FamilyControls
+import WidgetKit
 
 struct SettingsView: View {
     @AppStorage("dailyGoal") private var dailyGoal: Int = 50
@@ -20,24 +21,47 @@ struct SettingsView: View {
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     @AppStorage("liveActivityEnabled") private var liveActivityEnabled: Bool = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled: Bool = true
+    @AppStorage("challengeDisplayName") private var challengeDisplayName: String = ""
 
     @Environment(ProManager.self) var proManager
     @Environment(LiveActivityManager.self) var liveActivity
     @Environment(DataStore.self) var store
     @Environment(WeatherManager.self) var weatherManager
     @Environment(ActivityPreferences.self) var activityPrefs
+    @Environment(HourlyTracker.self) var hourlyTracker
+    @Environment(CheckInManager.self) var checkInManager
 
     @State private var showAboutScience: Bool = false
     @State private var showPaywall: Bool = false
     @State private var showResetConfirm: Bool = false
+    @State private var showResetTodayConfirm: Bool = false
     @State private var showAppInfo: Bool = false
     @State private var showActivityPrefs: Bool = false
     @State private var showAppPicker: Bool = false
-    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
+    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true)
     @State private var isAuthorized: Bool = false
+    @State private var showAchievements: Bool = false
+    #if DEBUG
+    @State private var showDebugDuelResult: Bool = false
+    #endif
 
     // v1.7: Threshold preset
     @State private var selectedPreset: ThresholdPreset = ThresholdPreset.current
+
+    // Accurate Mode (shield-based exact pickup counting)
+    @State private var accurateMode: Bool = ShieldManager.shared.isAccurateModeOn
+
+    // Daily time limit per tracked app (minutes; 0 = off)
+    @AppStorage("picksy_timelimit_minutes") private var timeLimitMinutes: Int = 0
+
+    // Optional passcode that gates the time limit (parental use)
+    @State private var passcodeRequired: Bool = PasscodeManager.shared.isRequired
+    @State private var showPasscodeSetup: Bool = false
+    // Settings lock: when a passcode is set, time-limit/passcode controls require
+    // the code to change (so a child can't just turn the limit off). Resets each
+    // time Settings is opened.
+    @State private var settingsUnlocked: Bool = !PasscodeManager.shared.isRequired
+    @State private var showSettingsUnlock: Bool = false
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -132,6 +156,24 @@ struct SettingsView: View {
                     }
                     .padding(.bottom, 20)
                 }
+
+                // Display name for challenges
+                SettingRow(
+                    title: t("Your name", "Το όνομά σου", "Dein Name"),
+                    subtitle: t("Shown when you send a challenge", "Εμφανίζεται όταν στέλνεις πρόκληση", "Wird bei Herausforderungen angezeigt")
+                ) {
+                    TextField(t("Optional", "Προαιρετικό", "Optional"), text: $challengeDisplayName)
+                        .font(.system(size: 15, design: .rounded))
+                        .multilineTextAlignment(.trailing)
+                        .frame(maxWidth: 120)
+                }
+
+                Divider()
+
+                // MARK: - Trophies (formerly its own tab)
+                achievementsRow
+
+                Divider()
 
                 // Language
                 SettingRow(
@@ -261,7 +303,27 @@ struct SettingsView: View {
                 Divider()
                 trackedAppsRow
                 Divider()
+                accurateModeRow
+                Divider()
+                if PasscodeManager.shared.isRequired && !settingsUnlocked {
+                    lockedSettingsRow
+                } else {
+                    timeLimitRow
+                    if timeLimitMinutes > 0 {
+                        Divider()
+                        passcodeRow
+                        if passcodeRequired {
+                            parentalLockTip
+                        }
+                    }
+                }
+                Divider()
                 resetSection
+
+                #if DEBUG
+                debugSection
+                #endif
+
                 aboutSection
 
                 Spacer().frame(height: 40)
@@ -277,6 +339,32 @@ struct SettingsView: View {
         .sheet(isPresented: $showAboutScience) {
             AboutScienceView()
         }
+        .sheet(isPresented: $showAchievements) {
+            AchievementsView(onUnlockTap: { showPaywall = true })
+                .environment(proManager)
+        }
+        #if DEBUG
+        .sheet(isPresented: $showDebugDuelResult) {
+            let myID = FriendSyncManager.shared.deviceID
+            let mockDuel = DuelRecord(
+                id: "debug-duel",
+                challengerId: myID,
+                opponentId: "opponent-debug-id",
+                challengerName: "You",
+                opponentName: "Test Friend",
+                status: .completed,
+                startedAt: Date(),
+                endsAt: Date(),
+                challengerPickups: 22,
+                opponentPickups: 45,
+                challengerScreenTime: 3600,
+                opponentScreenTime: 7200,
+                winnerId: myID,
+                createdAt: Date()
+            )
+            DuelResultView(duel: mockDuel, hourlyData: Array(repeating: 0, count: 24))
+        }
+        #endif
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
         .onAppear {
             isAuthorized = FamilyControlsManager.shared.isAuthorized
@@ -286,6 +374,241 @@ struct SettingsView: View {
         .onChange(of: pickerSelection) { _, newValue in
             AppSelectionStore.shared.selection = newValue
             UsageThresholdManager.shared.restartMonitoring()
+            // Accurate Mode: shield the updated selection right away so a newly
+            // added app is locked immediately (no need to relaunch / re-lock).
+            ShieldManager.shared.refresh()
+        }
+        // Mirror dailyGoal to App Group suite immediately so the widget reflects
+        // the new goal without waiting for the next pickup (which triggers saveData).
+        .onChange(of: dailyGoal) { _, newValue in
+            UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(newValue, forKey: "dailyGoal")
+            WidgetCenter.shared.reloadAllTimelines()
+        }
+        .onChange(of: timeLimitMinutes) { _, newValue in
+            // Mirror to App Group so the monitor extension reads the new limit,
+            // then restart monitoring to (re)register the time-limit event.
+            UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(newValue, forKey: "picksy_timelimit_minutes")
+            UsageThresholdManager.shared.restartMonitoring()
+            // Turned off → remove any active time-limit shield immediately.
+            if newValue == 0 { ShieldManager.shared.clearTimeLimitShield() }
+        }
+    }
+
+    // MARK: - Achievements Row
+
+    private var achievementsRow: some View {
+        Button(action: { showAchievements = true }) {
+            HStack(spacing: 12) {
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 17))
+                    .foregroundColor(.yellow)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Trophies & Achievements", "Τρόπαια & Επιτεύγματα", "Trophäen & Erfolge"))
+                        .font(.system(size: 15, design: .rounded))
+                    Text(t("See your milestones", "Δες τα ορόσημά σου", "Sieh deine Meilensteine"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.secondary.opacity(0.5))
+            }
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+    }
+    // MARK: - Accurate Mode (shield-based exact pickup counting)
+
+    private var accurateModeRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(t("Distraction Shield", "Ασπίδα Περισπασμών", "Ablenkungsschutz"))
+                            .font(.system(size: 15, weight: .regular, design: .rounded))
+                            .foregroundColor(.primary)
+                        Text("🛡️").font(.system(size: 13))
+                    }
+                    Text(t(
+                        "Mute and gently block the apps you choose — fewer distractions for you, less mindless scrolling for your kid. Their notifications stay silent while it's on. (Also makes pickup counts exact.)",
+                        "Σίγασε και φρέναρε απαλά τις εφαρμογές που διάλεξες — λιγότεροι περισπασμοί για σένα, λιγότερη άσκοπη περιήγηση για το παιδί σου. Όσο είναι ενεργό, οι ειδοποιήσεις τους μένουν σιωπηλές. (Κάνει και τη μέτρηση σηκωμάτων ακριβή.)",
+                        "Schalte deine ausgewählten Apps stumm und bremse sie sanft — weniger Ablenkung für dich, weniger gedankenloses Scrollen für dein Kind. Solange aktiv, bleiben ihre Benachrichtigungen stumm. (Zählt Griffe außerdem exakt.)"
+                    ))
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                    // Category ticks now expand to the category's CURRENT apps
+                    // (includeEntireCategory), so locking is strictly per-app.
+                    // Only remaining caveat: apps installed later into a ticked
+                    // category aren't auto-added until the picker is reopened.
+                    if AppSelectionStore.shared.selectedCategoriesCount > 0 {
+                        Text(t(
+                            "Category picks include the apps installed right now — new apps you install later aren't added automatically. Reopen the app picker to include them.",
+                            "Η επιλογή κατηγορίας περιλαμβάνει τις εφαρμογές που έχεις τώρα — νέες εφαρμογές που εγκαθιστάς αργότερα δεν προστίθενται αυτόματα. Ξανάνοιξε την επιλογή εφαρμογών για να μπουν.",
+                            "Eine Kategorie-Auswahl umfasst die jetzt installierten Apps — später installierte Apps werden nicht automatisch ergänzt. Öffne die App-Auswahl erneut, um sie aufzunehmen."
+                        ))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary.opacity(0.8))
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { accurateMode },
+                    set: { newValue in
+                        accurateMode = newValue
+                        ShieldManager.shared.setAccurateMode(newValue)
+                    }
+                ))
+                .labelsHidden()
+            }
+        }
+        .padding(.vertical, 16)
+    }
+
+    // MARK: - Daily time limit per app
+
+    private func timeLimitLabel(_ minutes: Int) -> String {
+        switch minutes {
+        case 0:   return t("Off", "Ανενεργό", "Aus")
+        case 60:  return t("1 hour", "1 ώρα", "1 Std.")
+        case 90:  return t("1.5 hours", "1.5 ώρες", "1,5 Std.")
+        case 120: return t("2 hours", "2 ώρες", "2 Std.")
+        default:  return t("\(minutes) min", "\(minutes) λεπτά", "\(minutes) Min.")
+        }
+    }
+
+    private var timeLimitRow: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(t("Daily time limit", "Ημερήσιο όριο χρόνου", "Tägliches Zeitlimit"))
+                        .font(.system(size: 15, weight: .regular, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text("⏳").font(.system(size: 13))
+                }
+                Text(t(
+                    "After this much time in your tracked apps today, a reminder screen appears when you open them.",
+                    "Μόλις περάσεις τόση ώρα στις tracked apps σήμερα, εμφανίζεται οθόνη υπενθύμισης όταν τις ανοίγεις.",
+                    "Nach so viel Zeit in deinen verfolgten Apps erscheint heute ein Hinweis beim Öffnen."
+                ))
+                .font(.system(size: 12, design: .rounded))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Menu {
+                ForEach([0, 15, 30, 60, 90, 120], id: \.self) { mins in
+                    Button(timeLimitLabel(mins)) { timeLimitMinutes = mins }
+                }
+            } label: {
+                Text(timeLimitLabel(timeLimitMinutes))
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.indigo)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Capsule().fill(Color.indigo.opacity(0.12)))
+            }
+        }
+        .padding(.vertical, 16)
+    }
+
+    private var passcodeRow: some View {
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(t("Passcode to continue", "Κωδικός για συνέχεια", "Code zum Fortfahren"))
+                        .font(.system(size: 15, weight: .regular, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text("🔒").font(.system(size: 13))
+                }
+                Text(t(
+                    "After the limit, apps lock and only your passcode grants another session — great for giving a child the phone for a set time.",
+                    "Μετά το όριο, οι apps κλειδώνουν και μόνο ο κωδικός σου δίνει νέα session — ιδανικό για να δώσεις στο παιδί το κινητό για συγκεκριμένο χρόνο.",
+                    "Nach dem Limit sperren Apps und nur dein Code gewährt eine neue Sitzung — ideal, um dem Kind das Handy für eine bestimmte Zeit zu geben."
+                ))
+                .font(.system(size: 12, design: .rounded))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Toggle("", isOn: Binding(
+                get: { passcodeRequired },
+                set: { newValue in
+                    if newValue {
+                        showPasscodeSetup = true   // confirm by setting a code
+                    } else {
+                        PasscodeManager.shared.disable()
+                        passcodeRequired = false
+                    }
+                }
+            ))
+            .labelsHidden()
+        }
+        .padding(.vertical, 16)
+        .sheet(isPresented: $showPasscodeSetup, onDismiss: {
+            // If the user dismissed without finishing setup, keep it off.
+            passcodeRequired = PasscodeManager.shared.isRequired
+        }) {
+            PasscodeView(
+                mode: .setup,
+                onSet: { code in
+                    PasscodeManager.shared.setPasscode(code)
+                    passcodeRequired = true
+                    showPasscodeSetup = false
+                },
+                onCancel: { showPasscodeSetup = false }
+            )
+        }
+    }
+
+    private var parentalLockTip: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 13))
+                .foregroundColor(.indigo)
+            Text(t(
+                "Full parental lock: in iOS Settings → Screen Time → Content & Privacy Restrictions → App Deletion → Don't Allow, so Picksy can't be deleted.",
+                "Πλήρες γονικό κλείδωμα: στις Ρυθμίσεις iOS → Χρόνος επί οθόνης → Περιεχόμενο & Απόρρητο → Διαγραφή εφαρμογών → Να μην επιτρέπεται, ώστε να μη διαγράφεται το Picksy.",
+                "Vollständige Kindersicherung: in iOS Einstellungen → Bildschirmzeit → Inhalt & Datenschutz → App löschen → Nicht erlauben, damit Picksy nicht gelöscht werden kann."
+            ))
+            .font(.system(size: 11, design: .rounded))
+            .foregroundColor(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 10).fill(Color.indigo.opacity(0.06)))
+        .padding(.vertical, 8)
+    }
+
+    private var lockedSettingsRow: some View {
+        Button(action: { showSettingsUnlock = true }) {
+            HStack(spacing: 10) {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.indigo)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Time limit & passcode", "Όριο χρόνου & κωδικός", "Zeitlimit & Code"))
+                        .font(.system(size: 15, weight: .regular, design: .rounded))
+                        .foregroundColor(.primary)
+                    Text(t("Locked — tap to enter passcode", "Κλειδωμένο — πάτα για κωδικό", "Gesperrt — zum Eingeben tippen"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.secondary)
+            }
+            .padding(.vertical, 16)
+        }
+        .sheet(isPresented: $showSettingsUnlock) {
+            PasscodeView(
+                mode: .unlock,
+                onUnlock: { settingsUnlocked = true; showSettingsUnlock = false },
+                onCancel: { showSettingsUnlock = false }
+            )
         }
     }
 
@@ -474,6 +797,242 @@ struct SettingsView: View {
             }
         }
     }
+
+    // MARK: - Debug Section (DEBUG builds only)
+    //
+    // Lets you toggle Pro status during development to verify Free vs Pro UI.
+    // Wrapped in #if DEBUG so it is completely stripped from App Store builds.
+
+    #if DEBUG
+    /// One-line shield-handoff diagnosis: ShieldAction breadcrumb + ages of the
+    /// files the ShieldConfiguration extension tries to write. Decodes whether
+    /// (a) the token handoff works, (b) config writes are discarded, or (c) the
+    /// app token was nil in the category variant.
+    private var shieldDebugInfo: String {
+        let groupID = "group.fotiospongas.picksy"
+        let action = UserDefaults(suiteName: groupID)?
+            .string(forKey: "picksy_shield_debug") ?? "no taps yet"
+
+        func fileAge(_ name: String) -> String {
+            guard let url = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: groupID)?
+                .appendingPathComponent(name),
+                let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+                let mod = attrs[.modificationDate] as? Date
+            else { return "—" }
+            return "\(Int(Date().timeIntervalSince(mod)))s"
+        }
+
+        return "shield: \(action)\nmarker: \(fileAge("shield_config_marker.txt")) · token: \(fileAge("last_shield_token.json"))"
+    }
+
+    private var debugSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 6) {
+                Image(systemName: "hammer.fill")
+                    .font(.system(size: 11))
+                    .foregroundColor(.orange)
+                Text("DEV ONLY")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundColor(.orange)
+            }
+            .padding(.top, 28)
+
+            HStack(spacing: 8) {
+                Image(systemName: proManager.isPro ? "checkmark.seal.fill" : "lock.fill")
+                    .foregroundColor(proManager.isPro ? .green : .orange)
+                Text("Pro Status: \(proManager.isPro ? "Active" : "Locked")")
+                    .font(.system(size: 14, weight: .medium, design: .rounded))
+                    .foregroundColor(.primary)
+            }
+
+            // Shield handoff diagnostics: which path the ShieldAction took on the
+            // last tap, and whether the ShieldConfiguration extension's writes
+            // (marker/token files) are landing at all. Re-enter Settings to refresh.
+            Text(shieldDebugInfo)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button(action: { proManager.isPro = true }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.open.fill").font(.system(size: 12))
+                        Text("Force Pro").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(proManager.isPro ? Color.gray : Color.green))
+                }
+                .disabled(proManager.isPro)
+
+                Button(action: { proManager.isPro = false }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill").font(.system(size: 12))
+                        Text("Force Free").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(!proManager.isPro ? Color.gray : Color.orange))
+                }
+                .disabled(!proManager.isPro)
+            }
+
+            Divider().padding(.vertical, 4)
+
+            HStack(spacing: 10) {
+                Button(action: { store.resetTodayPickups() }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.counterclockwise").font(.system(size: 12))
+                        Text("Reset Pickups").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.red.opacity(0.8)))
+                }
+
+                Button(action: { showDebugDuelResult = true }) {
+                    HStack(spacing: 6) {
+                        Text("🏆").font(.system(size: 12))
+                        Text("Test Win").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.purple.opacity(0.8)))
+                }
+            }
+
+            Button(action: {
+                // Re-show the onboarding flow without deleting the app.
+                UserDefaults.standard.set(false, forKey: "hasSeenOnboarding")
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.uturn.backward.circle.fill").font(.system(size: 12))
+                    Text("Reset Onboarding").font(.system(size: 13, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Color.blue.opacity(0.85)))
+            }
+
+            Button(action: {
+                // Simulate an older install so "What's new" shows on next launch.
+                UserDefaults.standard.set("0.0", forKey: "picksy_last_seen_version")
+            }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles.rectangle.stack").font(.system(size: 12))
+                    Text("Reset What's New (relaunch)").font(.system(size: 13, weight: .medium, design: .rounded))
+                }
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Capsule().fill(Color.pink.opacity(0.8)))
+            }
+
+            // Demo data for App Store screenshots
+            HStack(spacing: 10) {
+                Button(action: {
+                    store.seedDemoData()
+                    hourlyTracker.seedDemo()
+                    checkInManager.seedDemo()
+                    DuelManager.shared.injectDemoDuel()
+                    FriendSyncManager.shared.registeredPairs = [
+                        RegisteredPair(deviceID: "demo-alex", name: "Alex", registeredAt: Date().addingTimeInterval(-86400 * 3)),
+                        RegisteredPair(deviceID: "demo-john", name: "John", registeredAt: Date().addingTimeInterval(-86400 * 8))
+                    ]
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "wand.and.stars").font(.system(size: 12))
+                        Text("Seed Demo").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.teal.opacity(0.85)))
+                }
+
+                Button(action: {
+                    store.clearDemoData()
+                    hourlyTracker.clearDemo()
+                    checkInManager.clearDemo()
+                    DuelManager.shared.clearDemoDuel()
+                    FriendSyncManager.shared.registeredPairs = []
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "trash").font(.system(size: 12))
+                        Text("Clear Demo").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.gray.opacity(0.7)))
+                }
+            }
+
+            // Funny sounds preview — άμεση ακρόαση χωρίς να στήνεις σενάριο
+            // (αγνοεί το toggle και τα once-per-day/hour throttles)
+            HStack(spacing: 10) {
+                Button(action: { FunnySFX.shared.previewTrombone() }) {
+                    HStack(spacing: 6) {
+                        Text("🎺").font(.system(size: 12))
+                        Text("Test Trombone").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.orange.opacity(0.85)))
+                }
+
+                Button(action: { FunnySFX.shared.previewOuf() }) {
+                    HStack(spacing: 6) {
+                        Text("😮‍💨").font(.system(size: 12))
+                        Text("Test Ouf").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.indigo.opacity(0.85)))
+                }
+            }
+
+            // Duel result sounds preview
+            HStack(spacing: 10) {
+                Button(action: { FunnySFX.shared.previewVictory() }) {
+                    HStack(spacing: 6) {
+                        Text("🏆").font(.system(size: 12))
+                        Text("Test Victory").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.green.opacity(0.8)))
+                }
+
+                Button(action: { FunnySFX.shared.previewDefeat() }) {
+                    HStack(spacing: 6) {
+                        Text("💀").font(.system(size: 12))
+                        Text("Test Defeat").font(.system(size: 13, weight: .medium, design: .rounded))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(Color.red.opacity(0.75)))
+                }
+            }
+
+            Text("These buttons exist only in DEBUG builds and will not appear in the App Store version.")
+                .font(.system(size: 11, design: .rounded))
+                .foregroundColor(.secondary)
+                .lineSpacing(2)
+                .padding(.top, 4)
+        }
+    }
+    #endif
 
     // MARK: - About Section
 

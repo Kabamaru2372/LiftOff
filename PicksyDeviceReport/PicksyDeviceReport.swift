@@ -21,6 +21,36 @@ struct PicksyDeviceReport: DeviceActivityReportExtension {
         Top3ActivityReport { activityReport in
             Top3ActivityView(report: activityReport)
         }
+
+        // Compact whole-device total — Nudge pill (white)
+        NudgeTotalTimeReport { activityReport in
+            TotalTimeLabelView(report: activityReport)
+        }
+
+        // Compact whole-device total — Stats card (large, accent)
+        StatsTotalTimeReport { activityReport in
+            StatsTotalTimeView(report: activityReport)
+        }
+
+        // Picksy Score (computed from the total) — Nudge pill (white)
+        NudgeScoreReport { activityReport in
+            NudgeScoreView(report: activityReport)
+        }
+
+        // Picksy Score (computed from the total) — Stats card (large, accent)
+        StatsScoreReport { activityReport in
+            StatsScoreView(report: activityReport)
+        }
+
+        // Apple's REAL pickup count — Stats card (large, green)
+        StatsPickupsReport { activityReport in
+            StatsPickupsView(report: activityReport)
+        }
+
+        // Apple's REAL pickup count — Nudge ring center (big white)
+        NudgePickupsReport { activityReport in
+            NudgePickupsView(report: activityReport)
+        }
     }
 }
 

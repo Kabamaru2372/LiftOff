@@ -16,6 +16,18 @@ import FamilyControls
 extension DeviceActivityReport.Context {
     static let totalActivity = Self("Total Activity")
     static let top3Activity = Self("Top 3 Activity")
+    /// Compact whole-device total for the Nudge pill (rendered by the extension).
+    static let nudgeTotalTime = Self("Nudge Total Time")
+    /// Compact whole-device total for the Stats card (rendered by the extension).
+    static let statsTotalTime = Self("Stats Total Time")
+    /// Picksy Score for the Nudge pill (computed + rendered by the extension).
+    static let nudgeScore = Self("Nudge Score")
+    /// Picksy Score for the Stats card (computed + rendered by the extension).
+    static let statsScore = Self("Stats Score")
+    /// Apple's REAL pickup count for the Stats card (rendered by the extension).
+    static let statsPickups = Self("Stats Pickups")
+    /// Apple's REAL pickup count for the Nudge ring center (rendered by the extension).
+    static let nudgePickups = Self("Nudge Pickups")
 }
 
 // MARK: - Apps View
@@ -26,9 +38,15 @@ struct AppsView: View {
     @State private var isAuthorized: Bool = false
     @State private var hasSelectedApps: Bool = false
     @State private var showAppPicker: Bool = false
-    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection()
+    @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true)
     @State private var midnightTimer: Timer? = nil
     @State private var currentDate: Date = Date()
+    @State private var hasAppeared: Bool = false
+
+    // Cold-start skeleton: the hosted report takes 2–5 s to render on its very
+    // first load — instead of a blank area, show a pulsing placeholder list
+    // that fades away. Only on the FIRST visit; later visits are warm.
+    @State private var skeletonVisible: Bool = false
 
     /// v1.6 FIX: Filter για σήμερα ΚΑΙ μόνο για selected apps/categories.
     /// Παλιά έδειχνε όλες τις apps που είχαν activity, τώρα μόνο τις tracked.
@@ -59,32 +77,43 @@ struct AppsView: View {
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(t("Apps", "Εφαρμογές", "Apps"))
-                        .font(.system(size: 24, weight: .medium, design: .rounded))
-                    Text(t("Today's usage", "Χρήση σήμερα", "Heutige Nutzung"))
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(Color.indigo.opacity(0.15))
+                                .frame(width: 32, height: 32)
+                            Image(systemName: "apps.iphone")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.indigo)
+                        }
+                        Text(t("Apps", "Εφαρμογές", "Apps"))
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                    }
+                    Text(t("Today's screen time", "Χρόνος οθόνης σήμερα", "Heutige Bildschirmzeit"))
                         .font(.system(size: 13, weight: .regular, design: .rounded))
                         .foregroundColor(.secondary)
+                        .padding(.leading, 40)
                 }
                 Spacer()
 
                 if isAuthorized && hasSelectedApps {
                     HStack(spacing: 8) {
-                        Button(action: { refreshTrigger.refresh() }) {
+                        Button(action: { refreshTrigger.forceRefresh() }) {
                             Image(systemName: "arrow.clockwise")
-                                .font(.system(size: 14))
+                                .font(.system(size: 13))
                                 .foregroundColor(.secondary)
-                                .frame(width: 36, height: 36)
-                                .background(Circle().fill(Color.gray.opacity(0.1)))
+                                .frame(width: 34, height: 34)
+                                .background(Circle().fill(Color(.systemGray6)))
                         }
 
                         Button(action: { showAppPicker = true }) {
                             Image(systemName: "slider.horizontal.3")
-                                .font(.system(size: 16))
-                                .foregroundColor(.blue)
-                                .frame(width: 36, height: 36)
-                                .background(Circle().fill(Color.blue.opacity(0.1)))
+                                .font(.system(size: 15))
+                                .foregroundColor(.indigo)
+                                .frame(width: 34, height: 34)
+                                .background(Circle().fill(Color.indigo.opacity(0.12)))
                         }
                     }
                 }
@@ -106,10 +135,35 @@ struct AppsView: View {
         }
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
         .onAppear {
+            currentDate = Date()   // always reset to today — fixes stale date after midnight
             refreshState()
             startMidnightTimer()
+            // DeviceActivityReport runs in a separate process and can take 2–5 s to warm up.
+            // Strategy:
+            //   • First visit  → immediate UUID change (cold start) + retry at 4 s + 9 s.
+            //   • Later visits → single retry at 1.5 s (extension is already warm, no need
+            //                    to blast it; avoid interrupting a load that's in progress).
+            // The 0.6 s retry we used before was CANCELLING the extension's first load — removed.
+            if !hasAppeared {
+                hasAppeared = true
+                refreshTrigger.refresh()
+                refreshTrigger.refreshAfter(seconds: 20.0)
+                // Cold start → cover the 2–5 s blank with the pulsing skeleton
+                skeletonVisible = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+                    skeletonVisible = false   // fades via .animation(value:)
+                }
+            } else {
+                // Two retries: 1.5 s catches a warm extension, 5 s is the safety net
+                // for when the extension process needs more time (2–5 s is normal).
+                refreshTrigger.refreshAfter(seconds: 1.5)
+                refreshTrigger.refreshAfter(seconds: 5.0)
+            }
         }
         .onDisappear {
+            // Cancel pending retries so a stale timer doesn't fire after the user
+            // has already switched tabs and the extension is mid-load on the new context.
+            refreshTrigger.cancelPendingRefreshes()
             midnightTimer?.invalidate()
             midnightTimer = nil
         }
@@ -117,7 +171,12 @@ struct AppsView: View {
             AppSelectionStore.shared.selection = newValue
             refreshState()
             UsageThresholdManager.shared.restartMonitoring()
-            refreshTrigger.refreshAfter(seconds: 0.3)
+            // Accurate Mode: re-shield the new selection (no-op if mode is off).
+            ShieldManager.shared.refresh()
+            // Filter changed — force immediate re-render ignoring the cooldown
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                self.refreshTrigger.forceRefresh()
+            }
         }
     }
 
@@ -213,9 +272,40 @@ struct AppsView: View {
     }
 
     private var reportView: some View {
-        DeviceActivityReport(.totalActivity, filter: todayFilter)
-            .id(refreshTrigger.refreshID)
-            .padding(.horizontal, 16)
+        ZStack {
+            DeviceActivityReport(.totalActivity, filter: todayFilter)
+                .id(refreshTrigger.reportIdentity)
+                .padding(.horizontal, 16)
+
+            // Opaque skeleton sits ON TOP during the cold start, then fades —
+            // covering both the blank report area and its first paint flicker.
+            // Always in the hierarchy; visibility via opacity so the fade can
+            // never be hijacked by the pulse animation (a repeatForever
+            // .animation captured the removal transition and froze it on top).
+            reportSkeleton
+                .opacity(skeletonVisible ? 1 : 0)
+                .allowsHitTesting(false)
+                .animation(.easeOut(duration: 0.5), value: skeletonVisible)
+        }
+    }
+
+    /// Calm, on-brand cold-start cover: a breathing hourglass + one line of
+    /// text. (The old fake skeleton rows read like "downloading content".)
+    private var reportSkeleton: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "hourglass")
+                .font(.system(size: 36, weight: .light))
+                .foregroundColor(.secondary)
+                .symbolEffect(.pulse, options: .repeating)
+
+            Text(t("Reading today's screen time…",
+                   "Διαβάζω τον σημερινό χρόνο οθόνης…",
+                   "Heutige Bildschirmzeit wird gelesen…"))
+                .font(.system(size: 13, design: .rounded))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground))
     }
 
     // MARK: - Helpers
@@ -259,7 +349,7 @@ struct AppsView: View {
         midnightTimer = Timer.scheduledTimer(withTimeInterval: secondsUntilMidnight, repeats: false) { _ in
             DispatchQueue.main.async {
                 self.currentDate = Date()
-                self.refreshTrigger.refresh()
+                self.refreshTrigger.forceRefresh()
                 self.startMidnightTimer()
             }
         }

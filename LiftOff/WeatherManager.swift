@@ -22,6 +22,7 @@ enum WeatherCondition: String, Codable {
     case thunderstorm
     case snow
     case foggy
+    case windy
     case hot
     case cold
     case unknown
@@ -35,6 +36,7 @@ enum WeatherCondition: String, Codable {
         case .thunderstorm: return "⛈️"
         case .snow:         return "🌨️"
         case .foggy:        return "🌫️"
+        case .windy:        return "💨"
         case .hot:          return "🥵"
         case .cold:         return "🥶"
         case .unknown:      return "🌡️"
@@ -57,6 +59,8 @@ struct WeatherData: Codable {
     let cityId: String
     let cityName: String
     let fetchedAt: Date
+    let sunrise: Date?
+    let sunset: Date?
 }
 
 // MARK: - Weather Manager
@@ -77,9 +81,8 @@ class WeatherManager: NSObject {
     private let locationManager = CLLocationManager()
     private var currentLocation: CLLocation? = nil
 
-    // v1.7.1: Guard against multiple simultaneous fetches
+    // Guard against multiple simultaneous fetches
     private var isFetching: Bool = false
-    private var locationRequested: Bool = false
 
     private let defaults = UserDefaults.standard
     private let weatherKey = "picksyCachedWeather"
@@ -121,6 +124,9 @@ class WeatherManager: NSObject {
         }
 
         await MainActor.run {
+            // Cache is stale — clear old location so we request fresh coordinates.
+            // Without this, a user who moved cities would still get weather for the old location.
+            currentLocation = nil
             isLoading = true
             isFetching = true
             errorMessage = nil
@@ -129,40 +135,29 @@ class WeatherManager: NSObject {
         switch locationManager.authorizationStatus {
         case .notDetermined:
             locationManager.requestWhenInUseAuthorization()
-            // Θα συνεχίσει από το delegate
-            await MainActor.run { isLoading = false }
+            // Reset γιατί απλά περιμένουμε authorization — το fetch θα ξεκινήσει από delegate
+            await MainActor.run { isLoading = false; isFetching = false }
             return
         case .denied, .restricted:
             await fetchWithOpenMeteoFallback()
         case .authorizedWhenInUse, .authorizedAlways:
-            // v1.7.1: Αν έχουμε ήδη location, χρησιμοποίησέ το
             if let location = currentLocation {
                 await fetchWithWeatherKit(location: location)
             } else {
-                // Μόνο αν δεν έχουμε ήδη ζητήσει location
-                if !locationRequested {
-                    locationRequested = true
-                    locationManager.requestLocation()
-                    // Θα συνεχίσει από το delegate
-                    await MainActor.run { isLoading = false }
-                } else {
-                    await fetchWithOpenMeteoFallback()
-                }
+                // Ζήτησε location και επέστρεψε — το fetch συνεχίζει από didUpdateLocations
+                // ΜΗΝ κάνεις reset το isFetching εδώ, παραμένει true μέχρι να έρθει το location
+                locationManager.requestLocation()
+                await MainActor.run { isLoading = false }
+                return
             }
         @unknown default:
             await fetchWithOpenMeteoFallback()
-        }
-
-        await MainActor.run {
-            isFetching = false
-            locationRequested = false
         }
     }
 
     func manualRefresh() async {
         await MainActor.run {
             isFetching = false
-            locationRequested = false
             currentLocation = nil
         }
         await fetchWeather(forceRefresh: true)
@@ -177,12 +172,19 @@ class WeatherManager: NSObject {
             let temp = weather.currentWeather.temperature.converted(to: .celsius).value
             let cityName = await getCityName(from: location)
 
+            // Extract today's sunrise/sunset from daily forecast
+            let todayForecast = weather.dailyForecast.forecast.first
+            let sunriseDate = todayForecast?.sun.sunrise
+            let sunsetDate  = todayForecast?.sun.sunset
+
             let data = WeatherData(
                 condition: condition,
                 temperature: temp,
                 cityId: "current_location",
                 cityName: cityName,
-                fetchedAt: Date()
+                fetchedAt: Date(),
+                sunrise: sunriseDate,
+                sunset: sunsetDate
             )
 
             await MainActor.run {
@@ -191,6 +193,7 @@ class WeatherManager: NSObject {
                 self.isFetching = false
                 self.errorMessage = nil
                 self.saveCached(data)
+                CorrelationStore.shared.updateCurrentWeather(condition: condition, temperature: temp)
             }
 
             print("[WeatherKit] ✅ \(cityName): \(condition.emoji) \(Int(temp))°C")
@@ -212,6 +215,7 @@ class WeatherManager: NSObject {
 
         let conditionString = current.condition.description.lowercased()
 
+        // Severe conditions πρώτα
         if conditionString.contains("thunder") || conditionString.contains("storm") {
             return .thunderstorm
         }
@@ -229,6 +233,11 @@ class WeatherManager: NSObject {
            conditionString.contains("dust") {
             return .foggy
         }
+
+        // Windy: ≥40 km/h χωρίς βροχή/χιόνι/καταιγίδα
+        let windKmh = current.wind.speed.converted(to: .kilometersPerHour).value
+        if windKmh >= 40 { return .windy }
+
         if conditionString.contains("partly") || conditionString.contains("mostly cloudy") ||
            conditionString.contains("scattered") || conditionString.contains("isolated") {
             return .partlyCloudy
@@ -269,22 +278,29 @@ class WeatherManager: NSObject {
         }
 
         do {
-            let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code"
+            let urlString = "https://api.open-meteo.com/v1/forecast?latitude=\(lat)&longitude=\(lon)&current=temperature_2m,weather_code,wind_speed_10m&daily=sunrise,sunset&timezone=auto"
             guard let url = URL(string: urlString) else { throw WeatherError.invalidURL }
 
             let (data, _) = try await URLSession.shared.data(from: url)
             let response = try JSONDecoder().decode(OpenMeteoResponse.self, from: data)
 
             let temp = response.current.temperature_2m
-            let condition = conditionFromWMO(code: response.current.weather_code, temp: temp)
+            let windKmh = response.current.wind_speed_10m ?? 0
+            let condition = conditionFromWMO(code: response.current.weather_code, temp: temp, windKmh: windKmh)
             let cityName = await getCityName(from: CLLocation(latitude: lat, longitude: lon))
+
+            // Parse today's sunrise/sunset (first entry in daily arrays)
+            let sunriseDate = response.daily?.sunrise?.first.flatMap { Self.parseOpenMeteoDateTime($0) }
+            let sunsetDate  = response.daily?.sunset?.first.flatMap  { Self.parseOpenMeteoDateTime($0) }
 
             let weatherData = WeatherData(
                 condition: condition,
                 temperature: temp,
                 cityId: "current_location",
                 cityName: cityName,
-                fetchedAt: Date()
+                fetchedAt: Date(),
+                sunrise: sunriseDate,
+                sunset: sunsetDate
             )
 
             await MainActor.run {
@@ -292,6 +308,7 @@ class WeatherManager: NSObject {
                 self.isLoading = false
                 self.isFetching = false
                 self.saveCached(weatherData)
+                CorrelationStore.shared.updateCurrentWeather(condition: condition, temperature: temp)
             }
 
             print("[OpenMeteo] ✅ Fallback: \(condition.emoji) \(Int(temp))°C")
@@ -307,21 +324,36 @@ class WeatherManager: NSObject {
 
     private struct OpenMeteoResponse: Codable {
         let current: OpenMeteoCurrent
+        let daily: OpenMeteoDaily?
     }
 
     private struct OpenMeteoCurrent: Codable {
         let temperature_2m: Double
         let weather_code: Int
+        let wind_speed_10m: Double?
     }
 
-    private func conditionFromWMO(code: Int, temp: Double) -> WeatherCondition {
+    private struct OpenMeteoDaily: Codable {
+        let sunrise: [String]?
+        let sunset: [String]?
+    }
+
+    /// Open-Meteo επιστρέφει datetime ως "2026-05-15T05:32" (χωρίς seconds)
+    private static func parseOpenMeteoDateTime(_ string: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd'T'HH:mm"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        return formatter.date(from: string)
+    }
+
+    private func conditionFromWMO(code: Int, temp: Double, windKmh: Double = 0) -> WeatherCondition {
         if temp >= 35 { return .hot }
         if temp <= 0 { return .cold }
 
         switch code {
-        case 0:         return .sunny
-        case 1, 2:      return .partlyCloudy
-        case 3:         return .cloudy
+        case 0:         return windKmh >= 40 ? .windy : .sunny
+        case 1, 2:      return windKmh >= 40 ? .windy : .partlyCloudy
+        case 3:         return windKmh >= 40 ? .windy : .cloudy
         case 45, 48:    return .foggy
         case 51...67:   return .rainy
         case 71...77:   return .snow
@@ -400,19 +432,13 @@ class WeatherManager: NSObject {
 extension WeatherManager: CLLocationManagerDelegate {
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        // v1.7.1: Αποδέξου μόνο το πρώτο location update
-        guard let location = locations.last, currentLocation == nil || isFetching else {
-            return
-        }
+        // Αποδέξου μόνο το πρώτο location update — αγνόησε duplicates
+        guard let location = locations.last, currentLocation == nil else { return }
 
         currentLocation = location
         print("[WeatherKit] 📍 Location: \(location.coordinate.latitude), \(location.coordinate.longitude)")
 
         Task {
-            await MainActor.run {
-                self.isFetching = true
-                self.isLoading = true
-            }
             await fetchWithWeatherKit(location: location)
         }
     }
@@ -433,13 +459,11 @@ extension WeatherManager: CLLocationManagerDelegate {
         switch manager.authorizationStatus {
         case .authorizedWhenInUse, .authorizedAlways:
             print("[WeatherKit] ✅ Location authorized")
-            // v1.7.1: Μόνο αν δεν φέρνουμε ήδη
-            guard !isFetching else { return }
-            locationManager.requestLocation()
+            // Πέρασε από fetchWeather() για να τηρηθεί ο isFetching guard
+            Task { await self.fetchWeather() }
         case .denied, .restricted:
             print("[WeatherKit] ⚠️ Location denied, using fallback")
-            guard !isFetching else { return }
-            Task { await fetchWithOpenMeteoFallback() }
+            Task { await self.fetchWeather() }
         default:
             break
         }
