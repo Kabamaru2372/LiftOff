@@ -38,12 +38,30 @@ final class PasscodeManager {
     func setPasscode(_ code: String) {
         appGroup?.set(hash(code), forKey: hashKey)
         appGroup?.set(true, forKey: Self.requiredKey)
+        // If the time limit already fired today, write the file-based lock marker so
+        // the ShieldAction extension (which may have a stale UserDefaults cache) picks
+        // up the newly-required passcode immediately.
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let today = f.string(from: Date())
+        if appGroup?.string(forKey: "picksy_timelimit_active") == today,
+           let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")?
+            .appendingPathComponent("picksy_timelimit_lock.txt") {
+            try? today.data(using: .utf8)?.write(to: url, options: .atomic)
+        }
     }
 
     /// Turns the passcode requirement off and forgets the code.
     func disable() {
         appGroup?.set(false, forKey: Self.requiredKey)
         appGroup?.removeObject(forKey: hashKey)
+        // Clear the file-based lock marker so the ShieldAction extension no longer
+        // treats the time limit as passcode-locked.
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")?
+            .appendingPathComponent("picksy_timelimit_lock.txt") {
+            try? "".data(using: .utf8)?.write(to: url, options: .atomic)
+        }
     }
 
     /// Returns true if the entered code matches the stored one.

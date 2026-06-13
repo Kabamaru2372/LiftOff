@@ -86,6 +86,12 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 // The ladder-restart baseline belongs to yesterday's usage too.
                 sharedDefaults?.set(0, forKey: "picksy_apple_screen_time_baseline")
                 sharedDefaults?.removeObject(forKey: "picksy_apple_screen_time_baseline_date")
+                // Record the reset timestamp so recordConfirmedSeconds can reject
+                // stale threshold callbacks that fire after this reset (delayed by iOS
+                // background execution). Without this, a callback queued before midnight
+                // but delivered after can write yesterday's total as today's value, and
+                // the "only-increasing" guard locks it in for the entire day.
+                sharedDefaults?.set(Date().timeIntervalSince1970, forKey: "picksy_ladder_reset_epoch")
                 log("📊 Screen-time accumulator reset for new day")
             } else {
                 log("📊 Screen-time accumulator kept (mid-day re-arm, date unchanged)")
@@ -96,6 +102,18 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             tlStore.shield.applications = nil
             tlStore.shield.applicationCategories = nil
             sharedDefaults?.removeObject(forKey: "picksy_timelimit_active")
+            // Clear the file-based lock marker (new day — limit hasn't fired yet).
+            let container = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")
+            if let lockURL = container?.appendingPathComponent("picksy_timelimit_lock.txt") {
+                try? "".data(using: .utf8)?.write(to: lockURL, options: .atomic)
+            }
+            // Reset pickup count file so ShieldConfiguration reads 0 (not yesterday's
+            // stale count if its process cache hasn't refreshed yet).
+            if let pickupURL = container?.appendingPathComponent("today_pickups.txt") {
+                let f2 = DateFormatter(); f2.dateFormat = "yyyy-MM-dd"
+                try? "\(f2.string(from: Date()))|0".data(using: .utf8)?.write(to: pickupURL, options: .atomic)
+            }
 
             // Tell the main app (if alive) to re-read the now-zeroed values.
             CFNotificationCenterPostNotification(
@@ -605,6 +623,31 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let total = baseline + secs
 
         let storedDate = defaults.string(forKey: "picksy_apple_screen_time_date")
+
+        // Guard against stale threshold callbacks from the PREVIOUS monitoring interval.
+        //
+        // iOS DeviceActivity can delay callback delivery by minutes or even hours
+        // (e.g. when the device is in low-power mode overnight). A threshold event
+        // generated at 23:58 may fire at 00:01 or even 06:00 the next day, at which
+        // point `today` is the NEW date. Without this guard that stale total writes
+        // itself as TODAY's screen time, and the "only-increasing" check below then
+        // prevents the correct (smaller) today values from ever overwriting it.
+        //
+        // Fix: on the very first write of the day (storedDate ≠ today), compare `total`
+        // against the seconds elapsed since the daily reset. A stale event that fires
+        // right after midnight claims 109 min of usage when only 1 s has elapsed —
+        // clearly impossible, so reject it.
+        if storedDate != today {
+            let resetEpoch = defaults.double(forKey: "picksy_ladder_reset_epoch")
+            if resetEpoch > 0 {
+                let elapsedSinceReset = Date().timeIntervalSince1970 - resetEpoch
+                if Double(total) > elapsedSinceReset {
+                    log("⚠️ Rejected stale threshold: \(total / 60)min claimed, only \(Int(elapsedSinceReset / 60))min since reset")
+                    return
+                }
+            }
+        }
+
         // New day → stored value is stale (ignore yesterday's).
         let current = (storedDate == today) ? defaults.integer(forKey: "picksy_apple_screen_time_secs") : 0
         guard total > current else { return }
@@ -684,6 +727,22 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             log("⚠️ Time limit reached but no selection to shield")
             return
         }
+
+        // Guard against stale callbacks: iOS can delay threshold event delivery
+        // (device sleeping, low-power mode). A picksy.timelimit event generated
+        // yesterday evening can arrive this morning, after the midnight reset.
+        // If less time has elapsed since the midnight reset than the configured
+        // time limit, this callback cannot be legitimate — reject it.
+        let resetEpoch = defaults.double(forKey: "picksy_ladder_reset_epoch")
+        let limitMinutes = defaults.integer(forKey: "picksy_timelimit_minutes")
+        if resetEpoch > 0 && limitMinutes > 0 {
+            let elapsedSinceReset = Date().timeIntervalSince1970 - resetEpoch
+            let limitSeconds = Double(limitMinutes * 60)
+            if elapsedSinceReset < limitSeconds {
+                log("⚠️ Rejected stale time-limit event: limit=\(limitMinutes)min, only \(Int(elapsedSinceReset / 60))min since reset")
+                return
+            }
+        }
         let apps = selection.applicationTokens
         let categories = selection.categoryTokens
         // BUGFIX: previously only shielded `applications` and bailed if empty, so a
@@ -700,6 +759,14 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         store.shield.applicationCategories =
             (apps.isEmpty && !categories.isEmpty) ? .specific(categories) : nil
         defaults.set(milestoneTodayKey(), forKey: "picksy_timelimit_active")
+        // If a passcode is required, write a file-based lock marker so the ShieldAction
+        // extension detects the locked state even when its UserDefaults cache is stale.
+        if defaults.bool(forKey: "picksy_timelimit_password_required"),
+           let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")?
+            .appendingPathComponent("picksy_timelimit_lock.txt") {
+            try? milestoneTodayKey().data(using: .utf8)?.write(to: url, options: .atomic)
+        }
         log("⏳ Daily time limit reached — shielded \(apps.count) app(s), \(categories.count) categor(y/ies)")
     }
 

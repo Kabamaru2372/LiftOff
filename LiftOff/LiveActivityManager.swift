@@ -17,16 +17,23 @@ class LiveActivityManager {
 
     private var currentActivity: Activity<LiftOffActivityAttributes>?
 
-    /// Today's best-known screen time (seconds) for the duel DI — the freshest of
-    /// the App-Group accumulators and the Supabase-synced value. The DI must show
-    /// the same number the duel is judged on (screen time), never pickups.
+    /// Today's best-known screen time (seconds) for the duel DI.
+    /// Uses ONLY local, date-guarded App Group values — never the Supabase-synced
+    /// duel.myScreenTime, which can be from a previous day's sync and would
+    /// cause the DI to show yesterday's total as today's score.
     private func myDuelSecs(_ duel: DuelRecord) -> Int {
         let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         let today = f.string(from: Date())
-        let appleSecs = suite.string(forKey: "picksy_apple_screen_time_date") == today
-            ? suite.integer(forKey: "picksy_apple_screen_time_secs") : 0
-        return max(max(suite.integer(forKey: "todayTotalSeconds"), appleSecs), duel.myScreenTime)
+        var appleSecs = 0
+        if suite.string(forKey: "picksy_apple_screen_time_date") == today {
+            let raw = suite.integer(forKey: "picksy_apple_screen_time_secs")
+            let resetEpoch = suite.double(forKey: "picksy_ladder_reset_epoch")
+            if resetEpoch == 0 || Double(raw) <= Date().timeIntervalSince1970 - resetEpoch {
+                appleSecs = raw
+            }
+        }
+        return max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
     }
 
     private(set) var pushToken: String? {

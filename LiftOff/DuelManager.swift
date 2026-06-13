@@ -191,8 +191,19 @@ class DuelManager {
         let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         let today = f.string(from: Date())
-        let appleSecs = suite.string(forKey: "picksy_apple_screen_time_date") == today
-            ? suite.integer(forKey: "picksy_apple_screen_time_secs") : 0
+        var appleSecs = 0
+        if suite.string(forKey: "picksy_apple_screen_time_date") == today {
+            let raw = suite.integer(forKey: "picksy_apple_screen_time_secs")
+            // Self-healing: reject values that exceed elapsed time since midnight
+            // reset — same guard as DataStore.appleConfirmedScreenTimeSecs.
+            let resetEpoch = suite.double(forKey: "picksy_ladder_reset_epoch")
+            if resetEpoch > 0, Double(raw) > Date().timeIntervalSince1970 - resetEpoch {
+                suite.set(0, forKey: "picksy_apple_screen_time_secs")
+                suite.removeObject(forKey: "picksy_apple_screen_time_date")
+            } else {
+                appleSecs = raw
+            }
+        }
         return max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
     }
 

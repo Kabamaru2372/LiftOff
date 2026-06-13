@@ -52,13 +52,20 @@ class DataStore {
     /// writes.
     var appleConfirmedScreenTimeSecs: Int {
         _ = screenTimeRefreshTick
-        // Date-guarded: the extension writes this "only-increasing" within a day.
-        // Without the guard, a value from a previous day persists when the app
-        // isn't opened across midnight, and bestScreenTimeSecs' max() would keep
-        // showing yesterday's (higher) total instead of today's real one.
         let storedDate = defaults.string(forKey: "picksy_apple_screen_time_date")
         guard storedDate == todayDateString() else { return 0 }
-        return defaults.integer(forKey: "picksy_apple_screen_time_secs")
+        let raw = defaults.integer(forKey: "picksy_apple_screen_time_secs")
+        // Self-healing: a stale DeviceActivity callback (queued yesterday, delivered
+        // today after midnight) can write yesterday's total as today's. If the stored
+        // value exceeds elapsed time since the midnight reset it is physically
+        // impossible — clear it so the display and duel creation don't lock on it.
+        let resetEpoch = defaults.double(forKey: "picksy_ladder_reset_epoch")
+        if resetEpoch > 0, Double(raw) > Date().timeIntervalSince1970 - resetEpoch {
+            defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+            defaults.removeObject(forKey: "picksy_apple_screen_time_date")
+            return 0
+        }
+        return raw
     }
 
     /// The whole-device screen-time total written to the App Group by the
@@ -488,9 +495,23 @@ class DataStore {
             defaults.removeObject(forKey: "picksy_apple_screen_time_date")
             defaults.set(0, forKey: "picksy_apple_screen_time_baseline")
             defaults.removeObject(forKey: "picksy_apple_screen_time_baseline_date")
+            // Stamp the reset epoch so the DeviceActivity extension can reject stale
+            // threshold callbacks that fire after this reset (delayed iOS delivery).
+            defaults.set(Date().timeIntervalSince1970, forKey: "picksy_ladder_reset_epoch")
             // Reset report-confirmed total for the new day.
             defaults.set(0, forKey: "picksy_report_screen_time_secs")
             defaults.removeObject(forKey: "picksy_report_screen_time_date")
+            // Reset the file-based pickup count so ShieldConfiguration reads 0 even
+            // when its process cache still holds yesterday's todayPickups value.
+            let container = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")
+            if let pickupURL = container?.appendingPathComponent("today_pickups.txt") {
+                try? "\(todayDateString())|0".data(using: .utf8)?.write(to: pickupURL, options: .atomic)
+            }
+            // Clear the file-based passcode lock (new day — time limit hasn't fired yet).
+            if let lockURL = container?.appendingPathComponent("picksy_timelimit_lock.txt") {
+                try? "".data(using: .utf8)?.write(to: lockURL, options: .atomic)
+            }
             // Values are read live from the (now-zeroed) App Group; bump the
             // tick so any on-screen view re-publishes at midnight.
             screenTimeRefreshTick &+= 1

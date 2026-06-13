@@ -52,12 +52,25 @@ class ShieldActionHandler: ShieldActionDelegate {
         }
     }
 
-    /// True when today's time limit is reached AND a passcode is required — the
-    /// shield can then only be cleared from inside Picksy (passcode entry).
+    /// True when today's time limit is reached AND a passcode is required.
+    /// Primary check is file-based: the ShieldAction extension process can run for
+    /// hours with a stale UserDefaults cache (same issue as the pickup count display
+    /// bug fixed with today_pickups.txt). The lock file is written by the main app
+    /// and DeviceActivityMonitor at the moment conditions become true; it is cleared
+    /// at midnight and when the user unlocks via the in-app passcode screen.
     private func isPasscodeLocked() -> Bool {
-        guard let d = UserDefaults(suiteName: appGroupID) else { return false }
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        let limitActiveToday = d.string(forKey: "picksy_timelimit_active") == f.string(from: Date())
+        let today = f.string(from: Date())
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("picksy_timelimit_lock.txt"),
+           let raw = try? String(contentsOf: url, encoding: .utf8),
+           raw.trimmingCharacters(in: .whitespacesAndNewlines) == today {
+            return true
+        }
+        // Fallback: UserDefaults (may be stale in long-running extension process)
+        guard let d = UserDefaults(suiteName: appGroupID) else { return false }
+        let limitActiveToday = d.string(forKey: "picksy_timelimit_active") == today
         let passwordRequired = d.bool(forKey: "picksy_timelimit_password_required")
         return limitActiveToday && passwordRequired
     }
@@ -274,13 +287,17 @@ class ShieldActionHandler: ShieldActionDelegate {
         if dayCount > current {
             defaults.set(dayCount, forKey: "todayPickups")
         }
-        // File mirror — keeps the sealed ShieldConfiguration's count fresh
-        // (its defaults reads can be a stale per-process snapshot).
+        // File mirror — keeps the sealed ShieldConfiguration's count fresh.
+        // Write ONLY dayCount (the per-day key value), NOT max(dayCount, current).
+        // Using max risks writing a stale todayPickups from yesterday's cached process
+        // state — "34 yesterday" would become "today|34" in a long-running process.
+        // The per-day key (picksy_pickups_yyyy-MM-dd) is always fresh because it's a
+        // new key each day; the stale todayPickups key is never used for the file.
         if let url = FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
             .appendingPathComponent("today_pickups.txt") {
             let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-            try? "\(f.string(from: Date()))|\(max(dayCount, current))"
+            try? "\(f.string(from: Date()))|\(dayCount)"
                 .data(using: .utf8)?.write(to: url, options: .atomic)
         }
 

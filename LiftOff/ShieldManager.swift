@@ -80,6 +80,13 @@ final class ShieldManager {
         timeLimitStore.shield.applications = nil
         timeLimitStore.shield.applicationCategories = nil
         appGroup?.removeObject(forKey: "picksy_timelimit_active")
+        // Clear the file-based lock marker so the ShieldAction extension stops
+        // treating the now-lifted limit as passcode-locked.
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")?
+            .appendingPathComponent("picksy_timelimit_lock.txt") {
+            try? "".data(using: .utf8)?.write(to: url, options: .atomic)
+        }
     }
 
     /// Grants another full session of the chosen length: clears the time-limit

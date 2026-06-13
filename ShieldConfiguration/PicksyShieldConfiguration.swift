@@ -229,6 +229,12 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
     /// app's 25). The writers (DataStore, monitor, ShieldAction) mirror the
     /// count to today_pickups.txt ("yyyy-MM-dd|count"); file reads always hit
     /// disk. We take the max with defaults as belt-and-braces.
+    /// Today's pickup count. File-first: the file is written by ShieldAction using
+    /// per-day keys (always fresh — new key each day, never holds yesterday's value)
+    /// and reset to 0 at midnight by both DataStore and DeviceActivityMonitor.
+    /// We do NOT max with the UserDefaults `todayPickups` cache: that cache can hold
+    /// yesterday's stale value in long-running extension processes, causing the count
+    /// to show e.g. "34" when the real today count is 0 or 1.
     private func freshPickupCount(defaults: UserDefaults?) -> Int {
         let cached = defaults?.integer(forKey: "todayPickups") ?? 0
         guard let url = FileManager.default
@@ -240,7 +246,9 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         guard parts.count == 2, String(parts[0]) == todayKey(),
               let fileCount = Int(parts[1])
         else { return cached }
-        return max(fileCount, cached)
+        // File is authoritative when its date matches today — do not max with the
+        // cached todayPickups value which may be stale from a previous day.
+        return fileCount
     }
 
     private func ordinal(_ n: Int) -> String {
