@@ -29,6 +29,10 @@ struct ContentView: View {
     // and a passcode is required.
     @State private var showPasscodeUnlock: Bool = false
 
+    // App Lock gate: shown when app lock is enabled and the unlock window has expired.
+    // Prompts the user to enter the passcode, which grants a timed unlock window.
+    @State private var showAppLockUnlock: Bool = false
+
     // "What's new" upgrade screen — shown once to existing users after a version bump.
     @AppStorage("picksy_last_seen_version") private var lastSeenVersion: String = ""
     @State private var showWhatsNew: Bool = false
@@ -69,6 +73,17 @@ struct ContentView: View {
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         let activeToday = d?.string(forKey: "picksy_timelimit_active") == f.string(from: Date())
         if activeToday { showPasscodeUnlock = true }
+    }
+
+    /// Shows the App Lock passcode screen when app lock is enabled and the unlock
+    /// window has expired. Granting the code opens all shielded apps for the chosen
+    /// duration without having to re-enter the code on each app open.
+    private func checkAppLockGate() {
+        let d = UserDefaults(suiteName: "group.fotiospongas.picksy")
+        guard d?.bool(forKey: "picksy_app_lock_enabled") == true else { return }
+        guard !showAppLockUnlock, !showPasscodeUnlock else { return }
+        guard !PasscodeManager.shared.isAppLockUnlocked() else { return }
+        showAppLockUnlock = true
     }
 
     var body: some View {
@@ -178,19 +193,41 @@ struct ContentView: View {
                 mode: .unlock,
                 onUnlock: {
                     ShieldManager.shared.unlockTimeLimitSession()
+                    // Same passcode gates both locks — if App Lock is also on, set its
+                    // unlock window now so the user doesn't have to enter the code twice.
+                    let d = UserDefaults(suiteName: "group.fotiospongas.picksy")
+                    if d?.bool(forKey: "picksy_app_lock_enabled") == true {
+                        let mins = d?.integer(forKey: "picksy_app_lock_duration_minutes") ?? 0
+                        PasscodeManager.shared.unlockAppLock(durationMinutes: mins > 0 ? mins : 30)
+                    }
                     showPasscodeUnlock = false
                 },
                 onCancel: { showPasscodeUnlock = false }
             )
         }
+        // App Lock gate — unlock shielded apps for the chosen duration
+        .fullScreenCover(isPresented: $showAppLockUnlock) {
+            PasscodeView(
+                mode: .unlock,
+                onUnlock: {
+                    let d = UserDefaults(suiteName: "group.fotiospongas.picksy")
+                    let minutes = d?.integer(forKey: "picksy_app_lock_duration_minutes") ?? 30
+                    PasscodeManager.shared.unlockAppLock(durationMinutes: minutes > 0 ? minutes : 30)
+                    showAppLockUnlock = false
+                },
+                onCancel: { showAppLockUnlock = false }
+            )
+        }
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             checkTimeLimitPasscodeGate()
+            checkAppLockGate()
         }
         .onAppear {
             checkWhatsNew()
             checkForDailyCheckIn()
             checkForWeeklySummary()
             checkTimeLimitPasscodeGate()
+            checkAppLockGate()
 
             if let pending = NotificationDelegate.shared.pendingZoneInsight {
                 zoneInsightData = pending

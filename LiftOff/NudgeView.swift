@@ -629,13 +629,18 @@ struct NudgeView: View {
         // pushing the "Picksy" title behind the Dynamic Island).
         let card = ZStack {
             // ── Track ring ────────────────────────────────────────────────
+            // Explicit frame pins the circle to ringSize so the ZStack's natural
+            // size (inflated to 198×198 by the pulse ring child) doesn't cause
+            // these circles to fill a larger space and push the tip dot inside.
             Circle()
                 .stroke(Color.white.opacity(0.13), lineWidth: lineWidth)
+                .frame(width: ringSize, height: ringSize)
 
             // ── Progress arc ──────────────────────────────────────────────
             Circle()
                 .trim(from: 0, to: min(goalProgress, 1.0))
                 .stroke(zoneColor, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                .frame(width: ringSize, height: ringSize)
                 .rotationEffect(.degrees(-90))
                 .shadow(color: zoneColor.opacity(0.55), radius: 8)
                 .animation(.spring(response: 0.7, dampingFraction: 0.78), value: goalProgress)
@@ -657,6 +662,7 @@ struct NudgeView: View {
                         Circle()
                             .trim(from: 0, to: min(goalProgress, 1.0))
                             .stroke(style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+                            .frame(width: ringSize, height: ringSize)
                             .rotationEffect(.degrees(-90))
                     )
                     .animation(
@@ -666,24 +672,28 @@ struct NudgeView: View {
             }
 
             // ── Glowing tip dot ───────────────────────────────────────────
-            if goalProgress > 0.02 && goalProgress < 1.0 {
-                Circle()
-                    .fill(zoneColor)
-                    .frame(width: 14, height: 14)
-                    .shadow(color: zoneColor, radius: 7)
-                    .offset(y: -tipRadius)
-                    .rotationEffect(.degrees(360 * goalProgress))
-                    .animation(.spring(response: 0.7, dampingFraction: 0.78), value: goalProgress)
-            }
+            // ONE animation keyed to goalProgress drives both the rotation and
+            // the opacity — no stacked animations that fire simultaneously when
+            // goalProgress crosses 1.0 (which caused the jump at 50/50).
+            Circle()
+                .fill(zoneColor)
+                .frame(width: 14, height: 14)
+                .shadow(color: zoneColor, radius: 7)
+                .offset(y: -tipRadius)
+                .rotationEffect(.degrees(360 * min(goalProgress, 1.0)))
+                .opacity(goalProgress > 0.02 && goalProgress < 1.0 ? 1 : 0)
+                .animation(.spring(response: 0.7, dampingFraction: 0.78), value: goalProgress)
 
             // ── Goal-reached outer pulse ring ─────────────────────────────
-            if goalProgress >= 1.0 {
-                Circle()
-                    .stroke(zoneColor.opacity(0.35), lineWidth: 2)
-                    .frame(width: ringSize + 18, height: ringSize + 18)
-                    .scaleEffect(badgePulse ? 1.07 : 0.97)
-                    .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: badgePulse)
-            }
+            // Inner animation (badgePulse) drives scale; outer (goalProgress)
+            // drives opacity. Different values → no conflict at the 1.0 crossing.
+            Circle()
+                .stroke(zoneColor.opacity(0.35), lineWidth: 2)
+                .frame(width: ringSize + 18, height: ringSize + 18)
+                .scaleEffect(badgePulse ? 1.07 : 0.97)
+                .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: badgePulse)
+                .opacity(goalProgress >= 1.0 ? 1 : 0)
+                .animation(.easeInOut(duration: 0.35), value: goalProgress)
 
             // ── Pickup burst FX (particles + shockwave, fires on burstID) ──
             PickupBurstFX(burstID: burstID, color: zoneColor, big: bigPop)

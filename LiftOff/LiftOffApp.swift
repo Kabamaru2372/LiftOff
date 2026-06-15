@@ -413,6 +413,20 @@ struct LiftOffApp: App {
                 // since-suspended app couldn't cancel at lock time (false positives).
                 ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
                 print("[BGRefresh] 🔒 Device locked — re-shielded + cancelled pending continuous alerts")
+            } else {
+                // SAFEGUARD (d): device still unlocked, but cancel stale continuous
+                // alerts if the user hasn't picked up the phone in 30+ minutes.
+                // Covers "music playing / phone face-down on desk": the screen may
+                // stay on (or auto-lock was slow), Picksy got suspended before
+                // receiving the lock event, and safeguard (c) never ran.
+                let lastPickupTS = sharedDefaults.double(forKey: "picksy_last_pickup_timestamp")
+                let idleMinutes = lastPickupTS > 0
+                    ? (Date().timeIntervalSince1970 - lastPickupTS) / 60
+                    : Double.infinity
+                if idleMinutes > 30 {
+                    ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
+                    print("[BGRefresh] 📴 Unlocked but idle \(Int(idleMinutes))min — cancelled stale continuous alerts")
+                }
             }
 
             // Widgets
@@ -533,17 +547,17 @@ struct LiftOffApp: App {
         case "Ελληνικά":
             if pickupCount <= excellent { return ("Ήσουν παρών σήμερα 🌿", "Μόνο \(pickupCount) σηκώματα — από τις καλύτερές σου μέρες!") }
             else if pickupCount <= good { return ("Κάτω από τον στόχο 🎯", "\(pickupCount) σηκώματα — \(dailyGoal - pickupCount) λιγότερα από τον στόχο σου (\(dailyGoal)).") }
-            else if pickupCount <= slightOver { return ("Κοντά στον στόχο 💪", "\(pickupCount) σηκώματα — \(pickupCount - dailyGoal) πάνω από τον στόχο.") }
+            else if pickupCount <= slightOver { return ("Πάνω από τον στόχο ⚠️", "\(pickupCount) σηκώματα — \(pickupCount - dailyGoal) πάνω από τον στόχο σου (\(dailyGoal)).") }
             else { return ("Πολύ κινητό σήμερα 📱", "\(pickupCount) σηκώματα — βάλε το κινητό κάτω και χαλάρωσε 🌙") }
         case "Deutsch":
             if pickupCount <= excellent { return ("Du warst heute präsent 🌿", "Nur \(pickupCount) Griffe — einer deiner besten Tage!") }
             else if pickupCount <= good { return ("Unter deinem Ziel 🎯", "\(pickupCount) Griffe — \(dailyGoal - pickupCount) weniger als dein Ziel (\(dailyGoal)).") }
-            else if pickupCount <= slightOver { return ("Knapp über dem Ziel 💪", "\(pickupCount) Griffe — \(pickupCount - dailyGoal) über deinem Ziel.") }
+            else if pickupCount <= slightOver { return ("Über dem Ziel ⚠️", "\(pickupCount) Griffe — \(pickupCount - dailyGoal) über deinem Ziel (\(dailyGoal)).") }
             else { return ("Viel Handy heute 📱", "\(pickupCount) Griffe — leg es weg und entspann dich 🌙") }
         default:
             if pickupCount <= excellent { return ("You were present today 🌿", "Only \(pickupCount) pickups — one of your best days!") }
             else if pickupCount <= good { return ("Under your goal! 🎯", "\(pickupCount) pickups — \(dailyGoal - pickupCount) under your \(dailyGoal) goal.") }
-            else if pickupCount <= slightOver { return ("Almost there 💪", "\(pickupCount) pickups — \(pickupCount - dailyGoal) over your goal.") }
+            else if pickupCount <= slightOver { return ("Over your goal ⚠️", "\(pickupCount) pickups — \(pickupCount - dailyGoal) over your \(dailyGoal) goal.") }
             else { return ("Busy phone day 📱", "\(pickupCount) pickups — put it down and unwind 🌙") }
         }
     }
@@ -584,13 +598,13 @@ struct LiftOffApp: App {
         shared.set(todayStr, forKey: "picksy_duel_meta_cache_date")
     }
 
-    static func scheduleBackgroundRefresh() {
+    static func scheduleBackgroundRefresh(earliestMinutes: Int = 15) {
         let request = BGAppRefreshTaskRequest(identifier: "fotiospongas.picksy.refresh")
         // earliestBeginDate = earliest iOS can fire this; actual timing is iOS's decision
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: TimeInterval(earliestMinutes) * 60)
         do {
             try BGTaskScheduler.shared.submit(request)
-            print("[BGRefresh] 📅 Next refresh scheduled (≥15 min)")
+            print("[BGRefresh] 📅 Next refresh scheduled (≥\(earliestMinutes) min)")
         } catch {
             print("[BGRefresh] ❌ Schedule failed: \(error)")
         }
@@ -774,12 +788,17 @@ struct LiftOffApp: App {
         //   (a) cancel on lock          — onScreenSessionEnded below
         //   (b) cancel + reschedule     — here, on the next unlock
         //   (c) cancel on BG-refresh    — handleBackgroundRefresh, when device locked
+        //   (d) cancel on BG-refresh    — handleBackgroundRefresh, when unlocked but idle 30+ min
         ScreenUnlockDetector.shared.onScreenSessionStarted = {
             let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
             ScreenTimeMilestoneNotifier.shared.scheduleContinuousSession(
                 weather: weatherManager.activeCondition,
                 language: lang
             )
+            // Request an early BGAppRefresh so safeguard (c)/(d) runs soon after
+            // session start, catching the common case where the phone is put down
+            // within a few minutes and auto-locks while Picksy is suspended.
+            LiftOffApp.scheduleBackgroundRefresh(earliestMinutes: 8)
         }
 
         ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in

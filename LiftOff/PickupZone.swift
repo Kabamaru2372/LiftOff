@@ -61,7 +61,7 @@ enum PickupZone: String, CaseIterable {
         case ..<0.40: return .excellent
         case ..<0.70: return .good
         case ..<0.90: return .average
-        case ..<1.00: return .heavy
+        case ...1.00: return .heavy     // includes exactly at goal — "Over goal" only when strictly above
         default:      return .problematic
         }
     }

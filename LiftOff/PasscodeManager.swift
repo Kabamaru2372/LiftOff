@@ -19,6 +19,7 @@ final class PasscodeManager {
     private init() {}
 
     private let appGroup = UserDefaults(suiteName: "group.fotiospongas.picksy")
+    private let appGroupID = "group.fotiospongas.picksy"
 
     /// Read by the Shield extensions to decide whether the time-limit shield can
     /// be bypassed (false) or strictly requires the in-app passcode (true).
@@ -68,6 +69,45 @@ final class PasscodeManager {
     func verify(_ code: String) -> Bool {
         guard let stored = appGroup?.string(forKey: hashKey), !stored.isEmpty else { return false }
         return stored == hash(code)
+    }
+
+    // MARK: - App Lock (always-on, selectable duration)
+
+    /// Writes an unlock window for the App Lock feature. Called from the main app
+    /// after the user enters the correct passcode. Extensions read the file to
+    /// decide whether to block or allow the current shield tap.
+    func unlockAppLock(durationMinutes: Int) {
+        let unlockUntil = Date().timeIntervalSince1970 + Double(max(durationMinutes, 1) * 60)
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("picksy_app_lock_unlock_until.txt") {
+            try? "\(unlockUntil)".data(using: .utf8)?.write(to: url, options: .atomic)
+        }
+        appGroup?.set(unlockUntil, forKey: "picksy_app_lock_unlock_until")
+    }
+
+    /// True when the user has entered the passcode and the unlock window is still active.
+    /// File-first so long-running extension processes see fresh state.
+    func isAppLockUnlocked() -> Bool {
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("picksy_app_lock_unlock_until.txt"),
+           let raw = try? String(contentsOf: url, encoding: .utf8),
+           let ts = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return ts > Date().timeIntervalSince1970
+        }
+        let ts = appGroup?.double(forKey: "picksy_app_lock_unlock_until") ?? 0
+        return ts > Date().timeIntervalSince1970
+    }
+
+    /// Clears the App Lock unlock window (called when disabling the feature).
+    func clearAppLockUnlockWindow() {
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("picksy_app_lock_unlock_until.txt") {
+            try? "0".data(using: .utf8)?.write(to: url, options: .atomic)
+        }
+        appGroup?.removeObject(forKey: "picksy_app_lock_unlock_until")
     }
 
     private func hash(_ s: String) -> String {

@@ -156,6 +156,10 @@ final class ScreenTimeMilestoneNotifier {
     func scheduleContinuousSession(weather: WeatherCondition, language: String) {
         cancelContinuousSession()   // clear any previous session's pending alerts
 
+        // Stamp session start so BGAppRefresh can detect stale sessions when the
+        // lock notification was missed (Picksy suspended at lock time).
+        sharedDefaults?.set(Date().timeIntervalSince1970, forKey: "picksy_continuous_session_start")
+
         for level in presetLevels() {
             let activity = pickActivity(minutes: level.bucket, weather: weather)
             let (title, body) = continuousStrings(minutes: level.minutes,
@@ -199,6 +203,7 @@ final class ScreenTimeMilestoneNotifier {
         let ids = presetLevels().map { sessionIdentifier($0.minutes) }
         UNUserNotificationCenter.current()
             .removePendingNotificationRequests(withIdentifiers: ids)
+        sharedDefaults?.removeObject(forKey: "picksy_continuous_session_start")
         print("[Session] 🗑 Cancelled pending continuous-use alerts")
     }
 

@@ -32,8 +32,21 @@ class ShieldActionHandler: ShieldActionDelegate {
                          completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
-            // Passcode-locked (time limit + passcode required) → NO bypass. The
-            // user must open Picksy and enter the code to get another session.
+            // Picksy itself is being shielded — always allow access, never gate
+            // on the passcode. The user needs Picksy to manage settings and codes.
+            if isShieldedAppSelf() {
+                writeShieldDebug("app handler → self, lift always")
+                liftShield(for: application)
+                completionHandler(.none)
+                return
+            }
+            // App Lock: always-on lock independent of time limit. User must enter
+            // passcode in Picksy to open any shielded app for the chosen duration.
+            if isAppLockBlocking() {
+                completionHandler(.close)
+                return
+            }
+            // Time-limit passcode (parental gate on top of the time limit).
             if isPasscodeLocked() {
                 completionHandler(.close)
                 return
@@ -50,6 +63,40 @@ class ShieldActionHandler: ShieldActionDelegate {
         @unknown default:
             completionHandler(.close)
         }
+    }
+
+    /// True when the App Lock feature is on and no valid unlock window is active.
+    /// Blocks all shielded apps regardless of whether the time limit has been reached.
+    /// The unlock window is written by PasscodeManager after successful passcode entry.
+    private func isAppLockBlocking() -> Bool {
+        guard let d = UserDefaults(suiteName: appGroupID),
+              d.bool(forKey: "picksy_app_lock_enabled") else { return false }
+        let now = Date().timeIntervalSince1970
+        // File-first (bypasses stale UserDefaults cache in long-running processes)
+        if let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("picksy_app_lock_unlock_until.txt"),
+           let raw = try? String(contentsOf: url, encoding: .utf8),
+           let ts = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return ts <= now
+        }
+        // Fallback: UserDefaults (may be slightly stale but still useful)
+        let ts = d.double(forKey: "picksy_app_lock_unlock_until")
+        return ts <= now
+    }
+
+    /// True when the app being shielded is Picksy itself.
+    /// The ShieldConfiguration extension writes "true" or "false" to
+    /// picksy_shield_is_self.txt in the App Group container each time a shield
+    /// is displayed. Picksy must never be locked behind its own passcode — the
+    /// user needs it to manage settings, codes, and duel data.
+    private func isShieldedAppSelf() -> Bool {
+        guard let url = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("picksy_shield_is_self.txt"),
+              let raw = try? String(contentsOf: url, encoding: .utf8)
+        else { return false }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
     /// True when today's time limit is reached AND a passcode is required.
@@ -82,8 +129,10 @@ class ShieldActionHandler: ShieldActionDelegate {
                          completionHandler: @escaping (ShieldActionResponse) -> Void) {
         switch action {
         case .primaryButtonPressed:
-            // Same passcode gate as the application handler: when the time limit
-            // is reached and a passcode is required, there is NO tap-through.
+            if isAppLockBlocking() {
+                completionHandler(.close)
+                return
+            }
             if isPasscodeLocked() {
                 completionHandler(.close)
                 return

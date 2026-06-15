@@ -22,14 +22,16 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
     // MARK: - Overrides
 
     override func configuration(shielding application: Application) -> ShieldConfiguration {
-        recordShieldedApp(application)
-        return makeConfiguration(appName: application.localizedDisplayName)
+        let isSelf = application.bundleIdentifier == "fotiospongas.dev.UnPluq"
+        recordShieldedApp(application, isSelf: isSelf)
+        return makeConfiguration(appName: application.localizedDisplayName, isSelf: isSelf)
     }
 
     override func configuration(shielding application: Application,
                                 in category: ActivityCategory) -> ShieldConfiguration {
-        recordShieldedApp(application)
-        return makeConfiguration(appName: application.localizedDisplayName)
+        let isSelf = application.bundleIdentifier == "fotiospongas.dev.UnPluq"
+        recordShieldedApp(application, isSelf: isSelf)
+        return makeConfiguration(appName: application.localizedDisplayName, isSelf: isSelf)
     }
 
     /// Hands the shielded app's token to the ShieldAction extension. For
@@ -39,7 +41,7 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
     /// the shield right before any button press, so the last-recorded token is
     /// the app being acted on. Best-effort: if this extension's writes are
     /// discarded by the sandbox, ShieldAction falls back to lifting the category.
-    private func recordShieldedApp(_ application: Application) {
+    private func recordShieldedApp(_ application: Application, isSelf: Bool) {
         let container = FileManager.default
             .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)
 
@@ -48,6 +50,14 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         // writes are discarded" from "the token was nil".
         if let url = container?.appendingPathComponent("shield_config_marker.txt") {
             try? "\(Date().timeIntervalSince1970)".data(using: .utf8)?
+                .write(to: url, options: .atomic)
+        }
+
+        // Flag whether Picksy itself is being shielded. ShieldAction reads this
+        // to always allow access to Picksy without a passcode — the user needs
+        // Picksy to manage settings, passcodes, and duel data.
+        if let url = container?.appendingPathComponent("picksy_shield_is_self.txt") {
+            try? (isSelf ? "true" : "false").data(using: .utf8)?
                 .write(to: url, options: .atomic)
         }
 
@@ -80,10 +90,30 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
 
     // MARK: - Builder
 
-    private func makeConfiguration(appName: String?) -> ShieldConfiguration {
+    private func makeConfiguration(appName: String?, isSelf: Bool = false) -> ShieldConfiguration {
+        let indigo = UIColor(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
+
+        // Picksy itself is being shielded — always show a plain "Open Picksy"
+        // button. Never lock the user out of their own management app.
+        if isSelf {
+            return ShieldConfiguration(
+                backgroundBlurStyle: .systemUltraThinMaterialDark,
+                backgroundColor: UIColor.black.withAlphaComponent(0.55),
+                icon: UIImage(systemName: "hand.raised.fill"),
+                title: ShieldConfiguration.Label(text: "Open Picksy", color: .white),
+                subtitle: ShieldConfiguration.Label(text: "Manage your settings and goals.", color: UIColor.white.withAlphaComponent(0.8)),
+                primaryButtonLabel: ShieldConfiguration.Label(text: "Open", color: .white),
+                primaryButtonBackgroundColor: indigo
+            )
+        }
+
         let defaults = UserDefaults(suiteName: appGroupID)
         let pickups  = freshPickupCount(defaults: defaults)
         let language = defaults?.string(forKey: "picksy.appLanguage") ?? "English"
+
+        // App Lock: always-on per-app passcode lock, independent of the time limit.
+        let appLockEnabled = defaults?.bool(forKey: "picksy_app_lock_enabled") ?? false
+        let appLockBlocking = appLockEnabled && !isAppLockUnlocked()
 
         // If today's time limit has been reached, show the "time's up" variant.
         let timeLimitActive = defaults?.string(forKey: "picksy_timelimit_active") == todayKey()
@@ -91,12 +121,15 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         // Passcode-locked: time limit reached AND a passcode is required → no
         // bypass button; the user must open Picksy and enter the code.
         let passwordRequired = defaults?.bool(forKey: "picksy_timelimit_password_required") ?? false
-        let locked = timeLimitActive && passwordRequired
-
-        let indigo = UIColor(red: 0.35, green: 0.34, blue: 0.84, alpha: 1.0)
+        let timeLimitLocked = timeLimitActive && passwordRequired
+        let locked = appLockBlocking || timeLimitLocked
 
         if locked {
-            let (title, subtitle) = lockedMessage(language: language)
+            // Show "time limit reached" only when the time limit actually fired.
+            // App Lock alone uses a neutral "apps are locked" message.
+            let (title, subtitle) = timeLimitLocked
+                ? lockedMessage(language: language)
+                : appLockMessage(language: language)
             return ShieldConfiguration(
                 backgroundBlurStyle: .systemUltraThinMaterialDark,
                 backgroundColor: UIColor.black.withAlphaComponent(0.6),
@@ -135,6 +168,17 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
             return ("Gesperrt 🔒", "Zeitlimit erreicht. Öffne Picksy und gib den Code ein, um fortzufahren.")
         default:
             return ("Locked 🔒", "Time limit reached. Open Picksy and enter the passcode to continue.")
+        }
+    }
+
+    private func appLockMessage(language: String) -> (String, String) {
+        switch language {
+        case "Ελληνικά":
+            return ("Κλειδωμένο 🔒", "Άνοιξε το Picksy και βάλε τον κωδικό για να ξεκλειδώσεις τις εφαρμογές.")
+        case "Deutsch":
+            return ("Gesperrt 🔒", "Öffne Picksy und gib den Code ein, um Apps freizuschalten.")
+        default:
+            return ("Locked 🔒", "Open Picksy and enter your passcode to unlock your apps.")
         }
     }
 
@@ -249,6 +293,18 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         // File is authoritative when its date matches today — do not max with the
         // cached todayPickups value which may be stale from a previous day.
         return fileCount
+    }
+
+    private func isAppLockUnlocked() -> Bool {
+        let container = FileManager.default
+            .containerURL(forSecurityApplicationGroupIdentifier: appGroupID)
+        if let url = container?.appendingPathComponent("picksy_app_lock_unlock_until.txt"),
+           let raw = try? String(contentsOf: url, encoding: .utf8),
+           let ts = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
+            return ts > Date().timeIntervalSince1970
+        }
+        let ts = UserDefaults(suiteName: appGroupID)?.double(forKey: "picksy_app_lock_unlock_until") ?? 0
+        return ts > Date().timeIntervalSince1970
     }
 
     private func ordinal(_ n: Int) -> String {

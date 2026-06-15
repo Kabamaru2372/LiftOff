@@ -57,6 +57,15 @@ struct SettingsView: View {
     // Optional passcode that gates the time limit (parental use)
     @State private var passcodeRequired: Bool = PasscodeManager.shared.isRequired
     @State private var showPasscodeSetup: Bool = false
+
+    // App Lock: always-on passcode requirement for all shielded apps
+    @State private var appLockEnabled: Bool = UserDefaults(suiteName: "group.fotiospongas.picksy")?.bool(forKey: "picksy_app_lock_enabled") ?? false
+    @State private var appLockDurationMinutes: Int = {
+        let v = UserDefaults(suiteName: "group.fotiospongas.picksy")?.integer(forKey: "picksy_app_lock_duration_minutes") ?? 0
+        return v > 0 ? v : 30
+    }()
+    @State private var showAppLockPasscodeSetup: Bool = false
+    @State private var showAppLockDisableConfirm: Bool = false
     // Settings lock: when a passcode is set, time-limit/passcode controls require
     // the code to change (so a child can't just turn the limit off). Resets each
     // time Settings is opened.
@@ -318,6 +327,8 @@ struct SettingsView: View {
                     }
                 }
                 Divider()
+                appLockRow
+                Divider()
                 resetSection
 
                 #if DEBUG
@@ -543,6 +554,12 @@ struct SettingsView: View {
                     } else {
                         PasscodeManager.shared.disable()
                         passcodeRequired = false
+                        // App lock shares the same passcode — disable it too.
+                        if appLockEnabled {
+                            appLockEnabled = false
+                            UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(false, forKey: "picksy_app_lock_enabled")
+                            PasscodeManager.shared.clearAppLockUnlockWindow()
+                        }
                     }
                 }
             ))
@@ -582,6 +599,102 @@ struct SettingsView: View {
         .padding(12)
         .background(RoundedRectangle(cornerRadius: 10).fill(Color.indigo.opacity(0.06)))
         .padding(.vertical, 8)
+    }
+
+    private var appLockRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(t("App Lock", "Κλείδωμα εφαρμογών", "App-Sperre"))
+                            .font(.system(size: 15, weight: .regular, design: .rounded))
+                            .foregroundColor(.primary)
+                        Text("🔐").font(.system(size: 13))
+                    }
+                    Text(t(
+                        "Require passcode before opening any shielded app, regardless of time limits.",
+                        "Απαιτεί κωδικό πριν ανοίξει οποιαδήποτε εποπτευόμενη εφαρμογή, ανεξάρτητα από χρονικά όρια.",
+                        "Passcode vor dem Öffnen einer überwachten App erforderlich, unabhängig von Zeitlimits."
+                    ))
+                    .font(.system(size: 12, design: .rounded))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { appLockEnabled },
+                    set: { newValue in
+                        if newValue {
+                            if PasscodeManager.shared.isSet {
+                                appLockEnabled = true
+                                UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(true, forKey: "picksy_app_lock_enabled")
+                            } else {
+                                showAppLockPasscodeSetup = true
+                            }
+                        } else {
+                            // Require passcode verification before disabling — prevents
+                            // bypassing App Lock by simply turning the toggle off.
+                            showAppLockDisableConfirm = true
+                            // Don't change appLockEnabled yet; the binding reverts the
+                            // toggle to ON until the passcode is confirmed.
+                        }
+                    }
+                ))
+                .labelsHidden()
+            }
+
+            if appLockEnabled {
+                HStack(spacing: 12) {
+                    Text(t("Unlock for", "Ξεκλείδωσε για", "Freischalten für"))
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundColor(.secondary)
+                    Picker("", selection: Binding(
+                        get: { appLockDurationMinutes },
+                        set: { v in
+                            appLockDurationMinutes = v
+                            UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(v, forKey: "picksy_app_lock_duration_minutes")
+                        }
+                    )) {
+                        Text(t("15 min", "15 λεπτά", "15 Min")).tag(15)
+                        Text(t("30 min", "30 λεπτά", "30 Min")).tag(30)
+                        Text(t("1 hour", "1 ώρα", "1 Std")).tag(60)
+                    }
+                    .pickerStyle(.segmented)
+                }
+                .padding(.top, 2)
+            }
+        }
+        .padding(.vertical, 16)
+        .sheet(isPresented: $showAppLockPasscodeSetup, onDismiss: {
+            appLockEnabled = PasscodeManager.shared.isSet
+            if appLockEnabled {
+                UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(true, forKey: "picksy_app_lock_enabled")
+            }
+        }) {
+            PasscodeView(
+                mode: .setup,
+                onSet: { code in
+                    PasscodeManager.shared.setPasscode(code)
+                    passcodeRequired = true
+                    appLockEnabled = true
+                    UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(true, forKey: "picksy_app_lock_enabled")
+                    showAppLockPasscodeSetup = false
+                },
+                onCancel: { showAppLockPasscodeSetup = false }
+            )
+        }
+        .sheet(isPresented: $showAppLockDisableConfirm) {
+            PasscodeView(
+                mode: .unlock,
+                onUnlock: {
+                    appLockEnabled = false
+                    UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(false, forKey: "picksy_app_lock_enabled")
+                    PasscodeManager.shared.clearAppLockUnlockWindow()
+                    showAppLockDisableConfirm = false
+                },
+                onCancel: { showAppLockDisableConfirm = false }
+            )
+        }
     }
 
     private var lockedSettingsRow: some View {
