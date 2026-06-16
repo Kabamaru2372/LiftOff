@@ -41,7 +41,7 @@ class ProManager {
 
     // MARK: - Trial
 
-    /// Ξεκινάει το 7-day Pro trial.
+    /// Ξεκινάει το 14-day Pro trial.
     /// Αποθηκεύεται στο Keychain — παραμένει ακόμα και μετά τη διαγραφή.
     func startTrial() {
         guard !KeychainHelper.exists(trialKey) else { return } // Ένα trial μόνο

@@ -236,7 +236,7 @@ struct DuelResultView: View {
                     Text(t("You", "Εσύ", "Du"))
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.7))
-                    Text("\(duel.myScore)")
+                    Text(formatScreenTime(duel.myScore))
                         .font(.system(size: 52, weight: .bold, design: .rounded))
                         .foregroundColor(
                             duel.iWon  ? Color(red: 0.4, green: 1.0, blue: 0.6) :
@@ -261,7 +261,7 @@ struct DuelResultView: View {
                         .font(.system(size: 13, design: .rounded))
                         .foregroundColor(.white.opacity(0.7))
                         .lineLimit(1)
-                    let theirDisplay = (duel.theirScore == 0 && duel.myScore > 0) ? "?" : "\(duel.theirScore)"
+                    let theirDisplay = (duel.theirScore == 0 && duel.myScore > 0) ? "?" : formatScreenTime(duel.theirScore)
                     Text(theirDisplay)
                         .font(.system(size: 52, weight: .bold, design: .rounded))
                         .foregroundColor(
@@ -282,6 +282,16 @@ struct DuelResultView: View {
         }
         .opacity(animateScore ? 1 : 0)
         .offset(y: animateScore ? 0 : 24)
+    }
+
+    // MARK: - Helpers
+
+    private func formatScreenTime(_ seconds: Int) -> String {
+        let secs = max(0, seconds)
+        if secs < 60 { return "0m" }
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        return h > 0 ? "\(h)h \(m)m" : "\(m)m"
     }
 
     // MARK: - Hourly Analysis
