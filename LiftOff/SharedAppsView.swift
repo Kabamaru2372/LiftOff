@@ -105,6 +105,8 @@ struct FriendAppsSheet: View {
 
     @State private var apps: [String] = []
     @State private var isLoading = true
+    @State private var showMyPicker = false
+    @State private var copied = false
     @Environment(\.dismiss) private var dismiss
     @AppStorage("appLanguage") private var appLanguage: String = "English"
 
@@ -181,6 +183,33 @@ struct FriendAppsSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(t("Done", "Τέλος")) { dismiss() }
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                if !apps.isEmpty {
+                    Button {
+                        SharedAppsManager.shared.mySelectedApps = Set(apps)
+                        copied = true
+                        showMyPicker = true
+                    } label: {
+                        Label(
+                            copied
+                                ? t("Copied!", "Αντιγράφηκε!")
+                                : t("Copy to my list", "Αντιγραφή στη λίστα μου"),
+                            systemImage: copied ? "checkmark.circle.fill" : "arrow.down.circle.fill"
+                        )
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(RoundedRectangle(cornerRadius: 14).fill(copied ? Color.green : Color.blue))
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+                    .background(.ultraThinMaterial)
+                    .sheet(isPresented: $showMyPicker) {
+                        SharedAppsPickerView()
+                    }
                 }
             }
             .task { await load() }
