@@ -100,6 +100,7 @@ struct FriendsView: View {
     @State private var showRemoveAllConfirm: Bool = false
     @State private var showPaywall: Bool = false
     @State private var showAllFriends: Bool = false
+    @State private var showTournaments: Bool = false
     private let defaultVisibleFriends = 3
 
     // Duel result sheet
@@ -155,6 +156,9 @@ struct FriendsView: View {
                 ScrollView {
                     VStack(spacing: 20) {
 
+                        // Tournaments entry point
+                        tournamentBanner
+
                         // Active duel cards — one per friend pair, shown at the top
                         ForEach(duelManager.activeDuels) { duel in
                             activeDuelBanner(duel)
@@ -195,6 +199,9 @@ struct FriendsView: View {
             }
             .navigationTitle(t("Friends", "Φίλοι", "Freunde"))
             .navigationBarTitleDisplayMode(.large)
+            .navigationDestination(isPresented: $showTournaments) {
+                TournamentListView()
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
                     addFriendsShareLink
@@ -794,6 +801,35 @@ struct FriendsView: View {
                 toastMessage = nil
             }
         }
+    }
+
+    // MARK: - Tournament Banner
+
+    private var tournamentBanner: some View {
+        let activeTournaments = TournamentManager.shared.activeTournaments
+        return Button { showTournaments = true } label: {
+            HStack(spacing: 14) {
+                Text("⚔️").font(.system(size: 28))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(t("Group Tournaments", "Ομαδικά Τουρνουά", "Gruppen-Turniere"))
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.primary)
+                    Text(activeTournaments.isEmpty
+                         ? t("Challenge groups of friends weekly", "Πρόκλεσε ομάδες φίλων κάθε εβδομάδα", "Fordere Freundesgruppen wöchentlich heraus")
+                         : t("\(activeTournaments.count) active", "\(activeTournaments.count) ενεργά", "\(activeTournaments.count) aktiv"))
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(RoundedRectangle(cornerRadius: 16).fill(Color(.secondarySystemGroupedBackground)))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Connect Tip

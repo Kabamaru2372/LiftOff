@@ -665,6 +665,8 @@ struct LiftOffApp: App {
         Task {
             await DuelManager.shared.poll()
             await DuelManager.shared.updateMyPickups(store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
+            await TournamentManager.shared.poll()
+            await TournamentManager.shared.syncScreenTime(store.bestScreenTimeSecs)
             guard !focusSessionManager.isActive else { return }
             if let duel = DuelManager.shared.activeDuel, duel.status == .active {
                 // Active duel found after poll — update DI with correct scores
@@ -1018,6 +1020,8 @@ struct LiftOffApp: App {
                 // immediately uploads their real count — important right after a duel starts.
                 await DuelManager.shared.poll()
                 await DuelManager.shared.updateMyPickups(store.todayPickups, screenTimeSeconds: store.bestScreenTimeSecs)
+                await TournamentManager.shared.poll()
+                await TournamentManager.shared.syncScreenTime(store.bestScreenTimeSecs)
                 if let duel = DuelManager.shared.activeDuel, duel.status == .active,
                    !focusSessionManager.isActive {
                     liveActivity.updateForDuel(
