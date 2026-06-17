@@ -38,6 +38,7 @@ struct SettingsView: View {
     @State private var showAppInfo: Bool = false
     @State private var showActivityPrefs: Bool = false
     @State private var showAppPicker: Bool = false
+    @State private var showSharedAppsPicker: Bool = false
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true)
     @State private var isAuthorized: Bool = false
     @State private var showAchievements: Bool = false
@@ -311,6 +312,8 @@ struct SettingsView: View {
                 familyControlsRow
                 Divider()
                 trackedAppsRow
+                Divider()
+                sharedAppsRow
                 Divider()
                 accurateModeRow
                 Divider()
@@ -1258,6 +1261,33 @@ struct SettingsView: View {
             }
         }
         .padding(.vertical, 16)
+    }
+
+    private var sharedAppsRow: some View {
+        Button(action: { showSharedAppsPicker = true }) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(t("Apps I share with opponents", "Εφαρμογές που μοιράζομαι", "Apps für Gegner"))
+                            .font(.system(size: 15, design: .rounded))
+                            .foregroundColor(.primary)
+                        Text("⚔️").font(.system(size: 13))
+                    }
+                    let count = SharedAppsManager.shared.mySelectedApps.count
+                    Text(count == 0
+                         ? t("Not set — opponents can't see your apps", "Δεν έχεις επιλέξει — οι αντίπαλοι δεν βλέπουν τίποτα", "Nicht gesetzt")
+                         : t("\(count) apps selected", "\(count) εφαρμογές επιλεγμένες", "\(count) Apps ausgewählt"))
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.secondary)
+            }
+            .padding(.vertical, 16)
+        }
+        .sheet(isPresented: $showSharedAppsPicker) {
+            SharedAppsPickerView()
+        }
     }
 
     private var trackedAppsRow: some View {

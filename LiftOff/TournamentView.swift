@@ -101,6 +101,8 @@ private struct ParticipantRow: View {
     let rank: Int
     let participant: TournamentParticipant
 
+    @State private var showFriendApps = false
+
     var body: some View {
         HStack(spacing: 14) {
             // Rank badge
@@ -130,6 +132,16 @@ private struct ParticipantRow: View {
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Capsule().fill(Color.blue))
+                    } else {
+                        Button { showFriendApps = true } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .sheet(isPresented: $showFriendApps) {
+                            FriendAppsSheet(deviceID: participant.deviceId, friendName: participant.displayName)
+                        }
                     }
                 }
                 if participant.penaltySeconds > 0 {
