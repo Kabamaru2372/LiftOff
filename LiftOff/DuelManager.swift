@@ -471,6 +471,7 @@ class DuelManager {
         // so we use NotificationCenter as the bridge.
         await MainActor.run {
             NotificationCenter.default.post(name: .picksyDuelFinalized, object: nil)
+            if winner == myDeviceID { AchievementManager.shared.onDuelWon() }
         }
 
         // Only the challenger sends push notifications — prevents both devices from

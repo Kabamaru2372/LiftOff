@@ -51,6 +51,8 @@ class AchievementManager {
     var unlockedBadgeIds: Set<String> = []
     var focusPerfectSessions: Int = 0
     var bestDayPickups: Int = Int.max    // lowest ever (lower = better)
+    var duelWins: Int = 0
+    var bestStreak: Int = 0
     var pendingBadgeId: String? = nil   // drives unlock popup
 
     var currentRank: PicksyRank { PicksyRank.rank(for: totalXP) }
@@ -145,6 +147,24 @@ class AchievementManager {
             descGR:"Το χαμηλότερο ρεκόρ σηκωμάτων σου",
             descDE:"Dein niedrigstes Griff-Ergebnis",
             xpReward: 30),
+        BadgeDefinition(id: "duel_first_win", emoji: "🥊",
+            title: "First Blood",      titleGR: "Πρώτη Νίκη",          titleDE: "Erster Sieg",
+            desc:  "Win your first duel",
+            descGR:"Νίκη στην πρώτη σου μονομαχία",
+            descDE:"Dein erstes Duell gewonnen",
+            xpReward: 25),
+        BadgeDefinition(id: "duel_fighter",   emoji: "⚔️",
+            title: "Fighter",          titleGR: "Μαχητής",              titleDE: "Kämpfer",
+            desc:  "Win 5 duels",
+            descGR:"Νίκη σε 5 μονομαχίες",
+            descDE:"5 Duelle gewonnen",
+            xpReward: 40),
+        BadgeDefinition(id: "duel_champion",  emoji: "👑",
+            title: "Duel Champion",    titleGR: "Πρωταθλητής",          titleDE: "Duell-Champion",
+            desc:  "Win 10 duels",
+            descGR:"Νίκη σε 10 μονομαχίες",
+            descDE:"10 Duelle gewonnen",
+            xpReward: 60),
     ]
 
     private let defaults = UserDefaults.standard
@@ -188,6 +208,21 @@ class AchievementManager {
             defaults.set(bestDayPickups, forKey: "ach_bestDay")
             if wasSet && ProManager.shared.isPro { unlock("personal_best", xp: 30) }
         }
+        // Best streak ever
+        if streak > bestStreak {
+            bestStreak = streak
+            defaults.set(bestStreak, forKey: "ach_bestStreak")
+        }
+    }
+
+    /// Called from DuelManager.finalizeDuel() when the local user wins a duel.
+    func onDuelWon() {
+        duelWins += 1
+        defaults.set(duelWins, forKey: "ach_duelWins")
+        addXP(15)
+        unlock("duel_first_win", xp: 25)
+        if duelWins >= 5  { unlock("duel_fighter",  xp: 40) }
+        if duelWins >= 10 { unlock("duel_champion", xp: 60) }
     }
 
     /// Called when a perfect focus session (0 pickups) completes
@@ -243,6 +278,8 @@ class AchievementManager {
     private func load() {
         totalXP              = defaults.integer(forKey: "ach_totalXP")
         focusPerfectSessions = defaults.integer(forKey: "ach_focusPerfect")
+        duelWins             = defaults.integer(forKey: "ach_duelWins")
+        bestStreak           = defaults.integer(forKey: "ach_bestStreak")
         let best             = defaults.integer(forKey: "ach_bestDay")
         bestDayPickups       = best > 0 ? best : Int.max
 

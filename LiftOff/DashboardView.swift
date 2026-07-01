@@ -24,6 +24,7 @@ struct DashboardView: View {
     @Environment(ProManager.self) var proManager
     @Environment(CorrelationStore.self) var correlationStore
     @Environment(HourlyTracker.self) var hourly
+    @Environment(AchievementManager.self) var achievements
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     // Default MUST match every other "dailyGoal" reader (Settings/Nudge/Focus
     // use 50): with no stored value yet, each view shows its own default — the
@@ -481,7 +482,13 @@ struct DashboardView: View {
                     .font(.system(size: 12, design: .rounded))
                     .foregroundColor(.secondary)
 
-                if let next = nextMilestone {
+                if achievements.bestStreak > store.currentStreak && achievements.bestStreak > 1 {
+                    Text(t("Best: \(achievements.bestStreak) days",
+                            "Ρεκόρ: \(achievements.bestStreak) μέρες",
+                            "Rekord: \(achievements.bestStreak) Tage"))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
+                } else if let next = nextMilestone {
                     let daysLeft = next - store.currentStreak
                     Text(t("Next milestone: \(next) days (\(daysLeft) to go)",
                             "Επόμενο: \(next) μέρες (\(daysLeft) ακόμα)",
