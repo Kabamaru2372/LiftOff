@@ -102,28 +102,52 @@ class LiveActivityManager {
                         }
                     }
 
-                    // Auto-restart after accidental swipe-dismiss (e.g. WiiM taking over DI).
-                    // Respects the user's explicit "disable" choice in SettingsView:
-                    // liveActivityEnabled defaults to true, is false only when user turned it off.
-                    if state == .dismissed {
-                        try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 s
-                        let shouldRestart = await MainActor.run {
-                            let enabled = UserDefaults.standard.object(forKey: "liveActivityEnabled") as? Bool ?? true
-                            return enabled && self.currentActivity == nil
-                        }
-                        guard shouldRestart else { continue }
-                        let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
-                        let pickups = suite.integer(forKey: "todayPickups")
-                        let rawGoal = UserDefaults.standard.integer(forKey: "dailyGoal")
-                        let goal = rawGoal > 0 ? rawGoal : 50
-                        await MainActor.run {
-                            self.start(pickupCount: pickups, dailyGoal: goal)
-                            print("[LiveActivity] 🔄 Auto-restarted after external dismissal")
-                        }
+                    // Auto-restart after accidental swipe-dismiss (e.g. WiiM taking over DI)
+                    // AND after a system-forced end (iOS caps a single Live Activity to
+                    // ~8h of runtime, then ends it automatically — without this, the DI
+                    // would stay gone for the rest of the day until the user manually
+                    // reopens the app). Respects the user's explicit "disable" choice in
+                    // SettingsView: liveActivityEnabled defaults to true, is false only
+                    // when the user turned it off.
+                    try? await Task.sleep(nanoseconds: 1_500_000_000) // 1.5 s
+                    let shouldRestart = await MainActor.run {
+                        let enabled = UserDefaults.standard.object(forKey: "liveActivityEnabled") as? Bool ?? true
+                        return enabled && self.currentActivity == nil
+                    }
+                    guard shouldRestart else { continue }
+                    let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? UserDefaults.standard
+                    let pickups = suite.integer(forKey: "todayPickups")
+                    let rawGoal = UserDefaults.standard.integer(forKey: "dailyGoal")
+                    let goal = rawGoal > 0 ? rawGoal : 50
+                    await MainActor.run {
+                        self.start(pickupCount: pickups, dailyGoal: goal)
+                        print("[LiveActivity] 🔄 Auto-restarted after \(state == .dismissed ? "dismissal" : "system-forced end")")
                     }
                 }
             }
         }
+    }
+
+    // MARK: - Fresh-start guard
+
+    /// Ensures the Dynamic Island always shows a current-day Live Activity.
+    /// After midnight the staleDate fires: iOS hides the DI but leaves
+    /// activityState == .active, so isRunning stays true and the normal
+    /// foreground update() path never restarts the activity.
+    /// This method detects that case and forces a clean restart.
+    func ensureFreshActivity(pickupCount: Int, dailyGoal: Int) {
+        let lastStart = UserDefaults.standard.object(forKey: "liveActivityStartDate") as? Date
+        let isStale   = lastStart.map { !Calendar.current.isDateInToday($0) } ?? false
+
+        if isRunning && isStale {
+            if let old = currentActivity {
+                Task { await old.end(nil, dismissalPolicy: .immediate) }
+            }
+            currentActivity = nil
+            pushToken = nil
+            print("[LiveActivity] 🔄 Stale activity from previous day — forcing restart")
+        }
+        start(pickupCount: pickupCount, dailyGoal: dailyGoal)
     }
 
     // MARK: - Start
@@ -196,6 +220,7 @@ class LiveActivityManager {
                 pushType: .token   // enables server-side APNs updates for the Dynamic Island
             )
             currentActivity = activity
+            UserDefaults.standard.set(Date(), forKey: "liveActivityStartDate")
             print("✅ Live Activity started!")
             observeActivity(activity)
         } catch {
