@@ -41,7 +41,7 @@ private struct StrandsUniforms {
 
 // MARK: - Renderer
 
-private final class StrandsRenderer: NSObject, MTKViewDelegate {
+fileprivate final class StrandsRenderer: NSObject, MTKViewDelegate {
 
     private let commandQueue: MTLCommandQueue
     private let pipeline:     MTLRenderPipelineState
@@ -211,7 +211,7 @@ struct StrandsView: UIViewRepresentable {
     }
 
     final class Coordinator {
-        var renderer: StrandsRenderer?
+        fileprivate var renderer: StrandsRenderer?
     }
 }
 
