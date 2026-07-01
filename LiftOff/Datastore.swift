@@ -145,6 +145,11 @@ class DataStore {
 
         // v1.6: Check for zone transitions and trigger notifications
         ZoneNotificationManager.shared.checkAndNotify(currentPickups: todayPickups)
+
+        // Every 5th pickup (starting at 5), ask why the user picked up the phone.
+        if todayPickups >= 5 && todayPickups % 5 == 0 {
+            NotificationCenter.default.post(name: .picksyAskWhyPickup, object: nil)
+        }
     }
 
     func addUsageTime(seconds: Int) {
