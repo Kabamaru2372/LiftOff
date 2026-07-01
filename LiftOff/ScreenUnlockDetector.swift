@@ -36,6 +36,7 @@ extension Notification.Name {
     /// push notification. Το FriendsView το ακούει για να κάνει re-poll και
     /// να δείξει DuelResultView αν υπάρχει νέο αποτέλεσμα.
     static let picksyDuelNotifTapped    = Notification.Name("picksy.duelNotificationTapped")
+    static let picksyAskWhyPickup       = Notification.Name("picksy.askWhyPickup")
 }
 
 @Observable
@@ -100,6 +101,12 @@ class ScreenUnlockDetector {
     /// στιγμή και ακυρώνονται στο lock.
     var onScreenSessionStarted: (() -> Void)?
 
+    /// Καλείται όταν ο χρήστης επιστρέφει στο Picksy μετά από σύντομη απουσία
+    /// (< 10 λεπτά, π.χ. Control Center ή γρήγορο app switch). Αντί να ξεκινάει
+    /// η μέτρηση από μηδέν, κάνει resume τα notifications με τον σωστό
+    /// εναπομείναντα χρόνο από το αρχικό unlock.
+    var onScreenSessionResumed: (() -> Void)?
+
     /// Timestamp που ξεκίνησε η τρέχουσα screen session (unlock time).
     private var sessionStartTime: Date?
 
@@ -137,6 +144,32 @@ class ScreenUnlockDetector {
             object: nil
         )
 
+        // AUDIO LOCK FIX: Secondary lock detection via willResignActive.
+        // protectedDataWillBecomeUnavailable does NOT fire when the screen
+        // auto-locks during audio playback (music, podcasts) because iOS
+        // keeps Protected Data available for the audio session. This causes
+        // continuous-session timers to keep running — the user listens to
+        // music for 1.5h and gets a "3h on your phone" notification.
+        //
+        // willResignActive fires when the screen turns off EVEN during audio
+        // playback. We use it ONLY to cancel the continuous-session timers
+        // (NOT for pickup counting — it also fires on app switching, Control
+        // Center, Notification Center, etc., which would miscount pickups).
+        // The complementary didBecomeActive handler re-schedules the timers
+        // if the user returns quickly (was just in Control Center, etc.).
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleResignActive(_:)),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleBecomeActive(_:)),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+
         isMonitoring = true
 
         let timeSinceLast = Date().timeIntervalSince(lastPickupTime)
@@ -161,6 +194,13 @@ class ScreenUnlockDetector {
     @objc private func handlePotentialPickup(_ notification: Notification) {
         let now = Date()
         let timeSinceLast = now.timeIntervalSince(lastPickupTime)
+
+        // Protected data just became available (device unlocked).
+        _protectedDataAvailable = true
+
+        // Clear the resign-active flag — a real unlock supersedes any stale state.
+        resignedActiveWhileProtectedDataAvailable = false
+        resignedActiveTimestamp = nil
 
         // Continuous-use session START — fires on EVERY unlock (independent of the
         // pickup cooldown). Restarts the continuous clock from this moment.
@@ -202,6 +242,9 @@ class ScreenUnlockDetector {
     // MARK: - Screen Lock
 
     @objc private func handleScreenLock(_ notification: Notification) {
+        // Protected data is about to become unavailable (device locking).
+        _protectedDataAvailable = false
+
         // Always notify session end so continuous-use alerts get cancelled — even
         // if we never recorded a start (e.g. the unlock fell inside the pickup
         // cooldown, which previously left sessionStartTime nil and SKIPPED the
@@ -214,10 +257,94 @@ class ScreenUnlockDetector {
             duration = 0
         }
         log("🔒 Screen locked — session duration: \(duration)s")
+        // Synchronous cancellation: iOS can suspend the process between here and
+        // the DispatchQueue.main.async block below, so we cancel immediately while
+        // we are guaranteed to be executing. The async block also cancels via
+        // onScreenSessionEnded as a secondary guarantee.
+        ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
         DispatchQueue.main.async { [weak self] in
             self?.onScreenSessionEnded?(duration)
         }
     }
+
+    // MARK: - Resign Active / Become Active (Audio Lock Fix)
+
+    /// AUDIO LOCK FIX: Handles the case where the screen auto-locks while audio
+    /// is playing (music, podcasts, audiobooks). In this scenario:
+    ///   - protectedDataWillBecomeUnavailable does NOT fire (audio keeps it available)
+    ///   - willResignActive DOES fire (the app is no longer active)
+    ///
+    /// We cancel continuous-session timers here so a user listening to music for
+    /// 1.5h doesn't get a false "3h on your phone" notification. We do NOT record
+    /// a screen session end (no onScreenSessionEnded callback) because willResignActive
+    /// also fires for Control Center, Notification Center, incoming calls, etc. —
+    /// recording screen time from those would be inaccurate.
+    ///
+    /// The complementary didBecomeActive handler re-schedules the timers if the
+    /// user was just briefly inactive (Control Center, etc.) and returned to the
+    /// phone — so we don't permanently lose the continuous-session tracking.
+    @objc private func handleResignActive(_ notification: Notification) {
+        guard _protectedDataAvailable else {
+            // protectedData is unavailable → handleScreenLock will handle it (or already did)
+            return
+        }
+        resignedActiveWhileProtectedDataAvailable = true
+        resignedActiveTimestamp = Date()
+        // Preserve session start timestamp so resumeContinuousSession can
+        // re-schedule with the correct remaining time if this was a brief
+        // interruption (Control Center, quick app switch). If the user doesn't
+        // return within 10 min, handleBecomeActive skips the resume entirely.
+        ScreenTimeMilestoneNotifier.shared.cancelContinuousSession(preserveSessionStart: true)
+        log("📴 Resign active (protected data still available — possible audio lock) — cancelled continuous-session timers")
+    }
+
+    /// Resumes or drops the continuous session when the user returns to Picksy
+    /// after a resign-active event. Uses elapsed time to distinguish:
+    ///   • Brief absence (< 10 min): Control Center, Notification Center, quick
+    ///     app switch — RESUME with the correct remaining time from the original
+    ///     unlock (via onScreenSessionResumed). No clock reset.
+    ///   • Long absence (≥ 10 min): likely audio-lock (music playing with screen
+    ///     off) or the user was genuinely away — DON'T resume. The next real
+    ///     unlock (protectedDataDidBecomeAvailable) will start a fresh session.
+    @objc private func handleBecomeActive(_ notification: Notification) {
+        guard resignedActiveWhileProtectedDataAvailable else { return }
+        resignedActiveWhileProtectedDataAvailable = false
+
+        let elapsed = Date().timeIntervalSince(resignedActiveTimestamp ?? .distantPast)
+        resignedActiveTimestamp = nil
+
+        if elapsed < 600 { // < 10 minutes: brief interruption
+            DispatchQueue.main.async { [weak self] in
+                self?.onScreenSessionResumed?()
+            }
+            log("📱 Became active after brief absence (\(Int(elapsed))s) — resuming session with remaining time")
+        } else {
+            // Long absence — likely audio-lock or user was away. Don't resume;
+            // the next protectedDataDidBecomeAvailable will start fresh.
+            // Clean up the preserved session start (cancelContinuousSession was
+            // called with preserveSessionStart:true — now that we've decided not
+            // to resume, clear it so BGAppRefresh doesn't misinterpret it).
+            ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
+            log("⏭ Became active after long absence (\(Int(elapsed))s) — session fully cancelled (likely audio-lock)")
+        }
+    }
+
+    /// Tracks whether the last resign-active happened while protected data was
+    /// still available (meaning it might be an audio-lock, not a normal lock).
+    /// Reset by handleBecomeActive (user returned) or handlePotentialPickup (new unlock).
+    private var resignedActiveWhileProtectedDataAvailable = false
+
+    /// Tracks whether protected data is currently available (device unlocked).
+    /// Updated by our existing protectedDataDidBecomeAvailable / WillBecomeUnavailable
+    /// observers. Replaces UIApplication.shared.isProtectedDataAvailable which is
+    /// unavailable in app extension targets.
+    private var _protectedDataAvailable = false
+
+    /// Timestamp of the last willResignActive while protected data was available.
+    /// Used by handleBecomeActive to decide whether to RESUME the continuous session
+    /// (brief absence < 10min → resume with remaining time) or skip (long absence
+    /// → likely audio-lock, wait for next real unlock).
+    private var resignedActiveTimestamp: Date?
 
     // MARK: - Logging
 

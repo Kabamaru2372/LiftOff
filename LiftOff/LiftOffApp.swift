@@ -174,6 +174,7 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let categoryId = notification.request.content.categoryIdentifier
+        let identifier = notification.request.identifier
 
         if categoryId == "PICKSY_MESSAGE" || categoryId == "PICKSY_DUEL" {
             // Show in-app floating bubble instead of system banner
@@ -184,6 +185,19 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             }
             // Still play sound, but suppress banner (we handle the UI ourselves)
             completionHandler([.sound])
+        } else if categoryId == "PICKSY_SCREEN_TIME_MILESTONE"
+               && identifier.hasPrefix("picksy.session.") {
+            // Suppress continuous-session notifications when Picksy is in the
+            // foreground and the session was already cancelled (lock happened but
+            // BGAppRefresh hadn't run yet to remove the pending request).
+            let sessionStart = UserDefaults(suiteName: ScreenTimeMilestoneNotifier.appGroupID)?
+                .double(forKey: "picksy_continuous_session_start") ?? 0
+            if sessionStart == 0 {
+                print("[Session] ⛔ Suppressed stale continuous-session notification (session was cancelled)")
+                completionHandler([])
+            } else {
+                completionHandler([.banner, .sound])
+            }
         } else {
             completionHandler([.banner, .sound])
         }
@@ -415,15 +429,19 @@ struct LiftOffApp: App {
                 print("[BGRefresh] 🔒 Device locked — re-shielded + cancelled pending continuous alerts")
             } else {
                 // SAFEGUARD (d): device still unlocked, but cancel stale continuous
-                // alerts if the user hasn't picked up the phone in 30+ minutes.
+                // alerts if the user hasn't picked up the phone in 10+ minutes.
                 // Covers "music playing / phone face-down on desk": the screen may
                 // stay on (or auto-lock was slow), Picksy got suspended before
                 // receiving the lock event, and safeguard (c) never ran.
+                // Lowered from 30 → 10 minutes to catch audio-lock false positives
+                // faster (the willResignActive handler cancels when Picksy was
+                // foreground, but if Picksy was already backgrounded when the
+                // screen locked during audio, only this safeguard catches it).
                 let lastPickupTS = sharedDefaults.double(forKey: "picksy_last_pickup_timestamp")
                 let idleMinutes = lastPickupTS > 0
                     ? (Date().timeIntervalSince1970 - lastPickupTS) / 60
                     : Double.infinity
-                if idleMinutes > 30 {
+                if idleMinutes > 10 {
                     ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
                     print("[BGRefresh] 📴 Unlocked but idle \(Int(idleMinutes))min — cancelled stale continuous alerts")
                 }
@@ -790,7 +808,9 @@ struct LiftOffApp: App {
         //   (a) cancel on lock          — onScreenSessionEnded below
         //   (b) cancel + reschedule     — here, on the next unlock
         //   (c) cancel on BG-refresh    — handleBackgroundRefresh, when device locked
-        //   (d) cancel on BG-refresh    — handleBackgroundRefresh, when unlocked but idle 30+ min
+        //   (d) cancel on BG-refresh    — handleBackgroundRefresh, when unlocked but idle 10+ min
+        //   (e) cancel on resign-active — ScreenUnlockDetector.handleResignActive
+        //   (f) resume on become-active — onScreenSessionResumed below (only if < 10 min)
         ScreenUnlockDetector.shared.onScreenSessionStarted = {
             let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
             ScreenTimeMilestoneNotifier.shared.scheduleContinuousSession(
@@ -800,7 +820,25 @@ struct LiftOffApp: App {
             // Request an early BGAppRefresh so safeguard (c)/(d) runs soon after
             // session start, catching the common case where the phone is put down
             // within a few minutes and auto-locks while Picksy is suspended.
-            LiftOffApp.scheduleBackgroundRefresh(earliestMinutes: 8)
+            LiftOffApp.scheduleBackgroundRefresh(earliestMinutes: 2)
+        }
+
+        // AUDIO LOCK FIX (resume path): When the user returns to Picksy after
+        // a brief absence (< 10 min, e.g. Control Center or quick app switch),
+        // resume the continuous session with the REMAINING time from the original
+        // unlock — NOT from zero. This avoids resetting the clock on every app
+        // switch, which the old code did (scheduling a full fresh session via
+        // onScreenSessionStarted on each didBecomeActive).
+        //
+        // For long absences (≥ 10 min), the detector skips the resume entirely
+        // (likely audio-lock or the user was genuinely away). The next real
+        // unlock starts a fresh session via onScreenSessionStarted.
+        ScreenUnlockDetector.shared.onScreenSessionResumed = {
+            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+            ScreenTimeMilestoneNotifier.shared.resumeContinuousSession(
+                weather: weatherManager.activeCondition,
+                language: lang
+            )
         }
 
         ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in
@@ -922,15 +960,21 @@ struct LiftOffApp: App {
             bgTaskID = UIApplication.shared.beginBackgroundTask(
                 withName: "picksy.bgMonitor"
             ) {
-                // Expiry handler — iOS is about to suspend us, clean up now
+                // Expiry handler — iOS is ending our background window (~30s).
+                // If the device locked while we were in the background, we may
+                // have missed protectedDataWillBecomeUnavailableNotification
+                // (fired right at the lock/expiry boundary). Cancel any pending
+                // continuous-session alerts now before the process is suspended.
+                if !UIApplication.shared.isProtectedDataAvailable {
+                    ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
+                    print("[BGMonitor] 🔒 Expiry: device locked — cancelled stale continuous-session alerts")
+                }
                 UIApplication.shared.endBackgroundTask(bgTaskID)
             }
-            // End explicitly after 28 seconds (just under the ~30s iOS limit).
-            // The expiry handler above is the safety net if iOS cuts us short.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 28) {
-                UIApplication.shared.endBackgroundTask(bgTaskID)
-            }
-            print("[LiftOffApp] 🔲 Background monitor started (~28s window)")
+            // No explicit early end — let iOS run us for the full ~30s window
+            // so we're still alive when a 30-second auto-lock fires and can
+            // handle protectedDataWillBecomeUnavailableNotification normally.
+            print("[LiftOffApp] 🔲 Background monitor started (full iOS window)")
 
             // Schedule BGAppRefreshTask — iOS will fire this periodically
             // (typically 2–4× per hour) to sync the pickup count & update the DI

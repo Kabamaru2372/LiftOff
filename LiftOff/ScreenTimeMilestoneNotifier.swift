@@ -196,15 +196,87 @@ final class ScreenTimeMilestoneNotifier {
         }
     }
 
+    /// Resumes a previously cancelled continuous session using the ORIGINAL
+    /// session start time. Called when the user returns to Picksy after a brief
+    /// absence (< 10 min, e.g. Control Center or quick app switch). Instead of
+    /// restarting the clock from zero, this re-schedules notifications with the
+    /// correct REMAINING time from the original unlock.
+    ///
+    /// If the original session start is missing or all thresholds have already
+    /// elapsed, this is a no-op (the next real unlock will start a fresh session).
+    func resumeContinuousSession(weather: WeatherCondition, language: String) {
+        guard let start = sharedDefaults?.double(forKey: "picksy_continuous_session_start"),
+              start > 0 else {
+            print("[Session] ⏭ No session to resume (start timestamp missing)")
+            return
+        }
+
+        let elapsed = Date().timeIntervalSince1970 - start
+        var anyScheduled = false
+
+        for level in presetLevels() {
+            let totalSeconds = TimeInterval(level.minutes * 60)
+            let remaining = totalSeconds - elapsed
+
+            guard remaining > 10 else { continue } // skip if < 10s remaining or already passed
+
+            let activity = pickActivity(minutes: level.bucket, weather: weather)
+            let (title, body) = continuousStrings(minutes: level.minutes,
+                                                  activity: activity,
+                                                  language: language)
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body  = body
+            content.sound = .default
+            content.categoryIdentifier = "PICKSY_SCREEN_TIME_MILESTONE"
+
+            var info: [AnyHashable: Any] = [
+                "milestoneMinutes": level.minutes,
+                "milestoneBodyEN":  activity.bodyEN,
+                "milestoneBodyGR":  activity.bodyGR,
+                "milestoneBodyDE":  activity.bodyDE
+            ]
+            if let link = activity.link { info["milestoneLink"] = link.absoluteString }
+            content.userInfo = info
+
+            let trigger = UNTimeIntervalNotificationTrigger(
+                timeInterval: remaining,
+                repeats: false
+            )
+            let request = UNNotificationRequest(
+                identifier: sessionIdentifier(level.minutes),
+                content: content,
+                trigger: trigger
+            )
+            UNUserNotificationCenter.current().add(request) { err in
+                if let err { print("[Session] ❌ \(err.localizedDescription)") }
+                else       { print("[Session] ▶️ Resumed \(level.minutes)min alert — \(Int(remaining))s remaining") }
+            }
+            anyScheduled = true
+        }
+
+        if !anyScheduled {
+            print("[Session] ⏭ All thresholds already elapsed (\(Int(elapsed))s since start) — no resume")
+        }
+    }
+
     /// Call on lock (session end) — and defensively on the next unlock. Removes
     /// pending continuous-use alerts that haven't fired yet: the session didn't
     /// last long enough, so they must not fire.
-    func cancelContinuousSession() {
+    ///
+    /// - Parameter preserveSessionStart: When `true`, keeps the
+    ///   `picksy_continuous_session_start` timestamp so `resumeContinuousSession`
+    ///   can re-schedule with the correct remaining time. Pass `true` from the
+    ///   willResignActive handler (brief interruption); pass `false` (default) for
+    ///   real session-end events (screen lock, BGAppRefresh cleanup, etc.).
+    func cancelContinuousSession(preserveSessionStart: Bool = false) {
         let ids = presetLevels().map { sessionIdentifier($0.minutes) }
         UNUserNotificationCenter.current()
             .removePendingNotificationRequests(withIdentifiers: ids)
-        sharedDefaults?.removeObject(forKey: "picksy_continuous_session_start")
-        print("[Session] 🗑 Cancelled pending continuous-use alerts")
+        if !preserveSessionStart {
+            sharedDefaults?.removeObject(forKey: "picksy_continuous_session_start")
+        }
+        print("[Session] 🗑 Cancelled pending continuous-use alerts\(preserveSessionStart ? " (session start preserved for resume)" : "")")
     }
 
     private func continuousStrings(minutes: Int, activity: MilestoneActivity, language: String) -> (String, String) {
