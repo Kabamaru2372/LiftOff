@@ -12,8 +12,12 @@ struct TournamentListView: View {
     @AppStorage("challengeDisplayName") private var userName: String = ""
     @AppStorage("appLanguage") private var appLanguage: String = "English"
 
-    private func t(_ en: String, _ gr: String) -> String {
-        appLanguage == "Ελληνικά" ? gr : en
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage {
+        case "Ελληνικά": return gr
+        case "Deutsch":  return de
+        default:         return en
+        }
     }
 
     var body: some View {
@@ -25,14 +29,14 @@ struct TournamentListView: View {
                     tournamentList
                 }
             }
-            .navigationTitle(t("Tournaments", "Τουρνουά"))
+            .navigationTitle(t("Tournaments", "Τουρνουά", "Turniere"))
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     Button { showJoin = true } label: {
-                        Label(t("Join", "Συμμετοχή"), systemImage: "person.badge.plus")
+                        Label(t("Join", "Συμμετοχή", "Beitreten"), systemImage: "person.badge.plus")
                     }
                     Button { showCreate = true } label: {
-                        Label(t("Create", "Δημιουργία"), systemImage: "plus")
+                        Label(t("Create", "Δημιουργία", "Erstellen"), systemImage: "plus")
                     }
                 }
             }
@@ -51,11 +55,12 @@ struct TournamentListView: View {
         VStack(spacing: 20) {
             Text("⚔️")
                 .font(.system(size: 56))
-            Text(t("No active tournaments", "Δεν υπάρχουν ενεργά τουρνουά"))
+            Text(t("No active tournaments", "Δεν υπάρχουν ενεργά τουρνουά", "Keine aktiven Turniere"))
                 .font(.system(size: 20, weight: .bold, design: .rounded))
             Text(t(
                 "Create a tournament and challenge your friends to use their phones less this week!",
-                "Δημιούργησε ένα τουρνουά και πρόκλεσε τους φίλους σου να χρησιμοποιούν λιγότερο το κινητό αυτή την εβδομάδα!"
+                "Δημιούργησε ένα τουρνουά και πρόκλεσε τους φίλους σου να χρησιμοποιούν λιγότερο το κινητό αυτή την εβδομάδα!",
+                "Erstelle ein Turnier und fordere deine Freunde heraus, diese Woche ihr Handy weniger zu nutzen!"
             ))
             .font(.system(size: 15, design: .rounded))
             .foregroundStyle(.secondary)
@@ -64,7 +69,7 @@ struct TournamentListView: View {
 
             HStack(spacing: 12) {
                 Button { showCreate = true } label: {
-                    Label(t("Create", "Δημιουργία"), systemImage: "plus")
+                    Label(t("Create", "Δημιουργία", "Erstellen"), systemImage: "plus")
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 20)
@@ -72,7 +77,7 @@ struct TournamentListView: View {
                         .background(RoundedRectangle(cornerRadius: 12).fill(Color.blue))
                 }
                 Button { showJoin = true } label: {
-                    Label(t("Join", "Συμμετοχή"), systemImage: "person.badge.plus")
+                    Label(t("Join", "Συμμετοχή", "Beitreten"), systemImage: "person.badge.plus")
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
                         .foregroundStyle(.blue)
                         .padding(.horizontal, 20)
@@ -126,7 +131,9 @@ private struct TournamentRowView: View {
     let participants: [TournamentParticipant]
 
     @AppStorage("appLanguage") private var appLanguage: String = "English"
-    private func t(_ en: String, _ gr: String) -> String { appLanguage == "Ελληνικά" ? gr : en }
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage { case "Ελληνικά": return gr; case "Deutsch": return de; default: return en }
+    }
 
     private var myParticipant: TournamentParticipant? {
         participants.first(where: { $0.isMe })
@@ -151,7 +158,7 @@ private struct TournamentRowView: View {
             }
             HStack(spacing: 12) {
                 Label("\(participants.count)/\(tournament.maxParticipants)", systemImage: "person.2")
-                Label(t("\(tournament.daysRemaining)d left", "\(tournament.daysRemaining) μέρες"), systemImage: "clock")
+                Label(t("\(tournament.daysRemaining)d left", "\(tournament.daysRemaining) μέρες", "\(tournament.daysRemaining) T. übrig"), systemImage: "clock")
             }
             .font(.system(size: 13, design: .rounded))
             .foregroundStyle(.secondary)
@@ -174,7 +181,9 @@ struct CreateTournamentView: View {
     @State private var manager = TournamentManager.shared
     @AppStorage("appLanguage") private var appLanguage: String = "English"
 
-    private func t(_ en: String, _ gr: String) -> String { appLanguage == "Ελληνικά" ? gr : en }
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage { case "Ελληνικά": return gr; case "Deutsch": return de; default: return en }
+    }
 
     var body: some View {
         NavigationStack {
@@ -189,14 +198,14 @@ struct CreateTournamentView: View {
     private var formState: some View {
         VStack(spacing: 24) {
             Text("⚔️").font(.system(size: 48))
-            Text(t("New Tournament", "Νέο Τουρνουά"))
+            Text(t("New Tournament", "Νέο Τουρνουά", "Neues Turnier"))
                 .font(.system(size: 22, weight: .bold, design: .rounded))
 
             VStack(alignment: .leading, spacing: 8) {
-                Text(t("Tournament name", "Όνομα τουρνουά"))
+                Text(t("Tournament name", "Όνομα τουρνουά", "Turniername"))
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                     .foregroundStyle(.secondary)
-                TextField(t("e.g. Office Challenge", "π.χ. Πρόκληση γραφείου"), text: $name)
+                TextField(t("e.g. Office Challenge", "π.χ. Πρόκληση γραφείου", "z.B. Büro-Challenge"), text: $name)
                     .textFieldStyle(.roundedBorder)
                     .font(.system(size: 16, design: .rounded))
             }
@@ -219,7 +228,7 @@ struct CreateTournamentView: View {
                     if manager.isLoading {
                         ProgressView()
                     } else {
-                        Text(t("Create & Get Code", "Δημιουργία & Κωδικός"))
+                        Text(t("Create & Get Code", "Δημιουργία & Κωδικός", "Erstellen & Code erhalten"))
                     }
                 }
                 .font(.system(size: 17, weight: .semibold, design: .rounded))
@@ -237,7 +246,7 @@ struct CreateTournamentView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
-                Button(t("Cancel", "Άκυρο")) { dismiss() }
+                Button(t("Cancel", "Άκυρο", "Abbrechen")) { dismiss() }
             }
         }
     }
@@ -245,11 +254,11 @@ struct CreateTournamentView: View {
     private func createdState(_ tournament: TournamentRecord) -> some View {
         VStack(spacing: 20) {
             Text("🎉").font(.system(size: 56))
-            Text(t("Tournament created!", "Το τουρνουά δημιουργήθηκε!"))
+            Text(t("Tournament created!", "Το τουρνουά δημιουργήθηκε!", "Turnier erstellt!"))
                 .font(.system(size: 22, weight: .bold, design: .rounded))
 
             VStack(spacing: 6) {
-                Text(t("Share this code with your friends:", "Μοιράσου αυτόν τον κωδικό με τους φίλους σου:"))
+                Text(t("Share this code with your friends:", "Μοιράσου αυτόν τον κωδικό με τους φίλους σου:", "Teile diesen Code mit deinen Freunden:"))
                     .font(.system(size: 15, design: .rounded))
                     .foregroundStyle(.secondary)
                 Text(tournament.inviteCode)
@@ -263,7 +272,7 @@ struct CreateTournamentView: View {
             ShareLink(
                 item: shareText(tournament),
                 label: {
-                    Label(t("Share Invite", "Μοιράσου την πρόσκληση"), systemImage: "square.and.arrow.up")
+                    Label(t("Share Invite", "Μοιράσου την πρόσκληση", "Einladung teilen"), systemImage: "square.and.arrow.up")
                         .font(.system(size: 17, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -273,7 +282,7 @@ struct CreateTournamentView: View {
             )
             .padding(.horizontal, 24)
 
-            Button(t("Done", "Τέλος")) { dismiss() }
+            Button(t("Done", "Τέλος", "Fertig")) { dismiss() }
                 .font(.system(size: 16, design: .rounded))
                 .foregroundStyle(.secondary)
 
@@ -286,7 +295,8 @@ struct CreateTournamentView: View {
     private func shareText(_ tournament: TournamentRecord) -> String {
         t(
             "I'm challenging you to a weekly screen time tournament on Picksy! 📱⚔️\n\nJoin my group with code: \(tournament.inviteCode)\n\nDownload Picksy 👉 https://apps.apple.com/app/picksy-be-present/id6761116771",
-            "Σε προκαλώ σε εβδομαδιαία μονομαχία screen time στο Picksy! 📱⚔️\n\nΜπες στην ομάδα μου με κωδικό: \(tournament.inviteCode)\n\nΚατέβασε το Picksy 👉 https://apps.apple.com/app/picksy-be-present/id6761116771"
+            "Σε προκαλώ σε εβδομαδιαία μονομαχία screen time στο Picksy! 📱⚔️\n\nΜπες στην ομάδα μου με κωδικό: \(tournament.inviteCode)\n\nΚατέβασε το Picksy 👉 https://apps.apple.com/app/picksy-be-present/id6761116771",
+            "Ich fordere dich zu einem wöchentlichen Bildschirmzeit-Turnier auf Picksy heraus! 📱⚔️\n\nTritt meiner Gruppe mit Code bei: \(tournament.inviteCode)\n\nPicksy herunterladen 👉 https://apps.apple.com/app/picksy-be-present/id6761116771"
         )
     }
 }
@@ -300,17 +310,19 @@ struct JoinTournamentView: View {
     @State private var manager = TournamentManager.shared
     @AppStorage("appLanguage") private var appLanguage: String = "English"
 
-    private func t(_ en: String, _ gr: String) -> String { appLanguage == "Ελληνικά" ? gr : en }
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage { case "Ελληνικά": return gr; case "Deutsch": return de; default: return en }
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 24) {
                 Text("🔑").font(.system(size: 48))
-                Text(t("Join a Tournament", "Συμμετοχή σε Τουρνουά"))
+                Text(t("Join a Tournament", "Συμμετοχή σε Τουρνουά", "Turnier beitreten"))
                     .font(.system(size: 22, weight: .bold, design: .rounded))
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(t("Enter invite code", "Βάλε κωδικό πρόσκλησης"))
+                    Text(t("Enter invite code", "Βάλε κωδικό πρόσκλησης", "Einladungscode eingeben"))
                         .font(.system(size: 13, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                     TextField("ABC-XYZ", text: $code)
@@ -339,7 +351,7 @@ struct JoinTournamentView: View {
                         if manager.isLoading {
                             ProgressView()
                         } else {
-                            Text(t("Join", "Συμμετοχή"))
+                            Text(t("Join", "Συμμετοχή", "Beitreten"))
                         }
                     }
                     .font(.system(size: 17, weight: .semibold, design: .rounded))
@@ -357,7 +369,7 @@ struct JoinTournamentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(t("Cancel", "Άκυρο")) { dismiss() }
+                    Button(t("Cancel", "Άκυρο", "Abbrechen")) { dismiss() }
                 }
             }
         }

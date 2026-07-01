@@ -13,8 +13,12 @@ struct TournamentView: View {
     @Environment(\.dismiss) private var dismiss
     @AppStorage("appLanguage") private var appLanguage: String = "English"
 
-    private func t(_ en: String, _ gr: String) -> String {
-        appLanguage == "Ελληνικά" ? gr : en
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage {
+        case "Ελληνικά": return gr
+        case "Deutsch":  return de
+        default:         return en
+        }
     }
 
     private var sorted: [TournamentParticipant] {
@@ -30,15 +34,15 @@ struct TournamentView: View {
                 Text(tournament.name)
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                 HStack(spacing: 16) {
-                    Label(t("\(tournament.daysRemaining)d left", "\(tournament.daysRemaining) μέρες"), systemImage: "clock")
-                    Label(t("\(participants.count) players", "\(participants.count) παίκτες"), systemImage: "person.2")
+                    Label(t("\(tournament.daysRemaining)d left", "\(tournament.daysRemaining) μέρες", "\(tournament.daysRemaining) T. übrig"), systemImage: "clock")
+                    Label(t("\(participants.count) players", "\(participants.count) παίκτες", "\(participants.count) Spieler"), systemImage: "person.2")
                 }
                 .font(.system(size: 13, design: .rounded))
                 .foregroundStyle(.secondary)
 
                 // Invite code pill
                 HStack(spacing: 6) {
-                    Text(t("Code:", "Κωδικός:"))
+                    Text(t("Code:", "Κωδικός:", "Code:"))
                         .font(.system(size: 13, design: .rounded))
                         .foregroundStyle(.secondary)
                     Text(tournament.inviteCode)
@@ -60,7 +64,7 @@ struct TournamentView: View {
             // Leaderboard
             if sorted.isEmpty {
                 Spacer()
-                Text(t("No participants yet", "Δεν υπάρχουν συμμετέχοντες ακόμα"))
+                Text(t("No participants yet", "Δεν υπάρχουν συμμετέχοντες ακόμα", "Noch keine Teilnehmer"))
                     .foregroundStyle(.secondary)
                     .font(.system(size: 15, design: .rounded))
                 Spacer()
@@ -80,7 +84,7 @@ struct TournamentView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button(t("Leave", "Αποχώρηση")) { dismiss(); onLeave() }
+                Button(t("Leave", "Αποχώρηση", "Verlassen")) { dismiss(); onLeave() }
                     .foregroundStyle(.red)
                     .font(.system(size: 15, design: .rounded))
             }
@@ -90,7 +94,8 @@ struct TournamentView: View {
     private var shareText: String {
         t(
             "I'm in a weekly screen time tournament on Picksy! Join my group with code \(tournament.inviteCode)\n\nDownload Picksy 👉 https://apps.apple.com/app/picksy-be-present/id6761116771",
-            "Είμαι σε εβδομαδιαία μονομαχία screen time στο Picksy! Μπες στην ομάδα μου με κωδικό \(tournament.inviteCode)\n\nΚατέβασε το Picksy 👉 https://apps.apple.com/app/picksy-be-present/id6761116771"
+            "Είμαι σε εβδομαδιαία μονομαχία screen time στο Picksy! Μπες στην ομάδα μου με κωδικό \(tournament.inviteCode)\n\nΚατέβασε το Picksy 👉 https://apps.apple.com/app/picksy-be-present/id6761116771",
+            "Ich nehme an einem wöchentlichen Bildschirmzeit-Turnier auf Picksy teil! Tritt meiner Gruppe mit Code \(tournament.inviteCode) bei\n\nPicksy herunterladen 👉 https://apps.apple.com/app/picksy-be-present/id6761116771"
         )
     }
 }
@@ -102,6 +107,10 @@ private struct ParticipantRow: View {
     let participant: TournamentParticipant
 
     @State private var showFriendApps = false
+    @AppStorage("appLanguage") private var appLanguage: String = "English"
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        switch appLanguage { case "Ελληνικά": return gr; case "Deutsch": return de; default: return en }
+    }
 
     var body: some View {
         HStack(spacing: 14) {
@@ -126,7 +135,7 @@ private struct ParticipantRow: View {
                     Text(participant.displayName)
                         .font(.system(size: 16, weight: .semibold, design: .rounded))
                     if participant.isMe {
-                        Text("you")
+                        Text(t("you", "εσύ", "du"))
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 6)
@@ -145,7 +154,7 @@ private struct ParticipantRow: View {
                     }
                 }
                 if participant.penaltySeconds > 0 {
-                    Text("+ \(formatDuration(participant.penaltySeconds)) handicap")
+                    Text("+ \(formatDuration(participant.penaltySeconds)) \(t("handicap", "χάντικαπ", "Handicap"))")
                         .font(.system(size: 11, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
