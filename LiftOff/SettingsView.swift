@@ -44,6 +44,24 @@ struct SettingsView: View {
     @State private var showAchievements: Bool = false
     #if DEBUG
     @State private var showDebugDuelResult: Bool = false
+
+    // Supabase dev panel
+    // ── PAT: supabase.com/dashboard/account/tokens → Generate new token ──
+    private static let supabasePAT = DebugSecrets.supabasePAT
+    private static let supabaseProjectRef = "igbtosqmtdrxzmoblvpp"
+
+    struct SupabaseSnapshot {
+        var pickupsToday:        Int    = 0
+        var screenTime2h:        Int    = 0
+        var updatedAt:           String = "—"
+        var pingMs:              Int?   = nil
+        var edgeCallsToday:      Int    = 0
+        var edgeInvocations:     Int?   = nil  // billing-cycle total from Management API
+        var edgeLimit:           Int    = 500_000
+        var error:               String? = nil
+    }
+    @State private var supabaseSnap:    SupabaseSnapshot = SupabaseSnapshot()
+    @State private var supabaseLoading: Bool = false
     #endif
 
     // v1.7: Threshold preset
@@ -79,6 +97,15 @@ struct SettingsView: View {
         case "Deutsch": return de
         default: return en
         }
+    }
+
+    static var devBuild: String {
+        guard let path = Bundle.main.executablePath,
+              let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+              let mod   = attrs[.modificationDate] as? Date
+        else { return "?" }
+        let f = DateFormatter(); f.dateFormat = "MMdd·HH:mm"
+        return f.string(from: mod)
     }
 
     private var appVersion: String {
@@ -1141,12 +1168,168 @@ struct SettingsView: View {
                 }
             }
 
+            Divider().padding(.vertical, 4)
+
+            // ── Supabase dev panel ─────────────────────────────────────────────
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Image(systemName: "server.rack")
+                        .font(.system(size: 11))
+                        .foregroundColor(.green)
+                    Text("SUPABASE")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundColor(.green)
+                    Spacer()
+                    Button(action: { fetchSupabaseSnapshot() }) {
+                        Image(systemName: supabaseLoading ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
+                            .font(.system(size: 12))
+                            .foregroundColor(.green)
+                            .rotationEffect(.degrees(supabaseLoading ? 360 : 0))
+                            .animation(supabaseLoading ? .linear(duration: 1).repeatForever(autoreverses: false) : .default, value: supabaseLoading)
+                    }
+                }
+
+                let devID = FriendSyncManager.shared.deviceID
+                HStack(spacing: 4) {
+                    Text("id: \(devID.prefix(16))…")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.secondary)
+                    Button(action: { UIPasteboard.general.string = devID }) {
+                        Image(systemName: "doc.on.doc")
+                            .font(.system(size: 10))
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                if let err = supabaseSnap.error {
+                    Text("❌ \(err)")
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundColor(.red)
+                } else {
+                    Group {
+                        supabaseRow("pickups_today",    "\(supabaseSnap.pickupsToday)")
+                        supabaseRow("screen_time_2h",   "\(supabaseSnap.screenTime2h / 60) min")
+                        supabaseRow("updated_at",       supabaseSnap.updatedAt)
+                        if let inv = supabaseSnap.edgeInvocations {
+                            let pct = Int(Double(inv) / Double(supabaseSnap.edgeLimit) * 100)
+                            supabaseRow("edge_fn_total",
+                                        "\(inv.formatted()) / \(supabaseSnap.edgeLimit.formatted()) (\(pct)%)")
+                        }
+                        if let ms = supabaseSnap.pingMs {
+                            supabaseRow("ping", "\(ms) ms")
+                        }
+                    }
+                }
+            }
+            .padding(10)
+            .background(RoundedRectangle(cornerRadius: 10).fill(Color.green.opacity(0.06)))
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color.green.opacity(0.2), lineWidth: 1))
+            .onAppear {
+                fetchSupabaseSnapshot()
+                fetchEdgeUsage()
+            }
+
             Text("These buttons exist only in DEBUG builds and will not appear in the App Store version.")
                 .font(.system(size: 11, design: .rounded))
                 .foregroundColor(.secondary)
                 .lineSpacing(2)
                 .padding(.top, 4)
         }
+    }
+
+    private func supabaseRow(_ key: String, _ value: String) -> some View {
+        HStack(spacing: 0) {
+            Text(key)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.secondary)
+                .frame(width: 130, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.primary)
+        }
+    }
+
+    private func fetchEdgeUsage() {
+        let supabaseURL  = "https://igbtosqmtdrxzmoblvpp.supabase.co"
+        let supabaseAnon = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnYnRvc3FtdGRyeHptb2JsdnBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzOTUyMzYsImV4cCI6MjA5Mzk3MTIzNn0.Kbzm3Ev1s48inU2YvkS0v3I6rhBM0evffrb3nRBhfok"
+        guard let url = URL(string: "\(supabaseURL)/rest/v1/edge_usage?select=calls&id=eq.1") else { return }
+
+        var req = URLRequest(url: url)
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        req.setValue(supabaseAnon,        forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(supabaseAnon)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 8
+
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data,
+                  let rows  = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  let calls = rows.first?["calls"] as? Int
+            else { return }
+            DispatchQueue.main.async {
+                supabaseSnap.edgeInvocations = calls
+                supabaseSnap.edgeLimit       = 500_000
+            }
+        }.resume()
+    }
+
+    private func fetchSupabaseSnapshot() {
+        let deviceID = FriendSyncManager.shared.deviceID
+        guard !deviceID.isEmpty else { return }
+
+        let supabaseURL  = "https://igbtosqmtdrxzmoblvpp.supabase.co"
+        let supabaseAnon = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlnYnRvc3FtdGRyeHptb2JsdnBwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgzOTUyMzYsImV4cCI6MjA5Mzk3MTIzNn0.Kbzm3Ev1s48inU2YvkS0v3I6rhBM0evffrb3nRBhfok"
+
+        let escaped = deviceID.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? deviceID
+        let urlStr  = "\(supabaseURL)/rest/v1/device_status?device_id=eq.\(escaped)&select=pickups_today,screen_time_last_2h_seconds,updated_at&limit=1"
+        guard let url = URL(string: urlStr) else { return }
+
+        supabaseLoading = true
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        let edgeKey = "picksy_debug_edge_calls_\(fmt.string(from: Date()))"
+        let edgeCalls = UserDefaults(suiteName: "group.fotiospongas.picksy")?.integer(forKey: edgeKey) ?? 0
+        // Keep the edge total visible during refresh — don't flash nil
+        let savedInv = supabaseSnap.edgeInvocations
+        let savedLim = supabaseSnap.edgeLimit
+        supabaseSnap = SupabaseSnapshot(edgeCallsToday: edgeCalls)
+        supabaseSnap.edgeInvocations = savedInv
+        supabaseSnap.edgeLimit       = savedLim
+
+        var req = URLRequest(url: url)
+        req.setValue("application/json",   forHTTPHeaderField: "Accept")
+        req.setValue(supabaseAnon,         forHTTPHeaderField: "apikey")
+        req.setValue("Bearer \(supabaseAnon)", forHTTPHeaderField: "Authorization")
+        req.timeoutInterval = 8
+
+        let start = Date()
+        URLSession.shared.dataTask(with: req) { data, response, error in
+            let ms = Int(Date().timeIntervalSince(start) * 1000)
+            DispatchQueue.main.async {
+                supabaseLoading = false
+                if let err = error {
+                    supabaseSnap.error = err.localizedDescription
+                    return
+                }
+                guard let data,
+                      let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                      let row  = rows.first
+                else {
+                    supabaseSnap.error = "no row found"
+                    return
+                }
+                // Preserve edgeInvocations/edgeLimit — fetchEdgeUsage() runs concurrently
+                // and whichever callback fires last would otherwise wipe the other's result.
+                var snap = SupabaseSnapshot(edgeCallsToday: edgeCalls)
+                snap.pickupsToday    = row["pickups_today"]               as? Int ?? 0
+                snap.screenTime2h    = row["screen_time_last_2h_seconds"] as? Int ?? 0
+                snap.updatedAt       = (row["updated_at"] as? String ?? "—")
+                    .replacingOccurrences(of: "T", with: " ")
+                    .prefix(19).description
+                snap.pingMs          = ms
+                snap.edgeInvocations = supabaseSnap.edgeInvocations
+                snap.edgeLimit       = supabaseSnap.edgeLimit
+                supabaseSnap = snap
+            }
+        }.resume()
     }
     #endif
 
@@ -1172,6 +1355,13 @@ struct SettingsView: View {
                 .font(.system(size: 12, design: .rounded))
                 .foregroundColor(.secondary)
                 .padding(.bottom, 4)
+
+            #if DEBUG
+            Text("🛠 internal build \(SettingsView.devBuild)")
+                .font(.system(size: 11, design: .monospaced))
+                .foregroundColor(.orange.opacity(0.7))
+                .padding(.bottom, 2)
+            #endif
 
             VStack(spacing: 0) {
                 Link(destination: URL(string: "https://fotiospongas.dev")!) {

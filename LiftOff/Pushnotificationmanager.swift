@@ -167,6 +167,11 @@ class PushNotificationManager {
             let (_, response) = try await URLSession.shared.data(for: request)
             if let http = response as? HTTPURLResponse {
                 print("[PushManager] 🎯 LiveActivity push → \(http.statusCode)")
+                if http.statusCode < 300 {
+                    let d = UserDefaults(suiteName: "group.fotiospongas.picksy")
+                    let k = "picksy_debug_edge_calls_\(Self.todayKey())"
+                    d?.set((d?.integer(forKey: k) ?? 0) + 1, forKey: k)
+                }
             }
         } catch {
             print("[PushManager] ⚠️ LiveActivity push failed: \(error.localizedDescription)")
@@ -219,6 +224,12 @@ class PushNotificationManager {
         } catch {
             print("[PushManager] ❌ Failed to register token: \(error.localizedDescription)")
         }
+    }
+
+    private static func todayKey() -> String {
+        let fmt = DateFormatter()
+        fmt.dateFormat = "yyyy-MM-dd"
+        return fmt.string(from: Date())
     }
 
     private func isDebugBuild() -> Bool {

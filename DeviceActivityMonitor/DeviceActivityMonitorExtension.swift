@@ -537,6 +537,10 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
             if let http = response as? HTTPURLResponse {
                 self?.log("🎯 APNs push → \(http.statusCode) (pickups: \(pickupCount), duel: \(isDuelActive))")
+                if http.statusCode < 300, let d = self?.sharedDefaults {
+                    let k = "picksy_debug_edge_calls_\(self?.todayKey() ?? "")"
+                    d.set(d.integer(forKey: k) + 1, forKey: k)
+                }
             } else if let error = error {
                 self?.log("⚠️ APNs push failed: \(error.localizedDescription)")
             }

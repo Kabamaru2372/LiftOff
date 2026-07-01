@@ -62,6 +62,7 @@ iOSInjectionProject/
 .env.*.local
 secrets.plist
 config.local.plist
+LiftOff/DebugSecrets.swift
 *.private
 
 # IDE files
