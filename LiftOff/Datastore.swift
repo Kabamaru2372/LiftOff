@@ -489,7 +489,10 @@ class DataStore {
             todayTotalSeconds = 0
             hourlyScreenTimeSecs = Array(repeating: 0, count: 24)
             weeklyPickups[currentDayIndex()] = 0
-            defaults.removeObject(forKey: todayPickupsKey())
+            // Do NOT remove today's per-day key here — the extension may have already
+            // counted pickups since midnight. syncWithDeviceActivity() (called right
+            // after checkNewDay) will read and apply the extension's count correctly.
+            defaults.set(0, forKey: "todayPickups")
             // Reset Apple-confirmed screen time for the new day (+ ladder baseline).
             defaults.set(0, forKey: "picksy_apple_screen_time_secs")
             defaults.removeObject(forKey: "picksy_apple_screen_time_date")

@@ -115,6 +115,14 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 try? "\(f2.string(from: Date()))|0".data(using: .utf8)?.write(to: pickupURL, options: .atomic)
             }
 
+            // Reset the App Group todayPickups counter for the new day.
+            // DataStore normally handles this via checkNewDay(), but if the main app
+            // is suspended at midnight the reset never fires — leaving yesterday's
+            // count visible when the extension records the first pickup of the new day
+            // (newCount=1 < staleYesterdayCount → guard skips the write).
+            sharedDefaults?.set(0, forKey: "todayPickups")
+            log("📊 todayPickups reset to 0 for new day")
+
             // Tell the main app (if alive) to re-read the now-zeroed values.
             CFNotificationCenterPostNotification(
                 CFNotificationCenterGetDarwinNotifyCenter(),
