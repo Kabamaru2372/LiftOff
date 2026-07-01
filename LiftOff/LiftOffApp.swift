@@ -971,6 +971,11 @@ struct LiftOffApp: App {
             let g = UserDefaults.standard.integer(forKey: "dailyGoal")
             let goal = g > 0 ? g : 50
 
+            // ensureFreshActivity restarts the DI if the current activity is from
+            // a previous day (staleDate fired at midnight, iOS hid the DI but left
+            // activityState == .active — the normal isRunning check wouldn't restart it).
+            liveActivity.ensureFreshActivity(pickupCount: store.todayPickups, dailyGoal: goal)
+
             if liveActivity.isRunning {
                 // Focus > Duel > Normal priority for Dynamic Island
                 if focusSessionManager.isActive,
@@ -991,8 +996,6 @@ struct LiftOffApp: App {
                 } else {
                     liveActivity.update(pickupCount: store.todayPickups)
                 }
-            } else {
-                liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal)
             }
 
             ScreenUnlockDetector.shared.startMonitoring()
@@ -1031,6 +1034,10 @@ struct LiftOffApp: App {
                         theirSecs: duel.theirScreenTime
                     )
                 }
+                // Refresh weather on foreground so the background stays current.
+                // fetchWeather() has a 10-min cache guard — no extra network calls.
+                await weatherManager.fetchWeather()
+
                 // Refresh pre-computed milestone messages in the App Group so the
                 // DeviceActivityMonitor extension fires accurate, weather-aware
                 // notifications when Apple's usage thresholds are reached.
