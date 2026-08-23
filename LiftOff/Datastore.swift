@@ -88,8 +88,19 @@ class DataStore {
     ///   • appleConfirmedScreenTimeSecs (Apple threshold events — lower bound,
     ///     available even before the report has rendered)
     ///   • todayTotalSeconds (ScreenUnlockDetector — accurate only while alive)
+    ///
+    /// Clamped to elapsed seconds since local midnight — screen time can never
+    /// exceed wall-clock time elapsed today. Guards against a corrupted
+    /// accumulator (e.g. a stale ScreenUnlockDetector session, observed once as
+    /// 23h30m from a single missed lock event) ever displaying an impossible value.
     var bestScreenTimeSecs: Int {
-        max(todayTotalSeconds, max(appleConfirmedScreenTimeSecs, reportConfirmedScreenTimeSecs))
+        let raw = max(todayTotalSeconds, max(appleConfirmedScreenTimeSecs, reportConfirmedScreenTimeSecs))
+        return min(raw, Self.secondsSinceMidnight())
+    }
+
+    static func secondsSinceMidnight(now: Date = Date()) -> Int {
+        let startOfDay = Calendar.current.startOfDay(for: now)
+        return max(0, Int(now.timeIntervalSince(startOfDay)))
     }
 
     /// Forces the confirmed-time computed properties to re-publish so any
@@ -123,9 +134,14 @@ class DataStore {
         totalPickups = defaults.integer(forKey: "totalPickups")
         totalDaysTracked = defaults.integer(forKey: "totalDaysTracked")
 
-        if let saved = defaults.array(forKey: "weeklyPickups") as? [Int] {
+        if let saved = defaults.array(forKey: "weeklyPickups") as? [Int], saved.count == 7 {
             weeklyPickups = saved
         }
+        // If a malformed/short array was ever persisted (e.g. an older schema),
+        // keep the safe [0,0,0,0,0,0,0] default instead of leaving weeklyPickups
+        // with < 7 elements — checkNewDay()'s weeklyPickups[currentDayIndex()] = 0
+        // would otherwise crash with an out-of-range index exactly at the
+        // midnight day-boundary.
         if let saved = defaults.array(forKey: "hourlyScreenTimeSecs") as? [Int], saved.count == 24 {
             hourlyScreenTimeSecs = saved
         }
@@ -158,6 +174,105 @@ class DataStore {
         let hour = Calendar.current.component(.hour, from: Date())
         hourlyScreenTimeSecs[hour] += seconds
         saveData()
+    }
+
+    // MARK: - Dynamic Island "plant" growth/wilt
+
+    /// Grows to 100 over ~2h of not touching the phone at all (matches the old
+    /// growth-emoji timing). Public so LiveActivityManager can extrapolate the
+    /// SAME curve when populating ContentState.
+    static let plantGrowthRatePerSecond = 100.0 / (2 * 60 * 60)
+
+    /// Wilts 3x faster than it grows — easy to lose, slower to rebuild, which is
+    /// the whole point of the "digital watering" nudge. Applied CONTINUOUSLY for
+    /// as long as a screen session is active (see beginPlantSession/endPlantSession)
+    /// — the plant visibly wilts in real time the moment the phone is picked up,
+    /// not just retroactively once the user puts it back down.
+    static let plantWiltRatePerSecond = plantGrowthRatePerSecond * 3
+
+    /// If a session is still marked "active" after this long, we almost
+    /// certainly missed the real screen-lock notification (e.g. the app was
+    /// suspended/killed at exactly the wrong moment) — extrapolatedPlantHealth
+    /// below treats the session as having ended at this cutoff and resumes
+    /// growth, instead of leaving the plant stuck at 0 forever. Mirrors
+    /// ScreenUnlockDetector.maxSessionDurationSeconds, the same "implausibly
+    /// long unbroken session" safety net used for screen-time accounting.
+    private static let plantSessionStaleCutoff: TimeInterval = 2 * 60 * 60
+
+    /// Extrapolates health forward from a stored (baseline, time, isWilting)
+    /// checkpoint. While a screen session is active (isWilting), health falls
+    /// continuously; otherwise it grows continuously. Shared math so the
+    /// DI/widget's own extrapolation stays identical to what the app computes.
+    static func extrapolatedPlantHealth(baseline: Double, baselineTime: Date, isWilting: Bool, now: Date = Date()) -> Double {
+        guard baselineTime != .distantPast else { return 0 }
+        let elapsed = max(0, now.timeIntervalSince(baselineTime))
+        if isWilting {
+            guard elapsed < plantSessionStaleCutoff else {
+                return min(100, (elapsed - plantSessionStaleCutoff) * plantGrowthRatePerSecond)
+            }
+            return max(0, baseline - elapsed * plantWiltRatePerSecond)
+        }
+        return min(100, baseline + elapsed * plantGrowthRatePerSecond)
+    }
+
+    private static func todayDateStringStatic() -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+
+    /// Freezes whatever the checkpoint currently extrapolates to as the new
+    /// baseline and flips the wilt/grow direction from `now`. Shared by
+    /// begin/end below — both transitions are "checkpoint the live value, then
+    /// start extrapolating the other way."
+    private static func checkpointPlantHealth(isWilting: Bool, now: Date = Date()) {
+        let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
+        let checkpoint = plantHealthCheckpoint()
+        let current = extrapolatedPlantHealth(
+            baseline: checkpoint.baseline,
+            baselineTime: checkpoint.time,
+            isWilting: checkpoint.isWilting,
+            now: now
+        )
+        suite.set(current, forKey: "picksy_plant_health")
+        suite.set(now.timeIntervalSince1970, forKey: "picksy_plant_health_time")
+        suite.set(todayDateStringStatic(), forKey: "picksy_plant_health_date")
+        suite.set(isWilting, forKey: "picksy_plant_wilting")
+    }
+
+    /// Called on EVERY unlock (ScreenUnlockDetector.onScreenSessionStarted),
+    /// before the pickup cooldown check — the instant the phone is picked up,
+    /// the plant starts wilting in real time. Also bumps plantWiltTrigger so
+    /// PlantHealthView fires its shake/flash right when the user picks up —
+    /// the moment the nudge actually matters — rather than only after the fact.
+    func beginPlantSession() {
+        Self.checkpointPlantHealth(isWilting: true)
+        plantWiltTrigger += 1
+    }
+
+    /// Called when the screen locks (ScreenUnlockDetector.onScreenSessionEnded)
+    /// — freezes the now-wilted value and resumes growing from this moment.
+    func endPlantSession() {
+        Self.checkpointPlantHealth(isWilting: false)
+    }
+
+    /// Bumped by beginPlantSession() on every pickup. NudgeView's
+    /// PlantHealthView observes this to trigger its wilt shake/flash animation.
+    var plantWiltTrigger: Int = 0
+
+    /// Reads the current plant-health checkpoint from the App Group, for
+    /// LiveActivityManager to copy into ContentState. Read-only — does NOT
+    /// write anything. Date-guarded the same way as every other "today" value.
+    static func plantHealthCheckpoint() -> (baseline: Double, time: Date, isWilting: Bool) {
+        let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        let today = f.string(from: Date())
+        guard suite.string(forKey: "picksy_plant_health_date") == today else {
+            return (0, .distantPast, false)
+        }
+        let timeRaw = suite.double(forKey: "picksy_plant_health_time")
+        let time = timeRaw > 0 ? Date(timeIntervalSince1970: timeRaw) : .distantPast
+        return (suite.double(forKey: "picksy_plant_health"), time, suite.bool(forKey: "picksy_plant_wilting"))
     }
 
     // MARK: - DeviceActivity Sync
@@ -499,16 +614,29 @@ class DataStore {
             // after checkNewDay) will read and apply the extension's count correctly.
             defaults.set(0, forKey: "todayPickups")
             // Reset Apple-confirmed screen time for the new day (+ ladder baseline).
-            defaults.set(0, forKey: "picksy_apple_screen_time_secs")
-            defaults.removeObject(forKey: "picksy_apple_screen_time_date")
-            defaults.set(0, forKey: "picksy_apple_screen_time_baseline")
-            defaults.removeObject(forKey: "picksy_apple_screen_time_baseline_date")
-            // Stamp the reset epoch so the DeviceActivity extension can reject stale
-            // threshold callbacks that fire after this reset (delayed iOS delivery).
-            defaults.set(Date().timeIntervalSince1970, forKey: "picksy_ladder_reset_epoch")
-            // Reset report-confirmed total for the new day.
-            defaults.set(0, forKey: "picksy_report_screen_time_secs")
-            defaults.removeObject(forKey: "picksy_report_screen_time_date")
+            //
+            // DATE-GUARDED: the DeviceActivityMonitor extension can ALSO reset these
+            // same keys for the new day (it runs independently, often before the main
+            // app is ever opened — e.g. the user uses their phone at 06:00 and the
+            // extension records real screen time before checkNewDay() ever runs here).
+            // Without this guard, opening the app for the first time that day would
+            // unconditionally wipe screen time the extension had already correctly
+            // recorded for today, and re-stamp picksy_ladder_reset_epoch — racing with
+            // the extension's own stamp and visibly dropping the duel/Nudge score.
+            // Only reset if today's date isn't already stamped (i.e. neither side has
+            // reset for today yet).
+            if defaults.string(forKey: "picksy_apple_screen_time_date") != today {
+                defaults.set(0, forKey: "picksy_apple_screen_time_secs")
+                defaults.removeObject(forKey: "picksy_apple_screen_time_date")
+                defaults.set(0, forKey: "picksy_apple_screen_time_baseline")
+                defaults.removeObject(forKey: "picksy_apple_screen_time_baseline_date")
+                // Stamp the reset epoch so the DeviceActivity extension can reject stale
+                // threshold callbacks that fire after this reset (delayed iOS delivery).
+                defaults.set(Date().timeIntervalSince1970, forKey: "picksy_ladder_reset_epoch")
+                // Reset report-confirmed total for the new day.
+                defaults.set(0, forKey: "picksy_report_screen_time_secs")
+                defaults.removeObject(forKey: "picksy_report_screen_time_date")
+            }
             // Reset the file-based pickup count so ShieldConfiguration reads 0 even
             // when its process cache still holds yesterday's todayPickups value.
             let container = FileManager.default

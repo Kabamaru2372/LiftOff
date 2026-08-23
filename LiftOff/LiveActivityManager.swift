@@ -17,11 +17,13 @@ class LiveActivityManager {
 
     private var currentActivity: Activity<LiftOffActivityAttributes>?
 
-    /// Today's best-known screen time (seconds) for the duel DI.
+    /// Today's best-known screen time (seconds) — used both for the duel DI and
+    /// as the primary metric on the normal (non-duel) DI, since it stays accurate
+    /// even while the app is suspended, unlike the pickup heuristic.
     /// Uses ONLY local, date-guarded App Group values — never the Supabase-synced
     /// duel.myScreenTime, which can be from a previous day's sync and would
     /// cause the DI to show yesterday's total as today's score.
-    private func myDuelSecs(_ duel: DuelRecord) -> Int {
+    private func todayScreenTimeSecs() -> Int {
         let suite = UserDefaults(suiteName: "group.fotiospongas.picksy") ?? .standard
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
         let today = f.string(from: Date())
@@ -33,7 +35,11 @@ class LiveActivityManager {
                 appleSecs = raw
             }
         }
-        return max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
+        let raw = max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
+        // Clamp to elapsed time since midnight — screen time can never exceed
+        // wall-clock time elapsed today. Guards the DI against a corrupted
+        // accumulator (observed once as 23h30m from a single stale session).
+        return min(raw, DataStore.secondsSinceMidnight())
     }
 
     private(set) var pushToken: String? {
@@ -49,6 +55,18 @@ class LiveActivityManager {
     var isRunning: Bool {
         guard let activity = currentActivity else { return false }
         return activity.activityState == .active
+    }
+
+    /// The DI's "time since last pickup" ticker (`Text(lastPickupTime, style: .timer)`)
+    /// must reflect a REAL detected pickup — never the moment this ContentState
+    /// happens to be pushed. Every other caller here used `Date()` directly, which
+    /// meant routine pushes with no new pickup at all (app foreground, screen lock,
+    /// duel/focus toggles, silent background refresh) falsely reset the ticker to 0.
+    /// ScreenUnlockDetector's timestamp only changes on an actual detected unlock,
+    /// regardless of which app the user opens.
+    private func lastRealPickupTime() -> Date {
+        let t = ScreenUnlockDetector.shared.lastPickupTime
+        return t == .distantPast ? Date() : t
     }
 
     init() {
@@ -196,15 +214,21 @@ class LiveActivityManager {
 
         // Start in duel mode if a duel is already active
         let duel = DuelManager.shared.activeDuel.flatMap { $0.status == .active ? $0 : nil }
+        let mySecs = todayScreenTimeSecs()
+        let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: duel != nil ? "⚔️ Duel vs \(duel!.theirName)" : QuoteBank.random(),
-            lastPickupTime: Date(),
+            lastPickupTime: lastRealPickupTime(),
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: duel?.theirName,
-            duelMySecs: duel.map { myDuelSecs($0) } ?? 0,
-            duelTheirSecs: duel?.theirScreenTime ?? 0
+            duelMySecs: duel != nil ? mySecs : 0,
+            duelTheirSecs: duel?.theirScreenTime ?? 0,
+            screenTimeSecs: mySecs,
+            plantHealthBaseline: plant.baseline,
+            plantHealthBaselineTime: plant.time,
+            plantHealthIsWilting: plant.isWilting
         )
 
         let content = ActivityContent(
@@ -239,15 +263,21 @@ class LiveActivityManager {
 
         // Duel takes priority over normal mode (Focus callers use updateForFocus directly)
         if let duel = DuelManager.shared.activeDuel, duel.status == .active {
+            let mySecs = todayScreenTimeSecs()
+            let plant = DataStore.plantHealthCheckpoint()
             let state = LiftOffActivityAttributes.ContentState(
                 pickupCount: pickupCount,
                 currentQuote: "⚔️ Duel vs \(duel.theirName)",
-                lastPickupTime: Date(),
+                lastPickupTime: lastRealPickupTime(),
                 focusEndTime: nil,
                 focusPickupCount: 0,
                 duelOpponentName: duel.theirName,
-                duelMySecs: myDuelSecs(duel),
-                duelTheirSecs: duel.theirScreenTime
+                duelMySecs: mySecs,
+                duelTheirSecs: duel.theirScreenTime,
+                screenTimeSecs: mySecs,
+                plantHealthBaseline: plant.baseline,
+                plantHealthBaselineTime: plant.time,
+                plantHealthIsWilting: plant.isWilting
             )
             let content = ActivityContent(
                 state: state,
@@ -259,15 +289,20 @@ class LiveActivityManager {
         }
 
         // Normal mode
+        let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: QuoteBank.random(),
-            lastPickupTime: Date(),
+            lastPickupTime: lastRealPickupTime(),
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: nil,
             duelMySecs: 0,
-            duelTheirSecs: 0
+            duelTheirSecs: 0,
+            screenTimeSecs: todayScreenTimeSecs(),
+            plantHealthBaseline: plant.baseline,
+            plantHealthBaselineTime: plant.time,
+            plantHealthIsWilting: plant.isWilting
         )
         let content = ActivityContent(
             state: state,
@@ -281,15 +316,20 @@ class LiveActivityManager {
 
     func updateForFocus(pickupCount: Int, focusEndTime: Date?, focusPickupCount: Int) {
         guard let activity = currentActivity else { return }
+        let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: focusEndTime != nil ? "Stay present 🍃" : QuoteBank.random(),
-            lastPickupTime: Date(),
+            lastPickupTime: lastRealPickupTime(),
             focusEndTime: focusEndTime,
             focusPickupCount: focusPickupCount,
             duelOpponentName: nil,
             duelMySecs: 0,
-            duelTheirSecs: 0
+            duelTheirSecs: 0,
+            screenTimeSecs: todayScreenTimeSecs(),
+            plantHealthBaseline: plant.baseline,
+            plantHealthBaselineTime: plant.time,
+            plantHealthIsWilting: plant.isWilting
         )
         let content = ActivityContent(
             state: state,
@@ -303,15 +343,20 @@ class LiveActivityManager {
 
     func updateForDuel(pickupCount: Int, opponentName: String, mySecs: Int, theirSecs: Int) {
         guard let activity = currentActivity else { return }
+        let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: "⚔️ Duel vs \(opponentName)",
-            lastPickupTime: Date(),
+            lastPickupTime: lastRealPickupTime(),
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: opponentName,
             duelMySecs: mySecs,
-            duelTheirSecs: theirSecs
+            duelTheirSecs: theirSecs,
+            screenTimeSecs: mySecs,
+            plantHealthBaseline: plant.baseline,
+            plantHealthBaselineTime: plant.time,
+            plantHealthIsWilting: plant.isWilting
         )
         let content = ActivityContent(
             state: state,
@@ -335,15 +380,21 @@ class LiveActivityManager {
     func updateAsync(pickupCount: Int) async {
         guard let activity = currentActivity else { return }
         if let duel = DuelManager.shared.activeDuel, duel.status == .active {
+            let mySecs = todayScreenTimeSecs()
+            let plant = DataStore.plantHealthCheckpoint()
             let state = LiftOffActivityAttributes.ContentState(
                 pickupCount: pickupCount,
                 currentQuote: "⚔️ Duel vs \(duel.theirName)",
-                lastPickupTime: Date(),
+                lastPickupTime: lastRealPickupTime(),
                 focusEndTime: nil,
                 focusPickupCount: 0,
                 duelOpponentName: duel.theirName,
-                duelMySecs: myDuelSecs(duel),
-                duelTheirSecs: duel.theirScreenTime
+                duelMySecs: mySecs,
+                duelTheirSecs: duel.theirScreenTime,
+                screenTimeSecs: mySecs,
+                plantHealthBaseline: plant.baseline,
+                plantHealthBaselineTime: plant.time,
+                plantHealthIsWilting: plant.isWilting
             )
             let content = ActivityContent(
                 state: state,
@@ -353,15 +404,20 @@ class LiveActivityManager {
             await activity.update(content)
             return
         }
+        let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: QuoteBank.random(),
-            lastPickupTime: Date(),
+            lastPickupTime: lastRealPickupTime(),
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: nil,
             duelMySecs: 0,
-            duelTheirSecs: 0
+            duelTheirSecs: 0,
+            screenTimeSecs: todayScreenTimeSecs(),
+            plantHealthBaseline: plant.baseline,
+            plantHealthBaselineTime: plant.time,
+            plantHealthIsWilting: plant.isWilting
         )
         let content = ActivityContent(
             state: state,
@@ -373,15 +429,20 @@ class LiveActivityManager {
 
     func updateForFocusAsync(pickupCount: Int, focusEndTime: Date?, focusPickupCount: Int) async {
         guard let activity = currentActivity else { return }
+        let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
             currentQuote: focusEndTime != nil ? "Stay present 🍃" : QuoteBank.random(),
-            lastPickupTime: Date(),
+            lastPickupTime: lastRealPickupTime(),
             focusEndTime: focusEndTime,
             focusPickupCount: focusPickupCount,
             duelOpponentName: nil,
             duelMySecs: 0,
-            duelTheirSecs: 0
+            duelTheirSecs: 0,
+            screenTimeSecs: todayScreenTimeSecs(),
+            plantHealthBaseline: plant.baseline,
+            plantHealthBaselineTime: plant.time,
+            plantHealthIsWilting: plant.isWilting
         )
         let content = ActivityContent(
             state: state,
@@ -396,15 +457,20 @@ class LiveActivityManager {
     func stop() {
         guard let activity = currentActivity else { return }
 
+        let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: 0,
             currentQuote: "See you tomorrow!",
-            lastPickupTime: Date(),
+            lastPickupTime: lastRealPickupTime(),
             focusEndTime: nil,
             focusPickupCount: 0,
             duelOpponentName: nil,
             duelMySecs: 0,
-            duelTheirSecs: 0
+            duelTheirSecs: 0,
+            screenTimeSecs: todayScreenTimeSecs(),
+            plantHealthBaseline: plant.baseline,
+            plantHealthBaselineTime: plant.time,
+            plantHealthIsWilting: plant.isWilting
         )
 
         let content = ActivityContent(state: state, staleDate: nil)

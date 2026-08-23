@@ -74,16 +74,33 @@ class ScreenUnlockDetector {
     /// Cooldown μεταξύ pickups σε δευτερόλεπτα.
     ///
     /// `protectedDataDidBecomeAvailable` fires once per REAL unlock (Face ID /
-    /// passcode) — never on a notification waking the lock screen (that's why our
-    /// count is more honest than Apple's "Pickups", which inflates with
-    /// notifications). 30s was far too long: two genuine unlocks within half a
-    /// minute were merged into one, undercounting badly. 3s only dedups the same
-    /// physical pickup (unlock + the tracked-app-open that follows ~1-2s later,
-    /// via the shared timestamp), while counting every distinct real unlock.
+    /// passcode) — never on a notification waking the lock screen. 30s was far
+    /// too long: two genuine unlocks within half a minute were merged into one,
+    /// undercounting badly. 3s only dedups the same physical pickup (unlock +
+    /// the tracked-app-open that follows ~1-2s later, via the shared timestamp),
+    /// while counting every distinct real unlock.
+    ///
+    /// NOTE: this counter only runs while the app process is alive, so it
+    /// undercounts badly whenever the app is suspended — an overnight test
+    /// (23 notifications, 0 real unlocks) confirmed notifications do NOT
+    /// meaningfully inflate Apple's own "Pickups" count either, so that theory
+    /// (once used to justify preferring this counter) doesn't hold. Apple's own
+    /// tracked count (Settings → Pickup number: "Apple" mode) is the more
+    /// accurate source when available; this live counter exists for instant,
+    /// real-time feedback, not as "the honest one."
     private let cooldownSeconds: TimeInterval = 3
 
     /// Shared key — ίδιο με το DeviceActivity extension για κοινό cooldown (fix #1)
     private static let lastPickupKey = "picksy_last_pickup_timestamp"
+
+    /// Hard ceiling for a single tracked session's duration. If handleScreenLock
+    /// is delayed or never fires (e.g. the audio-lock case below, or the app was
+    /// suspended and missed the real lock event), sessionStartTime can be stale
+    /// from hours earlier — an uncapped duration then adds a near-24h "session"
+    /// to today's total in one shot (observed: 23h30m from a single stale
+    /// session). No genuine continuous unlocked session realistically runs this
+    /// long, so any single session is clamped here.
+    private static let maxSessionDurationSeconds = 2 * 60 * 60
 
     // MARK: - Callback
 
@@ -251,7 +268,8 @@ class ScreenUnlockDetector {
         // cancel, letting a stale "you've been on your phone" alert fire later).
         let duration: Int
         if let start = sessionStartTime {
-            duration = max(1, Int(Date().timeIntervalSince(start)))
+            let rawDuration = Int(Date().timeIntervalSince(start))
+            duration = min(max(1, rawDuration), Self.maxSessionDurationSeconds)
             sessionStartTime = nil
         } else {
             duration = 0

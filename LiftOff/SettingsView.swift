@@ -16,6 +16,7 @@ import WidgetKit
 
 struct SettingsView: View {
     @AppStorage("dailyGoal") private var dailyGoal: Int = 50
+    @AppStorage("nudgeDisplayMode") private var nudgeDisplayMode: String = "apple"
     @AppStorage("quietStart") private var quietStart: Int = 22
     @AppStorage("quietEnd") private var quietEnd: Int = 7
     @AppStorage("appLanguage") private var appLanguage: String = "English"
@@ -233,6 +234,32 @@ struct SettingsView: View {
                 ) {
                     Stepper("\(dailyGoal)", value: $dailyGoal, in: 20...250, step: 10)
                         .font(.system(size: 15, weight: .medium, design: .rounded))
+                }
+
+                Divider()
+
+                // Nudge ring display mode
+                VStack(alignment: .leading, spacing: 6) {
+                    SettingRow(
+                        title: t("Pickup number", "Αριθμός σηκωμάτων", "Griff-Anzahl"),
+                        subtitle: t("Shown on Nudge and Stats", "Εμφανίζεται στο Nudge και τα Στατιστικά", "Auf Nudge und Statistik angezeigt")
+                    ) {
+                        Picker("", selection: $nudgeDisplayMode) {
+                            Text(t("Live", "Ζωντανό", "Live")).tag("live")
+                            Text(t("Apple", "Apple", "Apple")).tag("apple")
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 150)
+                    }
+                    Text(nudgeDisplayMode == "apple"
+                         ? t("Apple's own tracked count of pickups that actually opened an app — the most meaningful usage number, not just screen glances. Naturally lower than the raw total in Settings → Screen Time, which also counts quick glances where nothing was opened. Updates when you open the app, not live.",
+                             "Ο αριθμός που παρακολουθεί η ίδια η Apple για σηκώματα που πραγματικά άνοιξαν μια εφαρμογή — η πιο ουσιαστική μέτρηση χρήσης, όχι απλές ματιές στην οθόνη. Φυσιολογικά χαμηλότερο από το ακατέργαστο σύνολο στο Ρυθμίσεις → Screen Time, το οποίο μετράει και γρήγορες ματιές χωρίς άνοιγμα εφαρμογής. Ενημερώνεται στο άνοιγμα της εφαρμογής, όχι ζωντανά.",
+                             "Apples eigene erfasste Zahl der Griffe, die tatsächlich eine App geöffnet haben — die aussagekräftigste Nutzungszahl, nicht nur ein Blick aufs Display. Natürlich niedriger als die Rohzahl in Einstellungen → Bildschirmzeit, die auch kurze Blicke ohne App-Start mitzählt. Aktualisiert beim App-Öffnen, nicht live.")
+                         : t("Shows Picksy's own live-updating count. Most accurate if you keep opening the app during the day.",
+                             "Δείχνει τον δικό μας ζωντανό μετρητή. Πιο ακριβής όσο πιο συχνά ανοίγεις την εφαρμογή μέσα στην ημέρα.",
+                             "Zeigt Picksys eigenen live aktualisierten Zähler. Am genauesten, wenn du die App tagsüber oft öffnest."))
+                        .font(.system(size: 11, design: .rounded))
+                        .foregroundColor(.secondary)
                 }
 
                 Divider()
@@ -1522,25 +1549,15 @@ struct SettingsView: View {
         }
     }
 
+    /// This used to schedule its OWN generic (non-personalized) "liftoff.midday"/
+    /// "liftoff.evening" requests, which — since both share an identifier with
+    /// LiftOffApp.rescheduleTimeBasedNotifications — would silently overwrite
+    /// the personalized evening notification with generic copy every time the
+    /// user toggled notifications on here, and would re-add the retired midday
+    /// one. Delegating to the same shared function keeps a single source of
+    /// truth for what's actually scheduled.
     private func scheduleNotifications() {
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(withIdentifiers: ["liftoff.midday", "liftoff.evening"])
-
-        let middayContent = UNMutableNotificationContent()
-        middayContent.title = t("How's it going so far?", "Πώς πας μέχρι τώρα;", "Wie läuft es bisher?")
-        middayContent.body = t("Check your stats on Picksy.", "Κοίτα τα στατιστικά σου στο Picksy.", "Schau dir deine Statistiken an.")
-        middayContent.sound = .default
-        var midday = DateComponents(); midday.hour = 12; midday.minute = 0
-        center.add(UNNotificationRequest(identifier: "liftoff.midday", content: middayContent,
-            trigger: UNCalendarNotificationTrigger(dateMatching: midday, repeats: true)))
-
-        let eveningContent = UNMutableNotificationContent()
-        eveningContent.title = t("Your phone day in review", "Η μέρα σου με το κινητό", "Dein Handy-Tag im Rückblick")
-        eveningContent.body = t("Open Picksy to see how you did today.", "Άνοιξε το Picksy για να δεις πώς πήγες.", "Öffne Picksy, um zu sehen, wie dein Tag war.")
-        eveningContent.sound = .default
-        var evening = DateComponents(); evening.hour = 21; evening.minute = 0
-        center.add(UNNotificationRequest(identifier: "liftoff.evening", content: eveningContent,
-            trigger: UNCalendarNotificationTrigger(dateMatching: evening, repeats: true)))
+        LiftOffApp.rescheduleTimeBasedNotifications(pickupCount: store.todayPickups)
     }
 }
 

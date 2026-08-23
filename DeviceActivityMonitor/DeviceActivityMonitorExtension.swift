@@ -98,30 +98,57 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             }
 
             // New day → lift yesterday's time-limit shield + clear its flag.
-            let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
-            tlStore.shield.applications = nil
-            tlStore.shield.applicationCategories = nil
-            sharedDefaults?.removeObject(forKey: "picksy_timelimit_active")
-            // Clear the file-based lock marker (new day — limit hasn't fired yet).
-            let container = FileManager.default
-                .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")
-            if let lockURL = container?.appendingPathComponent("picksy_timelimit_lock.txt") {
-                try? "".data(using: .utf8)?.write(to: lockURL, options: .atomic)
-            }
-            // Reset pickup count file so ShieldConfiguration reads 0 (not yesterday's
-            // stale count if its process cache hasn't refreshed yet).
-            if let pickupURL = container?.appendingPathComponent("today_pickups.txt") {
-                let f2 = DateFormatter(); f2.dateFormat = "yyyy-MM-dd"
-                try? "\(f2.string(from: Date()))|0".data(using: .utf8)?.write(to: pickupURL, options: .atomic)
+            //
+            // DATE-GUARDED: intervalDidStart("daily") also fires when monitoring is
+            // RE-ARMED mid-day (app relaunch → startMonitoring), same as the
+            // screen-time accumulator and todayPickups resets above/below. Without
+            // this guard, a mid-day re-arm would unconditionally lift an
+            // ACTIVE, already-triggered time-limit shield and clear the passcode
+            // lock — silently defeating a limit/lock the user (or a parent) had
+            // legitimately triggered earlier today, until the limit re-fires.
+            let timelimitResetDate = sharedDefaults?.string(forKey: "picksy_timelimit_reset_date")
+            if timelimitResetDate != today {
+                let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+                tlStore.shield.applications = nil
+                tlStore.shield.applicationCategories = nil
+                sharedDefaults?.removeObject(forKey: "picksy_timelimit_active")
+                sharedDefaults?.set(today, forKey: "picksy_timelimit_reset_date")
+                // Clear the file-based lock marker (new day — limit hasn't fired yet).
+                let container = FileManager.default
+                    .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")
+                if let lockURL = container?.appendingPathComponent("picksy_timelimit_lock.txt") {
+                    try? "".data(using: .utf8)?.write(to: lockURL, options: .atomic)
+                }
+                // Reset pickup count file so ShieldConfiguration reads 0 (not yesterday's
+                // stale count if its process cache hasn't refreshed yet).
+                if let pickupURL = container?.appendingPathComponent("today_pickups.txt") {
+                    let f2 = DateFormatter(); f2.dateFormat = "yyyy-MM-dd"
+                    try? "\(f2.string(from: Date()))|0".data(using: .utf8)?.write(to: pickupURL, options: .atomic)
+                }
+                log("📊 Time-limit shield + lock reset for new day")
+            } else {
+                log("📊 Time-limit shield + lock kept (mid-day re-arm, date unchanged)")
             }
 
-            // Reset the App Group todayPickups counter for the new day.
-            // DataStore normally handles this via checkNewDay(), but if the main app
-            // is suspended at midnight the reset never fires — leaving yesterday's
-            // count visible when the extension records the first pickup of the new day
-            // (newCount=1 < staleYesterdayCount → guard skips the write).
-            sharedDefaults?.set(0, forKey: "todayPickups")
-            log("📊 todayPickups reset to 0 for new day")
+            // Reset the App Group todayPickups counter for the new day — but only
+            // once per day. DataStore normally handles this via checkNewDay(), but
+            // if the main app is suspended at midnight the reset never fires —
+            // leaving yesterday's count visible when the extension records the
+            // first pickup of the new day (newCount=1 < staleYesterdayCount → guard
+            // skips the write).
+            //
+            // DATE-GUARDED: intervalDidStart("daily") also fires when monitoring is
+            // RE-ARMED mid-day (app update/relaunch → startMonitoring), same as the
+            // screen-time accumulator above. An unconditional zero here would wipe
+            // today's already-recorded pickups on every mid-day re-arm.
+            let pickupsResetDate = sharedDefaults?.string(forKey: "picksy_todaypickups_reset_date")
+            if pickupsResetDate != today {
+                sharedDefaults?.set(0, forKey: "todayPickups")
+                sharedDefaults?.set(today, forKey: "picksy_todaypickups_reset_date")
+                log("📊 todayPickups reset to 0 for new day")
+            } else {
+                log("📊 todayPickups kept (mid-day re-arm, date unchanged)")
+            }
 
             // Tell the main app (if alive) to re-read the now-zeroed values.
             CFNotificationCenterPostNotification(
@@ -511,17 +538,45 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let opponentName  = defaults.string(forKey: "picksy_duel_opponent") ?? ""
         let theirSecs     = defaults.integer(forKey: "picksy_duel_their_secs")
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        let mySecs = defaults.string(forKey: "picksy_apple_screen_time_date") == f.string(from: Date())
+        let appleSecs = defaults.string(forKey: "picksy_apple_screen_time_date") == f.string(from: Date())
             ? defaults.integer(forKey: "picksy_apple_screen_time_secs") : 0
+        // Normal-mode DI now leads with screen time (stays accurate while the app
+        // is suspended, unlike pickup count) — same max(apple, local) fallback the
+        // main app and DuelManager.suiteBestScreenTimeSecs() use.
+        let rawSecs = max(defaults.integer(forKey: "todayTotalSeconds"), appleSecs)
+        // Clamp to elapsed time since midnight — screen time can never exceed
+        // wall-clock time elapsed today. Same safety net as DataStore.bestScreenTimeSecs
+        // (this extension is a separate target, so it can't call that directly).
+        let secondsSinceMidnight = max(0, Int(Date().timeIntervalSince(Calendar.current.startOfDay(for: Date()))))
+        let mySecs = min(rawSecs, secondsSinceMidnight)
 
         var body: [String: Any] = [
-            "device_id":    deviceID,
-            "pickup_count": pickupCount
+            "device_id":        deviceID,
+            "pickup_count":     pickupCount,
+            "screen_time_secs": mySecs
         ]
         if isDuelActive {
             body["duel_opponent_name"] = opponentName
             body["duel_my_secs"]       = mySecs
             body["duel_their_secs"]    = theirSecs
+        }
+        // Carry an active Focus session into this push too — same reasoning as
+        // Pushnotificationmanager.pushLiveActivityUpdate(): a remote push replaces
+        // the WHOLE Live Activity content-state, so without this an extension-
+        // triggered push during a Focus session would flip the DI back to Normal.
+        let focusEnd = defaults.double(forKey: "picksy_focus_end_time")
+        if focusEnd > Date().timeIntervalSince1970 {
+            let pickupsAtStart = defaults.integer(forKey: "picksy_focus_pickups_at_start")
+            body["focus_end_time"] = focusEnd
+            body["focus_pickup_count"] = max(0, pickupCount - pickupsAtStart)
+        }
+        // Carry the plant-growth checkpoint into this push too — same reasoning
+        // as the focus-state carry above. Date-guarded like DataStore.plantHealthCheckpoint()
+        // (this extension is a separate target, so it can't call that directly).
+        if defaults.string(forKey: "picksy_plant_health_date") == f.string(from: Date()) {
+            body["plant_health"] = defaults.double(forKey: "picksy_plant_health")
+            body["plant_health_time"] = defaults.double(forKey: "picksy_plant_health_time")
+            body["plant_health_wilting"] = defaults.bool(forKey: "picksy_plant_wilting")
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }

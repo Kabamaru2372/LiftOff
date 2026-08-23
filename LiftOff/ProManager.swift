@@ -250,12 +250,6 @@ class ProManager {
          "Get notified when your friends overuse their phones",
          "Ειδοποιήσου όταν οι φίλοι σου υπερχρησιμοποιούν το κινητό",
          "Werde benachrichtigt, wenn Freunde zu viel am Handy sind"),
-
-        ("hand.raised.fill",
-         "Custom Nudges", "Προσωπικές ωθήσεις", "Eigene Nudges",
-         "Create personalized reminders that fit your habits",
-         "Δημιούργησε εξατομικευμένες υπενθυμίσεις για τις συνήθειές σου",
-         "Erstelle personalisierte Erinnerungen für deine Gewohnheiten"),
     ]
 }
 

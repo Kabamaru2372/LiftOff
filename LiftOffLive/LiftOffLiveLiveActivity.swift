@@ -38,6 +38,47 @@ private func duelColor(mine: Int, theirs: Int, winning: Color, losing: Color, ne
     mine < theirs ? winning : (mine > theirs ? losing : neutral)
 }
 
+// MARK: - Plant growth/wilt (normal-mode hero visual)
+//
+// The "time since last pickup" number (below) is exact by construction — no
+// Apple API, no sandboxing wall. The plant emoji is a slower-moving companion
+// metric: it grows continuously while the phone stays down, but WILTS
+// continuously in real time for as long as a screen session is active — so
+// the moment the user picks the phone up, the plant starts visibly wilting,
+// not just retroactively once they put it back down. Math must match
+// DataStore.plantGrowthRatePerSecond/plantWiltRatePerSecond exactly (this is
+// a separate target and can't import DataStore's Swift code directly).
+private let plantGrowthRatePerSecond = 100.0 / (2 * 60 * 60)
+private let plantWiltRatePerSecond = plantGrowthRatePerSecond * 3
+
+// Mirrors DataStore.plantSessionStaleCutoff — if a session is still marked
+// "active" after this long, we almost certainly missed the real screen-lock
+// push (e.g. the app was killed at exactly the wrong moment); resume growth
+// from this cutoff instead of leaving the plant stuck at 0 forever.
+private let plantSessionStaleCutoff: TimeInterval = 2 * 60 * 60
+
+private func currentPlantHealth(baseline: Double, baselineTime: Date, isWilting: Bool) -> Double {
+    guard baselineTime != .distantPast else { return 0 }
+    let elapsed = max(0, Date().timeIntervalSince(baselineTime))
+    if isWilting {
+        guard elapsed < plantSessionStaleCutoff else {
+            return min(100, (elapsed - plantSessionStaleCutoff) * plantGrowthRatePerSecond)
+        }
+        return max(0, baseline - elapsed * plantWiltRatePerSecond)
+    }
+    return min(100, baseline + elapsed * plantGrowthRatePerSecond)
+}
+
+private func growthEmoji(health: Double) -> String {
+    switch health {
+    case ..<20:  return "🌱"
+    case ..<40:  return "🌿"
+    case ..<60:  return "🪴"
+    case ..<80:  return "🌳"
+    default:     return "🌲"
+    }
+}
+
 struct LiftOffLiveLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LiftOffActivityAttributes.self) { context in
@@ -119,14 +160,29 @@ struct LiftOffLiveLiveActivity: Widget {
 
             } else {
                 // — Normal lock screen —
+                // "Time since last pickup" leads: exact by construction (just elapsed
+                // time since a timestamp), unlike screen time or pickup count, which
+                // can never be made fully accurate here (Apple's report-based numbers
+                // are sandboxed and can't reach the DI — see NudgeView's accuracy info
+                // sheet). The growth emoji rewards NOT picking up the phone, which is
+                // literally the point of the app. Text(date, style: .timer) ticks live,
+                // driven by the system — no polling needed.
                 HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(context.state.pickupCount)")
-                            .font(.system(size: 32, weight: .medium, design: .rounded))
-                            .foregroundColor(.white)
-                        Text("pickups today")
-                            .font(.system(size: 12, weight: .regular, design: .rounded))
-                            .foregroundColor(.white.opacity(0.7))
+                    HStack(spacing: 12) {
+                        Text(growthEmoji(health: currentPlantHealth(baseline: context.state.plantHealthBaseline, baselineTime: context.state.plantHealthBaselineTime, isWilting: context.state.plantHealthIsWilting)))
+                            .font(.system(size: 32))
+                            .contentTransition(.opacity)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(context.state.lastPickupTime, style: .timer)
+                                .font(.system(size: 26, weight: .medium, design: .rounded).monospacedDigit())
+                                .foregroundColor(.white)
+                            Text("since last pickup")
+                                .font(.system(size: 12, weight: .regular, design: .rounded))
+                                .foregroundColor(.white.opacity(0.7))
+                            Text("~\(context.state.pickupCount) pickups today")
+                                .font(.system(size: 11, weight: .regular, design: .rounded))
+                                .foregroundColor(.white.opacity(0.5))
+                        }
                     }
                     Spacer()
                     Text(context.state.currentQuote)
@@ -174,12 +230,17 @@ struct LiftOffLiveLiveActivity: Widget {
                         }
                         .padding(.leading, 4)
                     } else {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(context.state.pickupCount)")
-                                .font(.system(size: 28, weight: .medium, design: .rounded))
-                            Text("pickups")
-                                .font(.system(size: 11, design: .rounded))
-                                .foregroundStyle(.secondary)
+                        HStack(spacing: 6) {
+                            Text(growthEmoji(health: currentPlantHealth(baseline: context.state.plantHealthBaseline, baselineTime: context.state.plantHealthBaselineTime, isWilting: context.state.plantHealthIsWilting)))
+                                .font(.system(size: 20))
+                                .contentTransition(.opacity)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(context.state.lastPickupTime, style: .timer)
+                                    .font(.system(size: 22, weight: .medium, design: .rounded).monospacedDigit())
+                                Text("since pickup")
+                                    .font(.system(size: 11, design: .rounded))
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         .padding(.leading, 4)
                     }
@@ -216,11 +277,11 @@ struct LiftOffLiveLiveActivity: Widget {
                         .padding(.trailing, 4)
                     } else {
                         VStack(alignment: .trailing, spacing: 2) {
-                            Text("\(context.attributes.dailyGoal)")
-                                .font(.system(size: 28, weight: .medium, design: .rounded))
+                            Text("\(context.state.pickupCount)")
+                                .font(.system(size: 22, weight: .medium, design: .rounded))
                                 .foregroundStyle(.secondary)
-                            Text("goal")
-                                .font(.system(size: 11, design: .rounded))
+                            Text("of \(context.attributes.dailyGoal) pickups")
+                                .font(.system(size: 10, design: .rounded))
                                 .foregroundStyle(.secondary)
                         }
                         .padding(.trailing, 4)
@@ -265,9 +326,9 @@ struct LiftOffLiveLiveActivity: Widget {
                         ))
                         .padding(.leading, 2)
                 } else {
-                    Image(systemName: "hand.raised.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.blue)
+                    Text(growthEmoji(health: currentPlantHealth(baseline: context.state.plantHealthBaseline, baselineTime: context.state.plantHealthBaselineTime, isWilting: context.state.plantHealthIsWilting)))
+                        .font(.system(size: 14))
+                        .contentTransition(.opacity)
                 }
 
             } compactTrailing: {
@@ -286,9 +347,10 @@ struct LiftOffLiveLiveActivity: Widget {
                         ))
                         .padding(.trailing, 2)
                 } else {
-                    Text("\(context.state.pickupCount)")
-                        .font(.system(size: 14, weight: .medium, design: .rounded))
+                    Text(context.state.lastPickupTime, style: .timer)
+                        .font(.system(size: 13, weight: .medium, design: .rounded).monospacedDigit())
                         .foregroundStyle(.blue)
+                        .frame(maxWidth: 60)
                 }
 
             } minimal: {
@@ -308,9 +370,11 @@ struct LiftOffLiveLiveActivity: Widget {
                             winning: .green, losing: .red, neutral: .white
                         ))
                 } else {
-                    Text("\(context.state.pickupCount)")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.blue)
+                    // No room for a ticking number in the tiny circle — the growth
+                    // emoji alone still conveys "how long since you picked up".
+                    Text(growthEmoji(health: currentPlantHealth(baseline: context.state.plantHealthBaseline, baselineTime: context.state.plantHealthBaselineTime, isWilting: context.state.plantHealthIsWilting)))
+                        .font(.system(size: 14))
+                        .contentTransition(.opacity)
                 }
             }
         }

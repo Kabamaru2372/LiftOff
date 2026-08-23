@@ -204,7 +204,10 @@ class DuelManager {
                 appleSecs = raw
             }
         }
-        return max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
+        let raw = max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
+        // Clamp to elapsed time since midnight — screen time can never exceed
+        // wall-clock time elapsed today. Same safety net as DataStore.bestScreenTimeSecs.
+        return min(raw, DataStore.secondsSinceMidnight())
     }
 
     private init() {}

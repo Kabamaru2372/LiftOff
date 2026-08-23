@@ -30,6 +30,9 @@ struct DashboardView: View {
     // use 50): with no stored value yet, each view shows its own default — the
     // Stats card said "goal 15" while Settings showed 50.
     @AppStorage("dailyGoal") private var dailyGoal: Int = 50
+    // Same setting as NudgeView's ring — one "Pickup number" preference controls
+    // both surfaces, so the app never shows two different pickup counts at once.
+    @AppStorage("nudgeDisplayMode") private var pickupDisplayMode: String = "apple"
 
     @State private var shareItem: ShareImageItem? = nil
     @State private var showCheckInSheet: Bool = false
@@ -285,15 +288,23 @@ struct DashboardView: View {
                     }
                     .padding(.bottom, 8)
 
-                    // Our OWN honest pickup count (real screen unlocks). We do NOT
-                    // use Apple's numberOfPickups here — it inflates the count by
-                    // treating every notification that lights the lock screen as a
-                    // pickup (e.g. 22 overnight notifications showed as 23 pickups).
-                    // Rolls 0 → N on entry via numericText (displayTodayPickups).
-                    Text("\(displayTodayPickups)")
-                        .font(.system(size: 36, weight: .bold, design: .rounded))
-                        .foregroundColor(pickupsAccentColor)
-                        .contentTransition(.numericText(countsDown: false))
+                    // "Apple" mode (default): Apple's own tracked pickup count,
+                    // matching Settings → Screen Time — the most accurate number,
+                    // even when Picksy is closed. "Live" mode: our own live unlock
+                    // counter, which rolls 0→N on entry but can undercount while
+                    // the app is suspended. Same setting as the Nudge ring, so both
+                    // screens always agree on which number they're showing.
+                    if pickupDisplayMode == "apple" {
+                        DeviceActivityReport(.statsPickups, filter: wholeDeviceFilter)
+                            .id(refreshTrigger.reportIdentity)
+                            .frame(height: 36)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Text("\(displayTodayPickups)")
+                            .font(.system(size: 36, weight: .bold, design: .rounded))
+                            .foregroundColor(pickupsAccentColor)
+                            .contentTransition(.numericText(countsDown: false))
+                    }
 
                     Spacer()
 
@@ -327,7 +338,7 @@ struct DashboardView: View {
                     // number back to the app, so reading store.bestScreenTimeSecs
                     // here showed 0 whenever the in-app sources were empty — this
                     // renders the true value directly instead.
-                    DeviceActivityReport(.statsTotalTime, filter: deviceTotalFilter)
+                    DeviceActivityReport(.statsTotalTime, filter: trackedTotalFilter)
                         .id(refreshTrigger.reportIdentity)
                         .frame(height: 36)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -350,8 +361,9 @@ struct DashboardView: View {
 
             // ── Row 2: Picksy Score ───────────────────────────────────
             // Computed + rendered by the report extension from the same
-            // whole-device total (the app can't read that number back). The card
-            // chrome uses a fixed accent; the number itself is color-coded inside.
+            // tracked-apps total as the Screen Time card above (trackedTotalFilter —
+            // the app can't read that number back). The card chrome uses a fixed
+            // accent; the number itself is color-coded inside.
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
@@ -372,7 +384,7 @@ struct DashboardView: View {
                 // Score is computed inside the report extension from the SAME real
                 // screen-time total + the App Group pickup count, so it always
                 // matches the Screen Time card above (no more "1" from a 0 total).
-                DeviceActivityReport(.statsScore, filter: deviceTotalFilter)
+                DeviceActivityReport(.statsScore, filter: trackedTotalFilter)
                     .id(refreshTrigger.reportIdentity)
                     .frame(width: 86, height: 38)
 
@@ -401,7 +413,7 @@ struct DashboardView: View {
     /// SAME app selection the Apps tab uses, so the Stats card shows the exact
     /// same total as Apps (the user's source of truth) — not a whole-device
     /// number that would read higher.
-    private var deviceTotalFilter: DeviceActivityFilter {
+    private var trackedTotalFilter: DeviceActivityFilter {
         let interval = Calendar.current.dateInterval(of: .day, for: Date())
             ?? DateInterval(start: Date(), duration: 86400)
         let selection = AppSelectionStore.shared.selection
@@ -416,6 +428,19 @@ struct DashboardView: View {
 
     /// Fixed chrome color for the Screen Time card frame.
     private var screenTimeAccentColor: Color { .indigo }
+
+    /// Whole-device filter — NO applications/categories restriction, so
+    /// numberOfPickups sums across every app, matching Settings → Screen Time.
+    /// Same filter NudgeView uses for its "Apple" pickup mode.
+    private var wholeDeviceFilter: DeviceActivityFilter {
+        let interval = Calendar.current.dateInterval(of: .day, for: Date())
+            ?? DateInterval(start: Date(), duration: 86400)
+        return DeviceActivityFilter(
+            segment: .daily(during: interval),
+            users: .all,
+            devices: .init([.iPhone])
+        )
+    }
 
     // MARK: - Streak Card
 

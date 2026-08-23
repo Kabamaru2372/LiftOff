@@ -97,6 +97,13 @@ class PushNotificationManager {
                 let dailyGoal = goal > 0 ? goal : 50
                 let pickups = store.todayPickups
 
+                // Every successful silent-push wake (the pg_cron "picksy-silent-push"
+                // job pings every 5 min, though Apple decides if/when it's actually
+                // delivered) is also a chance to refresh the 21:00 notification's
+                // baked-in count — not just the Live Activity below. Cheap, and closes
+                // more of the staleness gap on top of the per-pickup reschedule.
+                LiftOffApp.rescheduleTimeBasedNotifications(pickupCount: pickups)
+
                 if liveActivity.isRunning {
                     liveActivity.update(pickupCount: pickups)
                 } else {
@@ -107,6 +114,7 @@ class PushNotificationManager {
                 let isDuelActive  = activeDuel?.status == .active
                 await self.pushLiveActivityUpdate(
                     pickupCount:      pickups,
+                    screenTimeSecs:   store.bestScreenTimeSecs,
                     duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
                     duelMySecs:    isDuelActive ? store.bestScreenTimeSecs : 0,
                     duelTheirSecs: isDuelActive ? (activeDuel?.theirScreenTime ?? 0) : 0
@@ -137,6 +145,7 @@ class PushNotificationManager {
     /// is fully suspended (same mechanism as live-score apps).
     func pushLiveActivityUpdate(
         pickupCount: Int,
+        screenTimeSecs: Int = 0,
         duelOpponentName: String? = nil,
         duelMySecs: Int = 0,
         duelTheirSecs: Int = 0
@@ -144,13 +153,42 @@ class PushNotificationManager {
         guard let url = URL(string: "\(Self.supabaseURL)/functions/v1/update-live-activity") else { return }
 
         var body: [String: Any] = [
-            "device_id":    FriendSyncManager.shared.deviceID,
-            "pickup_count": pickupCount
+            "device_id":        FriendSyncManager.shared.deviceID,
+            "pickup_count":     pickupCount,
+            "screen_time_secs": screenTimeSecs
         ]
         if let name = duelOpponentName {
             body["duel_opponent_name"] = name
             body["duel_my_secs"]       = duelMySecs
             body["duel_their_secs"]    = duelTheirSecs
+        }
+        // Carry an active Focus session into background/remote pushes too — without
+        // this, a BGAppRefresh or silent push firing mid-session would flip the DI
+        // out of Focus mode back to Normal/Duel, since ActivityKit remote pushes
+        // replace the WHOLE content-state (there's no partial update).
+        // FocusSessionManager is in-memory only and not reachable from here, so we
+        // read the App Group mirror it writes on start()/stop().
+        let suite = UserDefaults(suiteName: "group.fotiospongas.picksy")
+        let focusEnd = suite?.double(forKey: "picksy_focus_end_time") ?? 0
+        if focusEnd > Date().timeIntervalSince1970 {
+            let pickupsAtStart = suite?.integer(forKey: "picksy_focus_pickups_at_start") ?? pickupCount
+            body["focus_end_time"] = focusEnd
+            body["focus_pickup_count"] = max(0, pickupCount - pickupsAtStart)
+        }
+        // Carry the plant-growth checkpoint into background/remote pushes too, so
+        // the normal-mode DI's growth animation keeps extrapolating correctly
+        // instead of resetting to 0 on every background-triggered update.
+        let plant = DataStore.plantHealthCheckpoint()
+        body["plant_health"] = plant.baseline
+        body["plant_health_time"] = plant.time.timeIntervalSince1970
+        body["plant_health_wilting"] = plant.isWilting
+        // Same reasoning as the plant checkpoint: the DI's "time since last
+        // pickup" ticker must reflect the REAL last detected pickup, not the
+        // moment this background/remote push happens to fire — otherwise a
+        // routine silent push (BGAppRefresh, duel sync) falsely resets it.
+        let lastPickup = ScreenUnlockDetector.shared.lastPickupTime
+        if lastPickup != .distantPast {
+            body["last_pickup_time"] = lastPickup.timeIntervalSince1970
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
