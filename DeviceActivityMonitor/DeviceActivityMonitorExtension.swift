@@ -373,13 +373,28 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
         let finalCount = max(newCount, currentWidgetCount)
 
+        // DeviceActivityMonitor extensions have no beginBackgroundTask (no
+        // UIApplication here) and no supported way to extend their lifetime
+        // past this delegate callback returning — so the fire-and-forget
+        // URLSession calls below could get dropped mid-flight the instant the
+        // OS decides this callback is "done". Block synchronously on a
+        // DispatchGroup, bounded by a timeout comfortably above the slow
+        // duel-sync path's worst case (one GET, then up to 5 PATCHes off its
+        // completion — up to ~20s), so in-flight requests get a real chance
+        // to finish instead of being silently dropped.
+        let group = DispatchGroup()
+
         // ── Duel score sync (background — no app open needed) ─────────────────
         // Patches our pickup count directly to Supabase so the opponent sees
         // live scores even if we never open the app during the day.
-        syncPickupsToDuel(pickupCount: finalCount)
+        syncPickupsToDuel(pickupCount: finalCount, group: group)
 
         // ── Live Activity APNs push (fix #5: includes duel state) ─────────────
-        pushLiveActivityUpdate(pickupCount: finalCount)
+        pushLiveActivityUpdate(pickupCount: finalCount, group: group)
+
+        if group.wait(timeout: .now() + 25) == .timedOut {
+            log("⏱️ Timed out waiting for pickup network calls — extension may be torn down mid-request")
+        }
     }
 
     /// Patches our pickup count to every active duel in Supabase so opponents
@@ -391,7 +406,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     ///            user has not opened Picksy yet today).
     private static let duelCacheMaxAge: TimeInterval = 10 * 60   // 10 minutes
 
-    private func syncPickupsToDuel(pickupCount: Int) {
+    private func syncPickupsToDuel(pickupCount: Int, group: DispatchGroup) {
         guard let defaults = sharedDefaults else { return }
         let deviceID = defaults.string(forKey: "picksy_device_id") ?? ""
         guard !deviceID.isEmpty else {
@@ -418,7 +433,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
            let meta = try? JSONSerialization.jsonObject(with: metaData) as? [[String: String]],
            !meta.isEmpty {
             log("⚔️ Duel sync (cached): \(meta.count) duel(s)")
-            patchDuels(meta: meta, pickupCount: pickupCount)
+            patchDuels(meta: meta, pickupCount: pickupCount, group: group)
             return
         }
 
@@ -433,20 +448,20 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         }
         defaults.set(now, forKey: "picksy_duel_meta_last_fetch")
         log("⚔️ Duel sync: querying Supabase for active duels (no cached meta)…")
-        fetchActiveDuelsAndPatch(deviceID: deviceID, pickupCount: pickupCount, defaults: defaults)
+        fetchActiveDuelsAndPatch(deviceID: deviceID, pickupCount: pickupCount, defaults: defaults, group: group)
     }
 
     /// Apply cached duel meta: PATCH each duel with the new pickup count.
-    private func patchDuels(meta: [[String: String]], pickupCount: Int) {
+    private func patchDuels(meta: [[String: String]], pickupCount: Int, group: DispatchGroup) {
         for duelInfo in meta {
             guard let duelID = duelInfo["id"] else { continue }
             let amChallenger = duelInfo["challenger"] == "1"
-            patchDuel(id: duelID, amChallenger: amChallenger, pickupCount: pickupCount)
+            patchDuel(id: duelID, amChallenger: amChallenger, pickupCount: pickupCount, group: group)
         }
     }
 
     /// Slow path: query Supabase for active duels, cache the result, then PATCH each one.
-    private func fetchActiveDuelsAndPatch(deviceID: String, pickupCount: Int, defaults: UserDefaults) {
+    private func fetchActiveDuelsAndPatch(deviceID: String, pickupCount: Int, defaults: UserDefaults, group: DispatchGroup) {
         guard var comps = URLComponents(string: "\(Self.supabaseURL)/rest/v1/duels") else { return }
         comps.queryItems = [
             URLQueryItem(name: "or",     value: "(challenger_id.eq.\(deviceID),opponent_id.eq.\(deviceID))"),
@@ -462,7 +477,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         req.setValue("Bearer \(Self.supabaseAnonKey)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 10
 
+        group.enter()
         URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            defer { group.leave() }
             guard let self else { return }
             guard let data,
                   let duels = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
@@ -481,7 +498,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                       let challengerID = duel["challenger_id"] as? String else { continue }
                 let amChallenger = challengerID == deviceID
                 meta.append(["id": id, "challenger": amChallenger ? "1" : "0"])
-                self.patchDuel(id: id, amChallenger: amChallenger, pickupCount: pickupCount)
+                self.patchDuel(id: id, amChallenger: amChallenger, pickupCount: pickupCount, group: group)
             }
 
             // Cache for fast path on next pickup — stamp with today's date
@@ -498,7 +515,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     }
 
     /// PATCH a single duel record with the new pickup count.
-    private func patchDuel(id: String, amChallenger: Bool, pickupCount: Int) {
+    private func patchDuel(id: String, amChallenger: Bool, pickupCount: Int, group: DispatchGroup) {
         let field = amChallenger ? "challenger_pickups" : "opponent_pickups"
         guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(id)") else { return }
 
@@ -510,7 +527,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         req.timeoutInterval = 10
         req.httpBody = try? JSONSerialization.data(withJSONObject: [field: pickupCount])
 
+        group.enter()
         URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
+            defer { group.leave() }
             if let http = response as? HTTPURLResponse {
                 self?.log("⚔️ Duel PATCH → HTTP \(http.statusCode) (\(field): \(pickupCount))")
             } else if let error = error {
@@ -521,7 +540,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     /// Στέλνει APNs push για το Live Activity μέσω Supabase edge function.
     /// Fix #5: Διαβάζει duel state από App Group ώστε να μην σβήνει το ⚔️ από το DI.
-    private func pushLiveActivityUpdate(pickupCount: Int) {
+    private func pushLiveActivityUpdate(pickupCount: Int, group: DispatchGroup) {
         guard let defaults = sharedDefaults else { return }
 
         let deviceID = defaults.string(forKey: "picksy_device_id") ?? ""
@@ -589,7 +608,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         request.httpBody = jsonData
         request.timeoutInterval = 10
 
+        group.enter()
         URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+            defer { group.leave() }
             if let http = response as? HTTPURLResponse {
                 self?.log("🎯 APNs push → \(http.statusCode) (pickups: \(pickupCount), duel: \(isDuelActive))")
                 if http.statusCode < 300, let d = self?.sharedDefaults {
