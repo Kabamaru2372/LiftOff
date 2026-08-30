@@ -484,8 +484,6 @@ struct LiftOffApp: App {
         let center = UNUserNotificationCenter.current()
         let hour   = Calendar.current.component(.hour, from: Date())
         let lang   = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-        let g      = UserDefaults.standard.integer(forKey: "dailyGoal")
-        let goal   = g > 0 ? g : 50
 
         // Retired: midday (12:00) "keep Picksy open" nudge, the 14:00
         // "Picksy check-in" nudge (see scheduleAllNotifications' static-cleanup
@@ -496,13 +494,21 @@ struct LiftOffApp: App {
         // previous version, not just new installs.
         center.removePendingNotificationRequests(withIdentifiers: ["liftoff.midday", "picksy.summary.evening"])
 
-        // Evening (21:00) — reschedule whenever not yet fired today. Also
-        // called on every real pickup (see onPickupDetected), not just from
-        // BGAppRefresh/foreground, so the baked-in count stays as fresh as
-        // possible right up to delivery.
+        // Evening (21:00) — reschedule whenever not yet fired today.
+        //
+        // Deliberately carries NO pickup count anymore. It used to show the
+        // live in-process counter, which can badly undercount whenever iOS
+        // has suspended/killed the app for a stretch of the day — confirmed
+        // in testing: the notification said "36" while the real, Apple-
+        // tracked total (shown on opening the app) was 60. That accurate
+        // number only ever exists INSIDE the sandboxed DeviceActivityReport
+        // view — this scheduling code structurally cannot read it (same wall
+        // that shaped the Dynamic Island's design). Rather than risk showing
+        // a wrong number again, this stays honestly numberless; the real
+        // count is only ever shown where it can be accurate — inside the app.
         if hour < 21 {
             center.removePendingNotificationRequests(withIdentifiers: ["liftoff.evening"])
-            let (title, body) = eveningMessageStatic(pickupCount: pickupCount, dailyGoal: goal, language: lang)
+            let (title, body) = eveningMessageStatic(language: lang)
             let content = UNMutableNotificationContent()
             content.sound = .default
             content.title = title
@@ -516,26 +522,14 @@ struct LiftOffApp: App {
     }
 
     // MARK: - Static message helpers (used by rescheduleTimeBasedNotifications)
-    private static func eveningMessageStatic(pickupCount: Int, dailyGoal: Int, language: String) -> (String, String) {
-        let excellent  = Int(Double(dailyGoal) * 0.4)
-        let good       = dailyGoal
-        let slightOver = Int(Double(dailyGoal) * 1.5)
+    private static func eveningMessageStatic(language: String) -> (String, String) {
         switch language {
         case "Ελληνικά":
-            if pickupCount <= excellent { return ("Ήσουν παρών σήμερα 🌿", "Μόνο \(pickupCount) σηκώματα — από τις καλύτερές σου μέρες!") }
-            else if pickupCount <= good { return ("Κάτω από τον στόχο 🎯", "\(pickupCount) σηκώματα — \(dailyGoal - pickupCount) λιγότερα από τον στόχο σου (\(dailyGoal)).") }
-            else if pickupCount <= slightOver { return ("Πάνω από τον στόχο ⚠️", "\(pickupCount) σηκώματα — \(pickupCount - dailyGoal) πάνω από τον στόχο σου (\(dailyGoal)).") }
-            else { return ("Πολύ κινητό σήμερα 📱", "\(pickupCount) σηκώματα — βάλε το κινητό κάτω και χαλάρωσε 🌙") }
+            return ("Βραδινό check-in 🌙", "Δες πώς πήγε η μέρα σου — άνοιξε το Picksy.")
         case "Deutsch":
-            if pickupCount <= excellent { return ("Du warst heute präsent 🌿", "Nur \(pickupCount) Griffe — einer deiner besten Tage!") }
-            else if pickupCount <= good { return ("Unter deinem Ziel 🎯", "\(pickupCount) Griffe — \(dailyGoal - pickupCount) weniger als dein Ziel (\(dailyGoal)).") }
-            else if pickupCount <= slightOver { return ("Über dem Ziel ⚠️", "\(pickupCount) Griffe — \(pickupCount - dailyGoal) über deinem Ziel (\(dailyGoal)).") }
-            else { return ("Viel Handy heute 📱", "\(pickupCount) Griffe — leg es weg und entspann dich 🌙") }
+            return ("Abend-Check-in 🌙", "Sieh, wie dein Tag war — öffne Picksy.")
         default:
-            if pickupCount <= excellent { return ("You were present today 🌿", "Only \(pickupCount) pickups — one of your best days!") }
-            else if pickupCount <= good { return ("Under your goal! 🎯", "\(pickupCount) pickups — \(dailyGoal - pickupCount) under your \(dailyGoal) goal.") }
-            else if pickupCount <= slightOver { return ("Over your goal ⚠️", "\(pickupCount) pickups — \(pickupCount - dailyGoal) over your \(dailyGoal) goal.") }
-            else { return ("Busy phone day 📱", "\(pickupCount) pickups — put it down and unwind 🌙") }
+            return ("Evening check-in 🌙", "See how your day went — open Picksy.")
         }
     }
 
