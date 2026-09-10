@@ -400,8 +400,8 @@ struct OnboardingView: View {
                 VStack(spacing: 10) {
                     tipRow("⏱️", t("Daily time limit", "Ημερήσιο όριο χρόνου", "Tageslimit"),
                            t("Lock apps after X minutes a day.", "Κλείδωσε apps μετά από Χ λεπτά την ημέρα.", "Sperre Apps nach X Minuten pro Tag."))
-                    tipRow("🛡️", t("Exact pickup counting", "Ακριβής μέτρηση σηκωμάτων", "Exakte Griff-Zählung"),
-                           t("A quick tap screen for precise counts.", "Μια γρήγορη οθόνη για ακριβή νούμερα.", "Ein kurzer Tipp-Screen für genaue Zahlen."))
+                    tipRow("🎯", t("Apple-accurate pickups", "Ακριβή σηκώματα από την Apple", "Apple-genaue Griffe"),
+                           t("On by default — Settings → Pickup number lets you switch to live counting instead.", "Ενεργό από προεπιλογή — Ρυθμίσεις → Αριθμός σηκωμάτων για εναλλαγή σε ζωντανή μέτρηση.", "Standardmäßig aktiv — in Einstellungen → Griff-Anzahl auf Live-Zählung umschaltbar."))
                     tipRow("👨‍👩‍👧", t("Parent passcode", "Γονικός κωδικός", "Eltern-Code"),
                            t("Hand the phone to your kid, locked to a set time.", "Δώσε το κινητό στο παιδί, κλειδωμένο για συγκεκριμένο χρόνο.", "Gib dem Kind das Handy, auf eine feste Zeit gesperrt."))
                     tipRow("⚔️", t("Duel your friends", "Μονομαχίες με φίλους", "Freunde duellieren"),
@@ -652,9 +652,9 @@ struct OnboardingView: View {
                     .font(.system(size: 14))
                     .foregroundColor(.indigo)
                 Text(t(
-                    "Pick the apps that eat your time, or pickups won't be reliable. For exact counts, turn on \"Exact pickup counting\" in Settings later.",
-                    "Διάλεξε τις apps που σου τρώνε χρόνο, αλλιώς τα σηκώματα δεν θα είναι αξιόπιστα. Για ακριβή μέτρηση, ενεργοποίησε αργότερα το «Ακριβής μέτρηση σηκωμάτων» στις Ρυθμίσεις.",
-                    "Wähle die Apps, die deine Zeit fressen, sonst sind die Griffe nicht zuverlässig. Für exakte Zählung aktiviere später \"Exakte Griff-Zählung\" in den Einstellungen."
+                    "Pick the apps that eat your time. Picksy shows Apple's own tracked pickup count by default — the most accurate number, even when Picksy is closed. Switch to \"Live\" in Settings → Pickup number if you prefer instant, real-time updates instead.",
+                    "Διάλεξε τις apps που σου τρώνε χρόνο. Το Picksy δείχνει από προεπιλογή τον αριθμό που παρακολουθεί η ίδια η Apple — τον πιο ακριβή, ακόμα κι όταν το Picksy είναι κλειστό. Άλλαξε σε \"Live\" στις Ρυθμίσεις → Αριθμός σηκωμάτων αν προτιμάς στιγμιαία, ζωντανή ενημέρωση.",
+                    "Wähle die Apps, die deine Zeit fressen. Picksy zeigt standardmäßig Apples eigene erfasste Griff-Zahl — die genaueste Zahl, selbst wenn Picksy geschlossen ist. Wechsle in Einstellungen → Griff-Anzahl zu \"Live\", falls du sofortige Echtzeit-Updates bevorzugst."
                 ))
                 .font(.system(size: 13, weight: .regular, design: .rounded))
                 .foregroundColor(.secondary)

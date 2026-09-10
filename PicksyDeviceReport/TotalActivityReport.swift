@@ -62,9 +62,13 @@ private func extractReport(from data: DeviceActivityResults<DeviceActivityData>,
 
             for await category in segment.categories {
                 for await application in category.applications {
-                    // Apple's REAL pickup count (per app) — summed across all apps
-                    // ≈ total device pickups shown in Settings → Screen Time. Counted
-                    // before the duration guard so apps with pickups but ~0 time count.
+                    // Apple's REAL pickup count (per app) — summed across all apps.
+                    // Tried summing at the parent Category level instead (hoping it'd
+                    // capture pickups that never open an app, e.g. lock-screen glances),
+                    // but ActivityCategory has no numberOfPickups member — only
+                    // Application does. So this per-app sum is the closest available;
+                    // it will still run somewhat below the Settings → Screen Time total.
+                    // Counted before the duration guard so apps with pickups but ~0 time count.
                     totalPickups += application.numberOfPickups
 
                     let duration = application.totalActivityDuration

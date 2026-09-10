@@ -131,13 +131,22 @@ class UsageThresholdManager {
     /// from the notification thresholds above.
     static let scoreActivityName = DeviceActivityName("picksy.scoreLadder")
 
-    /// Confirmed-time score ladder granularity. Events fire every
-    /// `scoreLadderStepMinutes` of cumulative usage, up to `scoreLadderMaxMinutes`.
-    /// Finer steps → the in-app Picksy Score (and the duel score we sync) tracks
-    /// the real screen time more closely (≈ within one step + Apple's delivery
-    /// delay). 15 min × up to 10h = 40 events — well under DeviceActivity's limit.
-    static let scoreLadderStepMinutes = 15
-    static let scoreLadderMaxMinutes  = 10 * 60
+    /// Confirmed-time score ladder granularity — tiered so the Dynamic Island /
+    /// Nudge score stays fresh early in a session (a stale reading is most
+    /// noticeable in the first hour, e.g. showing "9min" when real usage is
+    /// already 60min) without blowing up the total registered event count:
+    /// fine steps early, coarser steps later where a few extra minutes of lag
+    /// matters far less. 12 + 16 + 10 = 38 events, no more than the old flat
+    /// 15-min/10h ladder (40 events) — well under DeviceActivity's per-activity
+    /// limit either way.
+    static let scoreLadderTiers: [(stepMinutes: Int, upToMinutes: Int)] = [
+        (5, 60),    // first hour: every 5 min
+        (15, 300),  // 1h–5h: every 15 min
+        (30, 600)   // 5h–10h: every 30 min
+    ]
+    /// Bump whenever scoreLadderTiers changes shape — folded into the config
+    /// fingerprint below so existing installs detect the change and re-register.
+    static let scoreLadderVersion = 2
 
     enum ThresholdLevel: String, CaseIterable {
         case level1 = "picksy.threshold.level1"
@@ -278,15 +287,19 @@ class UsageThresholdManager {
         // whole-device total and stays accurate, so the duel score (synced from
         // this) matches Nudge/Stats and is fair (both players on the same basis).
         var ladderEvents: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
-        var minutes = Self.scoreLadderStepMinutes
-        while minutes <= Self.scoreLadderMaxMinutes {
-            let name = DeviceActivityEvent.Name("picksy.usagemin.\(minutes)")
-            ladderEvents[name] = DeviceActivityEvent(
-                applications: selection.applicationTokens,
-                categories: selection.categoryTokens,
-                threshold: DateComponents(minute: minutes)
-            )
-            minutes += Self.scoreLadderStepMinutes
+        var tierStart = 0
+        for tier in Self.scoreLadderTiers {
+            var minutes = tierStart + tier.stepMinutes
+            while minutes <= tier.upToMinutes {
+                let name = DeviceActivityEvent.Name("picksy.usagemin.\(minutes)")
+                ladderEvents[name] = DeviceActivityEvent(
+                    applications: selection.applicationTokens,
+                    categories: selection.categoryTokens,
+                    threshold: DateComponents(minute: minutes)
+                )
+                minutes += tier.stepMinutes
+            }
+            tierStart = tier.upToMinutes
         }
 
         center.stopMonitoring([Self.scoreActivityName])
@@ -297,7 +310,7 @@ class UsageThresholdManager {
                 during: schedule,
                 events: ladderEvents
             )
-            log("✅ Started score ladder monitoring (every \(Self.scoreLadderStepMinutes)min up to \(Self.scoreLadderMaxMinutes / 60)h, \(ladderEvents.count) events)")
+            log("✅ Started score ladder monitoring (tiered: 5min→1h, 15min→5h, 30min→10h, \(ladderEvents.count) events)")
         } catch {
             log("❌ Failed to start score ladder: \(error.localizedDescription)")
         }
@@ -322,7 +335,7 @@ class UsageThresholdManager {
         let catParts = selection.categoryTokens.compactMap {
             (try? encoder.encode($0))?.base64EncodedString()
         }.sorted()
-        let joined = "\(preset.rawValue)|\(limitMinutes)|\(scoreLadderStepMinutes)|\(scoreLadderMaxMinutes)|"
+        let joined = "\(preset.rawValue)|\(limitMinutes)|ladder-v\(scoreLadderVersion)|"
             + appParts.joined(separator: ",") + "|" + catParts.joined(separator: ",")
         let digest = SHA256.hash(data: Data(joined.utf8))
         return digest.map { String(format: "%02x", $0) }.joined()

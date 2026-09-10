@@ -204,7 +204,10 @@ class DuelManager {
                 appleSecs = raw
             }
         }
-        return max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
+        let raw = max(suite.integer(forKey: "todayTotalSeconds"), appleSecs)
+        // Clamp to elapsed time since midnight — screen time can never exceed
+        // wall-clock time elapsed today. Same safety net as DataStore.bestScreenTimeSecs.
+        return min(raw, DataStore.secondsSinceMidnight())
     }
 
     private init() {}
@@ -471,6 +474,7 @@ class DuelManager {
         // so we use NotificationCenter as the bridge.
         await MainActor.run {
             NotificationCenter.default.post(name: .picksyDuelFinalized, object: nil)
+            if winner == myDeviceID { AchievementManager.shared.onDuelWon() }
         }
 
         // Only the challenger sends push notifications — prevents both devices from

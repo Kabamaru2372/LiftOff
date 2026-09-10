@@ -174,6 +174,7 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let categoryId = notification.request.content.categoryIdentifier
+        let identifier = notification.request.identifier
 
         if categoryId == "PICKSY_MESSAGE" || categoryId == "PICKSY_DUEL" {
             // Show in-app floating bubble instead of system banner
@@ -184,6 +185,19 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
             }
             // Still play sound, but suppress banner (we handle the UI ourselves)
             completionHandler([.sound])
+        } else if categoryId == "PICKSY_SCREEN_TIME_MILESTONE"
+               && identifier.hasPrefix("picksy.session.") {
+            // Suppress continuous-session notifications when Picksy is in the
+            // foreground and the session was already cancelled (lock happened but
+            // BGAppRefresh hadn't run yet to remove the pending request).
+            let sessionStart = UserDefaults(suiteName: ScreenTimeMilestoneNotifier.appGroupID)?
+                .double(forKey: "picksy_continuous_session_start") ?? 0
+            if sessionStart == 0 {
+                print("[Session] ⛔ Suppressed stale continuous-session notification (session was cancelled)")
+                completionHandler([])
+            } else {
+                completionHandler([.banner, .sound])
+            }
         } else {
             completionHandler([.banner, .sound])
         }
@@ -415,15 +429,19 @@ struct LiftOffApp: App {
                 print("[BGRefresh] 🔒 Device locked — re-shielded + cancelled pending continuous alerts")
             } else {
                 // SAFEGUARD (d): device still unlocked, but cancel stale continuous
-                // alerts if the user hasn't picked up the phone in 30+ minutes.
+                // alerts if the user hasn't picked up the phone in 10+ minutes.
                 // Covers "music playing / phone face-down on desk": the screen may
                 // stay on (or auto-lock was slow), Picksy got suspended before
                 // receiving the lock event, and safeguard (c) never ran.
+                // Lowered from 30 → 10 minutes to catch audio-lock false positives
+                // faster (the willResignActive handler cancels when Picksy was
+                // foreground, but if Picksy was already backgrounded when the
+                // screen locked during audio, only this safeguard catches it).
                 let lastPickupTS = sharedDefaults.double(forKey: "picksy_last_pickup_timestamp")
                 let idleMinutes = lastPickupTS > 0
                     ? (Date().timeIntervalSince1970 - lastPickupTS) / 60
                     : Double.infinity
-                if idleMinutes > 30 {
+                if idleMinutes > 10 {
                     ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
                     print("[BGRefresh] 📴 Unlocked but idle \(Int(idleMinutes))min — cancelled stale continuous alerts")
                 }
@@ -445,6 +463,7 @@ struct LiftOffApp: App {
 
             await PushNotificationManager.shared.pushLiveActivityUpdate(
                 pickupCount: pickups,
+                screenTimeSecs: mySecs,
                 duelOpponentName: isDuelActive ? opponentName : nil,
                 duelMySecs:    isDuelActive ? mySecs : 0,
                 duelTheirSecs: isDuelActive ? theirSecs : 0
@@ -465,31 +484,31 @@ struct LiftOffApp: App {
         let center = UNUserNotificationCenter.current()
         let hour   = Calendar.current.component(.hour, from: Date())
         let lang   = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
-        let g      = UserDefaults.standard.integer(forKey: "dailyGoal")
-        let goal   = g > 0 ? g : 50
 
-        // Midday (12:00) — "keep Picksy open for accurate counts" reminder.
-        // Replaces the old pickup-progress message: because iOS suspends the app
-        // shortly after it leaves the foreground, pickups are counted most
-        // accurately while Picksy is open. This nudges the user to pop it open.
-        if hour < 12 {
-            center.removePendingNotificationRequests(withIdentifiers: ["liftoff.midday"])
-            let content = UNMutableNotificationContent()
-            content.sound = .default
-            let (mtitle, mbody) = middayReminderMessage(language: lang)
-            content.title = mtitle
-            content.body  = mbody
-            var dc = DateComponents(); dc.hour = 12; dc.minute = 0
-            center.add(UNNotificationRequest(
-                identifier: "liftoff.midday", content: content,
-                trigger: UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
-            ))
-        }
+        // Retired: midday (12:00) "keep Picksy open" nudge, the 14:00
+        // "Picksy check-in" nudge (see scheduleAllNotifications' static-cleanup
+        // list), and the 20:00 "Evening summary" — that last one duplicated the
+        // 21:00 evening notification below almost word-for-word, firing twice
+        // an hour apart. Users flagged the app as too naggy; unconditional
+        // removal here cleans up anyone who already has these scheduled from a
+        // previous version, not just new installs.
+        center.removePendingNotificationRequests(withIdentifiers: ["liftoff.midday", "picksy.summary.evening"])
 
-        // Evening (21:00) — reschedule whenever not yet fired today
+        // Evening (21:00) — reschedule whenever not yet fired today.
+        //
+        // Deliberately carries NO pickup count anymore. It used to show the
+        // live in-process counter, which can badly undercount whenever iOS
+        // has suspended/killed the app for a stretch of the day — confirmed
+        // in testing: the notification said "36" while the real, Apple-
+        // tracked total (shown on opening the app) was 60. That accurate
+        // number only ever exists INSIDE the sandboxed DeviceActivityReport
+        // view — this scheduling code structurally cannot read it (same wall
+        // that shaped the Dynamic Island's design). Rather than risk showing
+        // a wrong number again, this stays honestly numberless; the real
+        // count is only ever shown where it can be accurate — inside the app.
         if hour < 21 {
-            center.removePendingNotificationRequests(withIdentifiers: ["liftoff.evening", "picksy.summary.evening"])
-            let (title, body) = eveningMessageStatic(pickupCount: pickupCount, dailyGoal: goal, language: lang)
+            center.removePendingNotificationRequests(withIdentifiers: ["liftoff.evening"])
+            let (title, body) = eveningMessageStatic(language: lang)
             let content = UNMutableNotificationContent()
             content.sound = .default
             content.title = title
@@ -499,66 +518,18 @@ struct LiftOffApp: App {
                 identifier: "liftoff.evening", content: content,
                 trigger: UNCalendarNotificationTrigger(dateMatching: dc, repeats: true)
             ))
-
-            let sum = UNMutableNotificationContent()
-            sum.sound = .default
-            switch lang {
-            case "Ελληνικά":
-                sum.title = "Βραδινό σύνολο 🌙"
-                sum.body  = "Δες πόσες φορές σήκωσες το κινητό σήμερα. Άνοιξε το Picksy."
-            case "Deutsch":
-                sum.title = "Abend-Zusammenfassung 🌙"
-                sum.body  = "Sieh, wie oft du heute zum Handy gegriffen hast. Öffne Picksy."
-            default:
-                sum.title = "Evening summary 🌙"
-                sum.body  = "See how many times you picked up your phone today. Open Picksy."
-            }
-            var dc2 = DateComponents(); dc2.hour = 20; dc2.minute = 0
-            center.add(UNNotificationRequest(
-                identifier: "picksy.summary.evening", content: sum,
-                trigger: UNCalendarNotificationTrigger(dateMatching: dc2, repeats: true)
-            ))
         }
     }
 
     // MARK: - Static message helpers (used by rescheduleTimeBasedNotifications)
-
-    /// Midday reminder: keeping Picksy open makes pickup counting more accurate
-    /// (iOS suspends the app shortly after it's backgrounded, so live counting only
-    /// happens while it's open). Returns localized (title, body).
-    private static func middayReminderMessage(language: String) -> (String, String) {
+    private static func eveningMessageStatic(language: String) -> (String, String) {
         switch language {
         case "Ελληνικά":
-            return ("Κράτα το Picksy ανοιχτό 📱",
-                    "Όσο πιο συχνά κρατάς το Picksy ανοιχτό, τόσο πιο ακριβή και αξιόπιστα μετριούνται τα σηκώματά σου. Ρίξε του μια ματιά!")
+            return ("Βραδινό check-in 🌙", "Δες πώς πήγε η μέρα σου — άνοιξε το Picksy.")
         case "Deutsch":
-            return ("Halte Picksy offen 📱",
-                    "Je öfter du Picksy geöffnet hast, desto genauer und zuverlässiger werden deine Griffe gezählt. Schau kurz rein!")
+            return ("Abend-Check-in 🌙", "Sieh, wie dein Tag war — öffne Picksy.")
         default:
-            return ("Keep Picksy open 📱",
-                    "The more you keep Picksy open, the more accurately and reliably your pickups are counted. Pop it open for a sec!")
-        }
-    }
-    private static func eveningMessageStatic(pickupCount: Int, dailyGoal: Int, language: String) -> (String, String) {
-        let excellent  = Int(Double(dailyGoal) * 0.4)
-        let good       = dailyGoal
-        let slightOver = Int(Double(dailyGoal) * 1.5)
-        switch language {
-        case "Ελληνικά":
-            if pickupCount <= excellent { return ("Ήσουν παρών σήμερα 🌿", "Μόνο \(pickupCount) σηκώματα — από τις καλύτερές σου μέρες!") }
-            else if pickupCount <= good { return ("Κάτω από τον στόχο 🎯", "\(pickupCount) σηκώματα — \(dailyGoal - pickupCount) λιγότερα από τον στόχο σου (\(dailyGoal)).") }
-            else if pickupCount <= slightOver { return ("Πάνω από τον στόχο ⚠️", "\(pickupCount) σηκώματα — \(pickupCount - dailyGoal) πάνω από τον στόχο σου (\(dailyGoal)).") }
-            else { return ("Πολύ κινητό σήμερα 📱", "\(pickupCount) σηκώματα — βάλε το κινητό κάτω και χαλάρωσε 🌙") }
-        case "Deutsch":
-            if pickupCount <= excellent { return ("Du warst heute präsent 🌿", "Nur \(pickupCount) Griffe — einer deiner besten Tage!") }
-            else if pickupCount <= good { return ("Unter deinem Ziel 🎯", "\(pickupCount) Griffe — \(dailyGoal - pickupCount) weniger als dein Ziel (\(dailyGoal)).") }
-            else if pickupCount <= slightOver { return ("Über dem Ziel ⚠️", "\(pickupCount) Griffe — \(pickupCount - dailyGoal) über deinem Ziel (\(dailyGoal)).") }
-            else { return ("Viel Handy heute 📱", "\(pickupCount) Griffe — leg es weg und entspann dich 🌙") }
-        default:
-            if pickupCount <= excellent { return ("You were present today 🌿", "Only \(pickupCount) pickups — one of your best days!") }
-            else if pickupCount <= good { return ("Under your goal! 🎯", "\(pickupCount) pickups — \(dailyGoal - pickupCount) under your \(dailyGoal) goal.") }
-            else if pickupCount <= slightOver { return ("Over your goal ⚠️", "\(pickupCount) pickups — \(pickupCount - dailyGoal) over your \(dailyGoal) goal.") }
-            else { return ("Busy phone day 📱", "\(pickupCount) pickups — put it down and unwind 🌙") }
+            return ("Evening check-in 🌙", "See how your day went — open Picksy.")
         }
     }
 
@@ -707,6 +678,17 @@ struct LiftOffApp: App {
             hourlyTracker.recordPickup()
             focusSessionManager.onPickup(currentPickups: store.todayPickups)
 
+            // Keep the personalized evening notification's baked-in pickup
+            // count as fresh as possible. Local notification content is fixed
+            // at scheduling time, NOT recomputed at delivery — it previously
+            // only got refreshed via BGAppRefresh (2-4x/hour) or app
+            // foreground, so a pickup shortly before 21:00 could easily land
+            // after the last refresh and fire with a stale, too-low count
+            // (observed: notification said "11 pickups" when the real count
+            // was already 12+). This runs on every real pickup, inside the
+            // same background task reserved above, closing that gap.
+            LiftOffApp.rescheduleTimeBasedNotifications(pickupCount: store.todayPickups)
+
             // Apple Watch: push the new pickup count immediately.
             syncWatch()
 
@@ -767,6 +749,7 @@ struct LiftOffApp: App {
                         // More reliable than local Activity.update() from background.
                         await PushNotificationManager.shared.pushLiveActivityUpdate(
                             pickupCount: pickups,
+                            screenTimeSecs: store.bestScreenTimeSecs,
                             duelOpponentName: isDuelActive ? activeDuel?.theirName : nil,
                             duelMySecs:    isDuelActive ? store.bestScreenTimeSecs : 0,
                             duelTheirSecs: isDuelActive ? (activeDuel?.theirScreenTime ?? 0) : 0
@@ -790,8 +773,13 @@ struct LiftOffApp: App {
         //   (a) cancel on lock          — onScreenSessionEnded below
         //   (b) cancel + reschedule     — here, on the next unlock
         //   (c) cancel on BG-refresh    — handleBackgroundRefresh, when device locked
-        //   (d) cancel on BG-refresh    — handleBackgroundRefresh, when unlocked but idle 30+ min
+        //   (d) cancel on BG-refresh    — handleBackgroundRefresh, when unlocked but idle 10+ min
+        //   (e) cancel on resign-active — ScreenUnlockDetector.handleResignActive
+        //   (f) resume on become-active — onScreenSessionResumed below (only if < 10 min)
         ScreenUnlockDetector.shared.onScreenSessionStarted = {
+            // The plant should start wilting the INSTANT the phone is picked
+            // up, not just take a delayed lump-sum hit once it's put back down.
+            store.beginPlantSession()
             let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
             ScreenTimeMilestoneNotifier.shared.scheduleContinuousSession(
                 weather: weatherManager.activeCondition,
@@ -800,11 +788,32 @@ struct LiftOffApp: App {
             // Request an early BGAppRefresh so safeguard (c)/(d) runs soon after
             // session start, catching the common case where the phone is put down
             // within a few minutes and auto-locks while Picksy is suspended.
-            LiftOffApp.scheduleBackgroundRefresh(earliestMinutes: 8)
+            LiftOffApp.scheduleBackgroundRefresh(earliestMinutes: 2)
+        }
+
+        // AUDIO LOCK FIX (resume path): When the user returns to Picksy after
+        // a brief absence (< 10 min, e.g. Control Center or quick app switch),
+        // resume the continuous session with the REMAINING time from the original
+        // unlock — NOT from zero. This avoids resetting the clock on every app
+        // switch, which the old code did (scheduling a full fresh session via
+        // onScreenSessionStarted on each didBecomeActive).
+        //
+        // For long absences (≥ 10 min), the detector skips the resume entirely
+        // (likely audio-lock or the user was genuinely away). The next real
+        // unlock starts a fresh session via onScreenSessionStarted.
+        ScreenUnlockDetector.shared.onScreenSessionResumed = {
+            let lang = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
+            ScreenTimeMilestoneNotifier.shared.resumeContinuousSession(
+                weather: weatherManager.activeCondition,
+                language: lang
+            )
         }
 
         ScreenUnlockDetector.shared.onScreenSessionEnded = { seconds in
             store.addUsageTime(seconds: seconds)
+            // The session is over — freeze the (already continuously wilted)
+            // plant health as the new baseline and resume growing from now.
+            store.endPlantSession()
             // SAFEGUARD (a): the continuous session ended (screen locked) → cancel any
             // pending continuous-use alerts so they don't fire after the user stopped.
             ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
@@ -814,6 +823,15 @@ struct LiftOffApp: App {
             ShieldManager.shared.refresh()
             // Apple Watch: screen time changed → refresh the score on the wrist.
             syncWatch()
+            // Live Activity views only re-render when we push a fresh ContentState
+            // (unlike Text(date, style: .timer), which iOS ticks on its own) — so
+            // without this, the plant's growth (just resumed by endPlantSession()
+            // above) would sit invisible until some UNRELATED trigger (next pickup,
+            // next BGAppRefresh) happened to push an update. Session-end is exactly
+            // when the phone locks, i.e. exactly when the app is about to background —
+            // this runs in the same background-survival window as the shield refresh
+            // above, so there's time for the push to go out.
+            liveActivity.update(pickupCount: store.todayPickups)
             print("[ScreenTime] ⏱ Session ended: \(seconds)s, total today: \(store.todayTotalSeconds)s, last2h: \(store.screenTimeLastTwoHours)s")
         }
         ScreenUnlockDetector.shared.startMonitoring()
@@ -922,15 +940,21 @@ struct LiftOffApp: App {
             bgTaskID = UIApplication.shared.beginBackgroundTask(
                 withName: "picksy.bgMonitor"
             ) {
-                // Expiry handler — iOS is about to suspend us, clean up now
+                // Expiry handler — iOS is ending our background window (~30s).
+                // If the device locked while we were in the background, we may
+                // have missed protectedDataWillBecomeUnavailableNotification
+                // (fired right at the lock/expiry boundary). Cancel any pending
+                // continuous-session alerts now before the process is suspended.
+                if !UIApplication.shared.isProtectedDataAvailable {
+                    ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
+                    print("[BGMonitor] 🔒 Expiry: device locked — cancelled stale continuous-session alerts")
+                }
                 UIApplication.shared.endBackgroundTask(bgTaskID)
             }
-            // End explicitly after 28 seconds (just under the ~30s iOS limit).
-            // The expiry handler above is the safety net if iOS cuts us short.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 28) {
-                UIApplication.shared.endBackgroundTask(bgTaskID)
-            }
-            print("[LiftOffApp] 🔲 Background monitor started (~28s window)")
+            // No explicit early end — let iOS run us for the full ~30s window
+            // so we're still alive when a 30-second auto-lock fires and can
+            // handle protectedDataWillBecomeUnavailableNotification normally.
+            print("[LiftOffApp] 🔲 Background monitor started (full iOS window)")
 
             // Schedule BGAppRefreshTask — iOS will fire this periodically
             // (typically 2–4× per hour) to sync the pickup count & update the DI
@@ -971,6 +995,11 @@ struct LiftOffApp: App {
             let g = UserDefaults.standard.integer(forKey: "dailyGoal")
             let goal = g > 0 ? g : 50
 
+            // ensureFreshActivity restarts the DI if the current activity is from
+            // a previous day (staleDate fired at midnight, iOS hid the DI but left
+            // activityState == .active — the normal isRunning check wouldn't restart it).
+            liveActivity.ensureFreshActivity(pickupCount: store.todayPickups, dailyGoal: goal)
+
             if liveActivity.isRunning {
                 // Focus > Duel > Normal priority for Dynamic Island
                 if focusSessionManager.isActive,
@@ -991,8 +1020,6 @@ struct LiftOffApp: App {
                 } else {
                     liveActivity.update(pickupCount: store.todayPickups)
                 }
-            } else {
-                liveActivity.start(pickupCount: store.todayPickups, dailyGoal: goal)
             }
 
             ScreenUnlockDetector.shared.startMonitoring()
@@ -1031,6 +1058,10 @@ struct LiftOffApp: App {
                         theirSecs: duel.theirScreenTime
                     )
                 }
+                // Refresh weather on foreground so the background stays current.
+                // fetchWeather() has a 10-min cache guard — no extra network calls.
+                await weatherManager.fetchWeather()
+
                 // Refresh pre-computed milestone messages in the App Group so the
                 // DeviceActivityMonitor extension fires accurate, weather-aware
                 // notifications when Apple's usage thresholds are reached.
@@ -1166,7 +1197,6 @@ struct LiftOffApp: App {
         ])
         scheduleMorningWakeupNotification(center: center, language: language)
         scheduleWeeklyNotification(center: center, language: language)
-        scheduleSummaryNotifications(center: center, language: language)
     }
 
     private func scheduleMorningWakeupNotification(center: UNUserNotificationCenter, language: String) {
@@ -1198,44 +1228,6 @@ struct LiftOffApp: App {
         ))
     }
 
-    private func scheduleMiddayNotification(center: UNUserNotificationCenter, pickupCount: Int, language: String) {
-        let content = UNMutableNotificationContent()
-        content.sound = .default
-        switch language {
-        case "Ελληνικά":
-            content.title = "Πώς πας μέχρι τώρα;"
-            content.body = middayMessageGR(pickupCount: pickupCount)
-        case "Deutsch":
-            content.title = "Wie läuft es bisher?"
-            content.body = middayMessageDE(pickupCount: pickupCount)
-        default:
-            content.title = "How's it going so far?"
-            content.body = middayMessageEN(pickupCount: pickupCount)
-        }
-        var c = DateComponents(); c.hour = 12; c.minute = 0
-        center.add(UNNotificationRequest(identifier: "liftoff.midday", content: content,
-            trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)))
-    }
-
-    private func scheduleEveningNotification(
-        center: UNUserNotificationCenter,
-        pickupCount: Int,
-        dailyGoal: Int,
-        language: String
-    ) {
-        let content = UNMutableNotificationContent()
-        content.sound = .default
-        content.categoryIdentifier = "PICKSY_EVENING_SUMMARY"
-
-        let (title, body) = eveningMessage(pickupCount: pickupCount, dailyGoal: dailyGoal, language: language)
-        content.title = title
-        content.body  = body
-
-        var c = DateComponents(); c.hour = 21; c.minute = 0
-        center.add(UNNotificationRequest(identifier: "liftoff.evening", content: content,
-            trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)))
-    }
-
     private func scheduleWeeklyNotification(center: UNUserNotificationCenter, language: String) {
         let content = UNMutableNotificationContent()
         content.sound = .default
@@ -1255,148 +1247,5 @@ struct LiftOffApp: App {
             trigger: UNCalendarNotificationTrigger(dateMatching: c, repeats: true)))
     }
 
-    private func scheduleSummaryNotifications(center: UNUserNotificationCenter, language: String) {
-        let afternoonContent = UNMutableNotificationContent()
-        afternoonContent.sound = .default
-        switch language {
-        case "Ελληνικά":
-            afternoonContent.title = "Picksy check-in ⚡"
-            afternoonContent.body = "Πώς πας σήμερα; Άνοιξε το Picksy για να δεις τα σηκώματά σου."
-        case "Deutsch":
-            afternoonContent.title = "Picksy Check-in ⚡"
-            afternoonContent.body = "Wie läuft dein Tag? Öffne Picksy, um deine Griffe zu sehen."
-        default:
-            afternoonContent.title = "Picksy check-in ⚡"
-            afternoonContent.body = "How's your day going? Open Picksy to see your pickups."
-        }
-        var ac = DateComponents(); ac.hour = 14; ac.minute = 0
-        center.add(UNNotificationRequest(identifier: "picksy.summary.afternoon",
-            content: afternoonContent,
-            trigger: UNCalendarNotificationTrigger(dateMatching: ac, repeats: true)))
-
-        // Note: picksy.summary.evening (20:00) is already scheduled by
-        // rescheduleTimeBasedNotifications — removing duplicate here to avoid
-        // two evening notifications firing within one hour of each other.
-    }
-
-    // MARK: - Midday Messages
-
-    private func middayMessageEN(pickupCount: Int) -> String {
-        switch pickupCount {
-        case 0...5: return "Excellent morning! You're barely touching your phone. Keep it up! 💪"
-        case 6...10: return "Good start! You're doing well. Stay focused this afternoon."
-        case 11...20: return "You've picked up your phone \(pickupCount) times. The afternoon is yours to improve."
-        case 21...30: return "\(pickupCount) pickups already. Take a breath. You've got this afternoon to turn it around."
-        default: return "\(pickupCount) pickups before noon. The afternoon is a fresh start. You can do better."
-        }
-    }
-
-    private func middayMessageGR(pickupCount: Int) -> String {
-        switch pickupCount {
-        case 0...5: return "Εξαιρετικό πρωινό! Μόλις αγγίζεις το κινητό. Συνέχισε έτσι! 💪"
-        case 6...10: return "Καλή αρχή! Τα πας καλά. Μείνε συγκεντρωμένος το απόγευμα."
-        case 11...20: return "Έχεις πιάσει το κινητό \(pickupCount) φορές. Το απόγευμα είναι δικό σου για βελτίωση."
-        case 21...30: return "\(pickupCount) φορές ήδη. Πάρε μια ανάσα. Έχεις το απόγευμα να το αλλάξεις."
-        default: return "\(pickupCount) φορές πριν το μεσημέρι. Το απόγευμα ξεκινάει από μηδέν. Μπορείς καλύτερα."
-        }
-    }
-
-    private func middayMessageDE(pickupCount: Int) -> String {
-        switch pickupCount {
-        case 0...5: return "Ausgezeichneter Morgen! Du greifst kaum zum Handy. Weiter so! 💪"
-        case 6...10: return "Guter Start! Du machst das gut. Bleib heute Nachmittag fokussiert."
-        case 11...20: return "Du hast dein Handy \(pickupCount) Mal aufgehoben. Der Nachmittag gehört dir zur Verbesserung."
-        case 21...30: return "\(pickupCount) Griffe bereits. Tief durchatmen. Du kannst es am Nachmittag noch drehen."
-        default: return "\(pickupCount) Griffe vor dem Mittag. Der Nachmittag ist ein Neustart. Du kannst es besser."
-        }
-    }
-
-    // MARK: - Evening Messages (personalized, data-driven)
-
-    /// Returns (title, body) for the 21:00 personalized summary notification.
-    /// Segments by pickups relative to dailyGoal so every user gets a relevant message.
-    private func eveningMessage(pickupCount: Int, dailyGoal: Int, language: String) -> (String, String) {
-        // Thresholds relative to goal
-        let excellent  = Int(Double(dailyGoal) * 0.4)   // ≤ 40% of goal → excellent
-        let good       = dailyGoal                       // ≤ 100% → good
-        let slightOver = Int(Double(dailyGoal) * 1.5)   // ≤ 150% → slightly over
-
-        switch language {
-        case "Ελληνικά":
-            if pickupCount <= excellent {
-                return (
-                    "Ήσουν παρών σήμερα 🌿",
-                    "Μόνο \(pickupCount) σηκώματα — από τις καλύτερές σου μέρες! Απόλαυσε το βράδυ σου."
-                )
-            } else if pickupCount <= good {
-                let under = dailyGoal - pickupCount
-                return (
-                    "Κάτω από τον στόχο 🎯",
-                    "\(pickupCount) σηκώματα σήμερα — \(under) λιγότερα από τον στόχο σου (\(dailyGoal)). Συνέχισε έτσι!"
-                )
-            } else if pickupCount <= slightOver {
-                let over = pickupCount - dailyGoal
-                return (
-                    "Κοντά στον στόχο 💪",
-                    "\(pickupCount) σηκώματα σήμερα — \(over) πάνω από τον στόχο. Αύριο είναι μια νέα αρχή 🌅"
-                )
-            } else {
-                return (
-                    "Πολύ κινητό σήμερα 📱",
-                    "\(pickupCount) σηκώματα — ήταν δύσκολη μέρα. Βάλε το κινητό κάτω και χαλάρωσε 🌙"
-                )
-            }
-
-        case "Deutsch":
-            if pickupCount <= excellent {
-                return (
-                    "Du warst heute präsent 🌿",
-                    "Nur \(pickupCount) Griffe — einer deiner besten Tage! Genieße deinen Abend."
-                )
-            } else if pickupCount <= good {
-                let under = dailyGoal - pickupCount
-                return (
-                    "Unter deinem Ziel 🎯",
-                    "\(pickupCount) Griffe heute — \(under) weniger als dein Ziel (\(dailyGoal)). Weiter so!"
-                )
-            } else if pickupCount <= slightOver {
-                let over = pickupCount - dailyGoal
-                return (
-                    "Knapp über dem Ziel 💪",
-                    "\(pickupCount) Griffe — \(over) über deinem Ziel. Morgen ist ein frischer Start 🌅"
-                )
-            } else {
-                return (
-                    "Viel Handy heute 📱",
-                    "\(pickupCount) Griffe — das war ein anstrengender Tag. Leg es weg und entspann dich 🌙"
-                )
-            }
-
-        default: // English
-            if pickupCount <= excellent {
-                return (
-                    "You were present today 🌿",
-                    "Only \(pickupCount) pickups — one of your best days! Enjoy your evening phone-free."
-                )
-            } else if pickupCount <= good {
-                let under = dailyGoal - pickupCount
-                return (
-                    "Under your goal! 🎯",
-                    "\(pickupCount) pickups today — \(under) under your \(dailyGoal) goal. You're building a great habit."
-                )
-            } else if pickupCount <= slightOver {
-                let over = pickupCount - dailyGoal
-                return (
-                    "Almost there 💪",
-                    "\(pickupCount) pickups today — \(over) over your goal. Tomorrow is a fresh start 🌅"
-                )
-            } else {
-                return (
-                    "Busy phone day 📱",
-                    "\(pickupCount) pickups — that was a tough one. Put it down and unwind for the evening 🌙"
-                )
-            }
-        }
-    }
 }
 

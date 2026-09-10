@@ -112,7 +112,13 @@ struct TotalActivityView: View {
     // MARK: - App List
 
     private var appList: some View {
-        VStack(spacing: 0) {
+        // LazyVStack, not VStack: this runs inside the memory-ceilinged
+        // DeviceActivityReport extension, and .totalActivity's app list is
+        // unbounded (a user tracking an entire category can have dozens of
+        // apps) — a plain VStack would eagerly build every row (each with its
+        // own live ManagedSettings icon lookup) at once instead of only the
+        // visible ones.
+        LazyVStack(spacing: 0) {
             ForEach(Array(report.apps.enumerated()), id: \.element.id) { index, app in
                 appRow(app, rank: index)
                 if index < report.apps.count - 1 {

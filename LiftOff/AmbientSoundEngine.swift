@@ -218,16 +218,25 @@ final class AmbientSoundEngine {
 
     // MARK: Now Playing / lock-screen controls
 
+    // Apple documents MPRemoteCommandCenter handlers as callable on an
+    // arbitrary queue, not guaranteed main-thread — lock screen / Control
+    // Center / headset controls all route through here. start()/stop()/
+    // toggle() mutate the @Observable `isPlaying` directly with no isolation
+    // of their own, so without an explicit hop to main here, a handler firing
+    // off-main would mutate SwiftUI-observed state off the main actor.
     private func setupRemoteCommands() {
         let center = MPRemoteCommandCenter.shared()
         center.playCommand.addTarget { [weak self] _ in
-            self?.start(); return .success
+            DispatchQueue.main.async { self?.start() }
+            return .success
         }
         center.pauseCommand.addTarget { [weak self] _ in
-            self?.stop(); return .success
+            DispatchQueue.main.async { self?.stop() }
+            return .success
         }
         center.togglePlayPauseCommand.addTarget { [weak self] _ in
-            self?.toggle(); return .success
+            DispatchQueue.main.async { self?.toggle() }
+            return .success
         }
     }
 

@@ -20,6 +20,7 @@ struct ContentView: View {
 
     @State private var showPaywall: Bool = false
     @State private var showCheckIn: Bool = false
+    @State private var showWhyPickup: Bool = false
     @State private var weeklySummaryItem: WeeklySummaryItem? = nil
 
     @State private var zoneInsightData: ZoneInsightData? = nil
@@ -154,6 +155,12 @@ struct ContentView: View {
                 onUnlockTap: { showPaywall = true }
             )
         }
+        // "Why did you pick up?" — appears on every 5th pickup
+        .sheet(isPresented: $showWhyPickup) {
+            WhyPickupSheet()
+                .presentationDetents([.height(370)])
+                .presentationDragIndicator(.hidden)
+        }
         // v1.6: Zone insight sheet
         .sheet(item: $zoneInsightData) { data in
             ZoneInsightView(
@@ -221,6 +228,12 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: UIApplication.willEnterForegroundNotification)) { _ in
             checkTimeLimitPasscodeGate()
             checkAppLockGate()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .picksyAskWhyPickup)) { _ in
+            // Small delay so any pickup animation finishes first
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                showWhyPickup = true
+            }
         }
         .onAppear {
             checkWhatsNew()

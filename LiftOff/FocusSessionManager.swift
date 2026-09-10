@@ -38,6 +38,14 @@ class FocusSessionManager {
         return max(0, min(1, 1.0 - (timeRemaining / selectedDuration)))
     }
 
+    /// App Group mirror of the active session, so background contexts that can't
+    /// see this in-memory instance (BGAppRefresh, silent push, the
+    /// DeviceActivityMonitor extension) can still build a Live Activity push that
+    /// respects Focus mode instead of stomping it back to Normal/Duel — see
+    /// picksy_focus_end_time usage in Pushnotificationmanager.swift and
+    /// DeviceActivityMonitorExtension.swift.
+    private let sharedDefaults = UserDefaults(suiteName: "group.fotiospongas.picksy")
+
     func start(duration: TimeInterval, currentPickups: Int) {
         selectedDuration = duration
         pickupsAtStart = currentPickups
@@ -46,6 +54,8 @@ class FocusSessionManager {
         timeRemaining = duration
         sessionState = .active
         startTimer()
+        sharedDefaults?.set(endTime!.timeIntervalSince1970, forKey: "picksy_focus_end_time")
+        sharedDefaults?.set(currentPickups, forKey: "picksy_focus_pickups_at_start")
     }
 
     func stop() {
@@ -55,6 +65,7 @@ class FocusSessionManager {
         sessionState = .idle
         timeRemaining = 0
         pickupsDuringSession = 0
+        sharedDefaults?.removeObject(forKey: "picksy_focus_end_time")
     }
 
     func onPickup(currentPickups: Int) {
@@ -93,5 +104,6 @@ class FocusSessionManager {
         let success = pickupsDuringSession == 0
         sessionState = .completed(pickupsDuring: pickupsDuringSession, durationMinutes: minutes, success: success)
         timeRemaining = 0
+        sharedDefaults?.removeObject(forKey: "picksy_focus_end_time")
     }
 }

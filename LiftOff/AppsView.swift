@@ -133,6 +133,13 @@ struct AppsView: View {
 
             Spacer()
         }
+        .background(
+            StrandsView(
+                colors: [Color(red: 0.35, green: 0.22, blue: 0.85), .indigo, .cyan],
+                count: 3, glow: 2.2, opacity: 0.22
+            )
+            .ignoresSafeArea()
+        )
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
         .onAppear {
             currentDate = Date()   // always reset to today — fixes stale date after midnight

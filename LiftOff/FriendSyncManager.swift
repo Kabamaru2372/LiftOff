@@ -189,9 +189,15 @@ class FriendSyncManager {
         var req = makeRequest(url: url, method: "GET")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
 
+        // [[String: String]] here is all-or-nothing: if even ONE row has a NULL
+        // in any selected column (e.g. a legacy pair from before name_a/name_b
+        // existed — confirmed present in production today), the whole cast
+        // fails and this device silently stops discovering ANY friend, with
+        // no error surfaced. [[String: Any]] + per-field `as? String ?? ""`
+        // below tolerates NULLs on a per-row/per-field basis instead.
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
               let http = resp as? HTTPURLResponse, http.statusCode == 200,
-              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: String]]
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
         else { return }
 
         // Collect new pairs to add — all MainActor mutations in one block
@@ -199,14 +205,14 @@ class FriendSyncManager {
 
         var toUpsert: [(id: String, name: String)] = []
         for row in rows {
-            let deviceA = row["device_a"] ?? ""
-            let deviceB = row["device_b"] ?? ""
+            let deviceA = row["device_a"] as? String ?? ""
+            let deviceB = row["device_b"] as? String ?? ""
             let otherID = deviceA == myID ? deviceB : deviceA
             guard !otherID.isEmpty else { continue }
 
             // Priority 1: new name_a / name_b columns — always correct
-            let nameA = row["name_a"] ?? ""
-            let nameB = row["name_b"] ?? ""
+            let nameA = row["name_a"] as? String ?? ""
+            let nameB = row["name_b"] as? String ?? ""
             let name: String
             if !nameA.isEmpty && !nameB.isEmpty {
                 // I am device_a when myID < otherID (same UUID normalisation as registerPair)
@@ -214,7 +220,7 @@ class FriendSyncManager {
             } else {
                 // Legacy fallback: friend_name stores the SENDER's name.
                 // If it equals MY name, I was the sender → the other person has no name stored yet.
-                let friendName = row["friend_name"] ?? ""
+                let friendName = row["friend_name"] as? String ?? ""
                 if !friendName.isEmpty && friendName != myOwnName {
                     name = friendName   // I was the recipient → friend_name is the other person
                 } else {

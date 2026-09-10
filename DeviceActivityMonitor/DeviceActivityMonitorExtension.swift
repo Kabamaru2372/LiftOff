@@ -98,21 +98,56 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             }
 
             // New day → lift yesterday's time-limit shield + clear its flag.
-            let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
-            tlStore.shield.applications = nil
-            tlStore.shield.applicationCategories = nil
-            sharedDefaults?.removeObject(forKey: "picksy_timelimit_active")
-            // Clear the file-based lock marker (new day — limit hasn't fired yet).
-            let container = FileManager.default
-                .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")
-            if let lockURL = container?.appendingPathComponent("picksy_timelimit_lock.txt") {
-                try? "".data(using: .utf8)?.write(to: lockURL, options: .atomic)
+            //
+            // DATE-GUARDED: intervalDidStart("daily") also fires when monitoring is
+            // RE-ARMED mid-day (app relaunch → startMonitoring), same as the
+            // screen-time accumulator and todayPickups resets above/below. Without
+            // this guard, a mid-day re-arm would unconditionally lift an
+            // ACTIVE, already-triggered time-limit shield and clear the passcode
+            // lock — silently defeating a limit/lock the user (or a parent) had
+            // legitimately triggered earlier today, until the limit re-fires.
+            let timelimitResetDate = sharedDefaults?.string(forKey: "picksy_timelimit_reset_date")
+            if timelimitResetDate != today {
+                let tlStore = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+                tlStore.shield.applications = nil
+                tlStore.shield.applicationCategories = nil
+                sharedDefaults?.removeObject(forKey: "picksy_timelimit_active")
+                sharedDefaults?.set(today, forKey: "picksy_timelimit_reset_date")
+                // Clear the file-based lock marker (new day — limit hasn't fired yet).
+                let container = FileManager.default
+                    .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")
+                if let lockURL = container?.appendingPathComponent("picksy_timelimit_lock.txt") {
+                    try? "".data(using: .utf8)?.write(to: lockURL, options: .atomic)
+                }
+                // Reset pickup count file so ShieldConfiguration reads 0 (not yesterday's
+                // stale count if its process cache hasn't refreshed yet).
+                if let pickupURL = container?.appendingPathComponent("today_pickups.txt") {
+                    let f2 = DateFormatter(); f2.dateFormat = "yyyy-MM-dd"
+                    try? "\(f2.string(from: Date()))|0".data(using: .utf8)?.write(to: pickupURL, options: .atomic)
+                }
+                log("📊 Time-limit shield + lock reset for new day")
+            } else {
+                log("📊 Time-limit shield + lock kept (mid-day re-arm, date unchanged)")
             }
-            // Reset pickup count file so ShieldConfiguration reads 0 (not yesterday's
-            // stale count if its process cache hasn't refreshed yet).
-            if let pickupURL = container?.appendingPathComponent("today_pickups.txt") {
-                let f2 = DateFormatter(); f2.dateFormat = "yyyy-MM-dd"
-                try? "\(f2.string(from: Date()))|0".data(using: .utf8)?.write(to: pickupURL, options: .atomic)
+
+            // Reset the App Group todayPickups counter for the new day — but only
+            // once per day. DataStore normally handles this via checkNewDay(), but
+            // if the main app is suspended at midnight the reset never fires —
+            // leaving yesterday's count visible when the extension records the
+            // first pickup of the new day (newCount=1 < staleYesterdayCount → guard
+            // skips the write).
+            //
+            // DATE-GUARDED: intervalDidStart("daily") also fires when monitoring is
+            // RE-ARMED mid-day (app update/relaunch → startMonitoring), same as the
+            // screen-time accumulator above. An unconditional zero here would wipe
+            // today's already-recorded pickups on every mid-day re-arm.
+            let pickupsResetDate = sharedDefaults?.string(forKey: "picksy_todaypickups_reset_date")
+            if pickupsResetDate != today {
+                sharedDefaults?.set(0, forKey: "todayPickups")
+                sharedDefaults?.set(today, forKey: "picksy_todaypickups_reset_date")
+                log("📊 todayPickups reset to 0 for new day")
+            } else {
+                log("📊 todayPickups kept (mid-day re-arm, date unchanged)")
             }
 
             // Tell the main app (if alive) to re-read the now-zeroed values.
@@ -338,13 +373,28 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
         let finalCount = max(newCount, currentWidgetCount)
 
+        // DeviceActivityMonitor extensions have no beginBackgroundTask (no
+        // UIApplication here) and no supported way to extend their lifetime
+        // past this delegate callback returning — so the fire-and-forget
+        // URLSession calls below could get dropped mid-flight the instant the
+        // OS decides this callback is "done". Block synchronously on a
+        // DispatchGroup, bounded by a timeout comfortably above the slow
+        // duel-sync path's worst case (one GET, then up to 5 PATCHes off its
+        // completion — up to ~20s), so in-flight requests get a real chance
+        // to finish instead of being silently dropped.
+        let group = DispatchGroup()
+
         // ── Duel score sync (background — no app open needed) ─────────────────
         // Patches our pickup count directly to Supabase so the opponent sees
         // live scores even if we never open the app during the day.
-        syncPickupsToDuel(pickupCount: finalCount)
+        syncPickupsToDuel(pickupCount: finalCount, group: group)
 
         // ── Live Activity APNs push (fix #5: includes duel state) ─────────────
-        pushLiveActivityUpdate(pickupCount: finalCount)
+        pushLiveActivityUpdate(pickupCount: finalCount, group: group)
+
+        if group.wait(timeout: .now() + 25) == .timedOut {
+            log("⏱️ Timed out waiting for pickup network calls — extension may be torn down mid-request")
+        }
     }
 
     /// Patches our pickup count to every active duel in Supabase so opponents
@@ -356,7 +406,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     ///            user has not opened Picksy yet today).
     private static let duelCacheMaxAge: TimeInterval = 10 * 60   // 10 minutes
 
-    private func syncPickupsToDuel(pickupCount: Int) {
+    private func syncPickupsToDuel(pickupCount: Int, group: DispatchGroup) {
         guard let defaults = sharedDefaults else { return }
         let deviceID = defaults.string(forKey: "picksy_device_id") ?? ""
         guard !deviceID.isEmpty else {
@@ -383,7 +433,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
            let meta = try? JSONSerialization.jsonObject(with: metaData) as? [[String: String]],
            !meta.isEmpty {
             log("⚔️ Duel sync (cached): \(meta.count) duel(s)")
-            patchDuels(meta: meta, pickupCount: pickupCount)
+            patchDuels(meta: meta, pickupCount: pickupCount, group: group)
             return
         }
 
@@ -398,20 +448,20 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         }
         defaults.set(now, forKey: "picksy_duel_meta_last_fetch")
         log("⚔️ Duel sync: querying Supabase for active duels (no cached meta)…")
-        fetchActiveDuelsAndPatch(deviceID: deviceID, pickupCount: pickupCount, defaults: defaults)
+        fetchActiveDuelsAndPatch(deviceID: deviceID, pickupCount: pickupCount, defaults: defaults, group: group)
     }
 
     /// Apply cached duel meta: PATCH each duel with the new pickup count.
-    private func patchDuels(meta: [[String: String]], pickupCount: Int) {
+    private func patchDuels(meta: [[String: String]], pickupCount: Int, group: DispatchGroup) {
         for duelInfo in meta {
             guard let duelID = duelInfo["id"] else { continue }
             let amChallenger = duelInfo["challenger"] == "1"
-            patchDuel(id: duelID, amChallenger: amChallenger, pickupCount: pickupCount)
+            patchDuel(id: duelID, amChallenger: amChallenger, pickupCount: pickupCount, group: group)
         }
     }
 
     /// Slow path: query Supabase for active duels, cache the result, then PATCH each one.
-    private func fetchActiveDuelsAndPatch(deviceID: String, pickupCount: Int, defaults: UserDefaults) {
+    private func fetchActiveDuelsAndPatch(deviceID: String, pickupCount: Int, defaults: UserDefaults, group: DispatchGroup) {
         guard var comps = URLComponents(string: "\(Self.supabaseURL)/rest/v1/duels") else { return }
         comps.queryItems = [
             URLQueryItem(name: "or",     value: "(challenger_id.eq.\(deviceID),opponent_id.eq.\(deviceID))"),
@@ -427,7 +477,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         req.setValue("Bearer \(Self.supabaseAnonKey)", forHTTPHeaderField: "Authorization")
         req.timeoutInterval = 10
 
+        group.enter()
         URLSession.shared.dataTask(with: req) { [weak self] data, response, error in
+            defer { group.leave() }
             guard let self else { return }
             guard let data,
                   let duels = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
@@ -446,7 +498,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                       let challengerID = duel["challenger_id"] as? String else { continue }
                 let amChallenger = challengerID == deviceID
                 meta.append(["id": id, "challenger": amChallenger ? "1" : "0"])
-                self.patchDuel(id: id, amChallenger: amChallenger, pickupCount: pickupCount)
+                self.patchDuel(id: id, amChallenger: amChallenger, pickupCount: pickupCount, group: group)
             }
 
             // Cache for fast path on next pickup — stamp with today's date
@@ -463,7 +515,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     }
 
     /// PATCH a single duel record with the new pickup count.
-    private func patchDuel(id: String, amChallenger: Bool, pickupCount: Int) {
+    private func patchDuel(id: String, amChallenger: Bool, pickupCount: Int, group: DispatchGroup) {
         let field = amChallenger ? "challenger_pickups" : "opponent_pickups"
         guard let url = URL(string: "\(Self.supabaseURL)/rest/v1/duels?id=eq.\(id)") else { return }
 
@@ -475,7 +527,9 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         req.timeoutInterval = 10
         req.httpBody = try? JSONSerialization.data(withJSONObject: [field: pickupCount])
 
+        group.enter()
         URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
+            defer { group.leave() }
             if let http = response as? HTTPURLResponse {
                 self?.log("⚔️ Duel PATCH → HTTP \(http.statusCode) (\(field): \(pickupCount))")
             } else if let error = error {
@@ -486,7 +540,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     /// Στέλνει APNs push για το Live Activity μέσω Supabase edge function.
     /// Fix #5: Διαβάζει duel state από App Group ώστε να μην σβήνει το ⚔️ από το DI.
-    private func pushLiveActivityUpdate(pickupCount: Int) {
+    private func pushLiveActivityUpdate(pickupCount: Int, group: DispatchGroup) {
         guard let defaults = sharedDefaults else { return }
 
         let deviceID = defaults.string(forKey: "picksy_device_id") ?? ""
@@ -503,17 +557,45 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let opponentName  = defaults.string(forKey: "picksy_duel_opponent") ?? ""
         let theirSecs     = defaults.integer(forKey: "picksy_duel_their_secs")
         let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-        let mySecs = defaults.string(forKey: "picksy_apple_screen_time_date") == f.string(from: Date())
+        let appleSecs = defaults.string(forKey: "picksy_apple_screen_time_date") == f.string(from: Date())
             ? defaults.integer(forKey: "picksy_apple_screen_time_secs") : 0
+        // Normal-mode DI now leads with screen time (stays accurate while the app
+        // is suspended, unlike pickup count) — same max(apple, local) fallback the
+        // main app and DuelManager.suiteBestScreenTimeSecs() use.
+        let rawSecs = max(defaults.integer(forKey: "todayTotalSeconds"), appleSecs)
+        // Clamp to elapsed time since midnight — screen time can never exceed
+        // wall-clock time elapsed today. Same safety net as DataStore.bestScreenTimeSecs
+        // (this extension is a separate target, so it can't call that directly).
+        let secondsSinceMidnight = max(0, Int(Date().timeIntervalSince(Calendar.current.startOfDay(for: Date()))))
+        let mySecs = min(rawSecs, secondsSinceMidnight)
 
         var body: [String: Any] = [
-            "device_id":    deviceID,
-            "pickup_count": pickupCount
+            "device_id":        deviceID,
+            "pickup_count":     pickupCount,
+            "screen_time_secs": mySecs
         ]
         if isDuelActive {
             body["duel_opponent_name"] = opponentName
             body["duel_my_secs"]       = mySecs
             body["duel_their_secs"]    = theirSecs
+        }
+        // Carry an active Focus session into this push too — same reasoning as
+        // Pushnotificationmanager.pushLiveActivityUpdate(): a remote push replaces
+        // the WHOLE Live Activity content-state, so without this an extension-
+        // triggered push during a Focus session would flip the DI back to Normal.
+        let focusEnd = defaults.double(forKey: "picksy_focus_end_time")
+        if focusEnd > Date().timeIntervalSince1970 {
+            let pickupsAtStart = defaults.integer(forKey: "picksy_focus_pickups_at_start")
+            body["focus_end_time"] = focusEnd
+            body["focus_pickup_count"] = max(0, pickupCount - pickupsAtStart)
+        }
+        // Carry the plant-growth checkpoint into this push too — same reasoning
+        // as the focus-state carry above. Date-guarded like DataStore.plantHealthCheckpoint()
+        // (this extension is a separate target, so it can't call that directly).
+        if defaults.string(forKey: "picksy_plant_health_date") == f.string(from: Date()) {
+            body["plant_health"] = defaults.double(forKey: "picksy_plant_health")
+            body["plant_health_time"] = defaults.double(forKey: "picksy_plant_health_time")
+            body["plant_health_wilting"] = defaults.bool(forKey: "picksy_plant_wilting")
         }
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: body) else { return }
@@ -526,9 +608,15 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         request.httpBody = jsonData
         request.timeoutInterval = 10
 
+        group.enter()
         URLSession.shared.dataTask(with: request) { [weak self] _, response, error in
+            defer { group.leave() }
             if let http = response as? HTTPURLResponse {
                 self?.log("🎯 APNs push → \(http.statusCode) (pickups: \(pickupCount), duel: \(isDuelActive))")
+                if http.statusCode < 300, let d = self?.sharedDefaults {
+                    let k = "picksy_debug_edge_calls_\(self?.todayKey() ?? "")"
+                    d.set(d.integer(forKey: k) + 1, forKey: k)
+                }
             } else if let error = error {
                 self?.log("⚠️ APNs push failed: \(error.localizedDescription)")
             }

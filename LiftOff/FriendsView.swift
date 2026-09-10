@@ -101,6 +101,9 @@ struct FriendsView: View {
     @State private var showPaywall: Bool = false
     @State private var showAllFriends: Bool = false
     @State private var showTournaments: Bool = false
+    @State private var showFriendApps: Bool = false
+    @State private var friendAppsDeviceID: String = ""
+    @State private var friendAppsName: String = ""
     private let defaultVisibleFriends = 3
 
     // Duel result sheet
@@ -281,6 +284,9 @@ struct FriendsView: View {
                 .environment(store)
                 .environment(proManager)
         }
+        .sheet(isPresented: $showFriendApps) {
+            FriendAppsSheet(deviceID: friendAppsDeviceID, friendName: friendAppsName)
+        }
         .confirmationDialog(
             t("Pick a taunt", "Διάλεξε taunt", "Taunt auswählen"),
             isPresented: Binding(get: { tauntDuel != nil }, set: { if !$0 { tauntDuel = nil } }),
@@ -414,10 +420,22 @@ struct FriendsView: View {
                 .frame(width: 56)
 
                 VStack(spacing: 2) {
-                    Text(duel.theirName)
-                        .font(.system(size: 13, design: .rounded))
-                        .foregroundColor(.white.opacity(0.8))
-                        .lineLimit(1)
+                    HStack(spacing: 4) {
+                        Text(duel.theirName)
+                            .font(.system(size: 13, design: .rounded))
+                            .foregroundColor(.white.opacity(0.8))
+                            .lineLimit(1)
+                        Button {
+                            friendAppsDeviceID = duel.theirDeviceID
+                            friendAppsName = duel.theirName
+                            showFriendApps = true
+                        } label: {
+                            Image(systemName: "info.circle")
+                                .font(.system(size: 11))
+                                .foregroundColor(.white.opacity(0.5))
+                        }
+                        .buttonStyle(.plain)
+                    }
                     let theirDisplay = (theirScore == 0 && myScore > 0) ? "?" : formatDuelTime(theirScore)
                     Text(theirDisplay)
                         .font(.system(size: 32, weight: .semibold, design: .rounded))

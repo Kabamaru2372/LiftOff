@@ -20,6 +20,7 @@ struct NudgeView: View {
     @Environment(TabSelection.self) var tabSelection
     @AppStorage("appLanguage") private var appLanguage: String = "English"
     @AppStorage("dailyGoal") private var dailyGoal: Int = 50
+    @AppStorage("nudgeDisplayMode") private var nudgeDisplayMode: String = "apple"
     // C10 fix: read from the App Group suite — the extension writes here, not standard defaults
     @AppStorage("lastPickupTimestamp", store: UserDefaults(suiteName: "group.fotiospongas.picksy"))
     private var lastPickupTimestamp: Double = 0
@@ -230,6 +231,22 @@ struct NudgeView: View {
         )
     }
 
+    /// Whole-device filter — NO applications/categories restriction, so the
+    /// report covers every app, not just the ones the user is tracking. This
+    /// is the only filter that makes numberOfPickups actually match Settings →
+    /// Screen Time's total; trackedTotalFilter (used everywhere else in the
+    /// app) undercounts pickups on purpose because it only sums the apps the
+    /// user selected to track.
+    private var wholeDeviceFilter: DeviceActivityFilter {
+        let interval = Calendar.current.dateInterval(of: .day, for: Date())
+            ?? DateInterval(start: Date(), duration: 86400)
+        return DeviceActivityFilter(
+            segment: .daily(during: interval),
+            users: .all,
+            devices: .init([.iPhone])
+        )
+    }
+
     private var shouldShowTopApps: Bool {
         FamilyControlsManager.shared.isAuthorized &&
         AppSelectionStore.shared.hasSelectedApps
@@ -283,15 +300,15 @@ struct NudgeView: View {
             }
         }
         .alert(
-            t("About pickup count", "Σχετικά με τα σηκώματα", "Über die Griff-Zählung"),
+            t("About Picksy's numbers", "Σχετικά με τους αριθμούς του Picksy", "Über Picksys Zahlen"),
             isPresented: $showAccuracyInfo
         ) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(t(
-                "Picksy counts pickups via screen unlocks (with a 30s cooldown to match Apple's behavior). For detailed app usage time, see the Apps tab.",
-                "Το Picksy μετράει σηκώματα μέσω ξεκλειδωμάτων (με 30s cooldown ώστε να ταιριάζει με τη συμπεριφορά της Apple). Για αναλυτικό χρόνο χρήσης ανά εφαρμογή, δες το tab Εφαρμογές.",
-                "Picksy zählt Griffe per Bildschirm-Entsperrungen (mit 30s Cooldown zur Apple-Konformität). Für detaillierte App-Nutzungszeiten siehe Apps-Tab."
+                "Picksy's live number counts pickups only while the app is open or briefly active in the background — it can undercount if Picksy stays closed most of the day. Switch to \"Apple\" mode in Settings → Pickup number for Apple's own tracked count of pickups that actually opened an app — the most meaningful usage number, filtering out the empty glances that the raw Settings → Screen Time total includes.\n\nThe \"tracked time\" shown on the Dynamic Island and Lock Screen only counts the apps and categories you selected for tracking — time spent in other apps isn't included, so it can run lower than Settings → Screen Time if you haven't selected everything.",
+                "Ο ζωντανός αριθμός του Picksy μετράει σηκώματα μόνο όσο η εφαρμογή είναι ανοιχτή ή σύντομα ενεργή στο background — μπορεί να δείχνει λιγότερα αν το Picksy μένει κλειστό το μεγαλύτερο μέρος της ημέρας. Άλλαξε σε λειτουργία \"Apple\" στις Ρυθμίσεις → Αριθμός σηκωμάτων για τον αριθμό που παρακολουθεί η ίδια η Apple για σηκώματα που πραγματικά άνοιξαν μια εφαρμογή — η πιο ουσιαστική μέτρηση χρήσης, χωρίς τις άδειες ματιές που περιλαμβάνει το ακατέργαστο σύνολο στο Ρυθμίσεις → Screen Time.\n\nΟ \"tracked time\" που φαίνεται στο Dynamic Island και στο Lock Screen μετράει μόνο τις εφαρμογές/κατηγορίες που έχεις επιλέξει για παρακολούθηση — ο χρόνος σε άλλες εφαρμογές δεν περιλαμβάνεται, γι' αυτό μπορεί να δείχνει λιγότερο από το Ρυθμίσεις → Screen Time αν δεν έχεις επιλέξει τα πάντα.",
+                "Picksys Live-Zahl zählt Griffe nur, während die App geöffnet oder kurz im Hintergrund aktiv ist — sie kann zu niedrig sein, wenn Picksy die meiste Zeit geschlossen bleibt. Wechsle im Einstellungen-Tab \"Griff-Anzahl\" zu \"Apple\" für Apples eigene erfasste Zahl der Griffe, die tatsächlich eine App geöffnet haben — die aussagekräftigste Nutzungszahl, ohne die leeren Blicke, die die Rohzahl in Einstellungen → Bildschirmzeit mitzählt.\n\nDie auf Dynamic Island und Sperrbildschirm angezeigte \"erfasste Zeit\" zählt nur die von dir zur Verfolgung ausgewählten Apps und Kategorien — Zeit in anderen Apps ist nicht enthalten und kann daher niedriger sein als in Einstellungen → Bildschirmzeit, falls du nicht alles ausgewählt hast."
             ))
         }
         // v1.7: Activity suggestions sheet
@@ -560,6 +577,16 @@ struct NudgeView: View {
             .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.42), value: appeared)
             .modifier(WaveCarry(radius: waveRadius, distance: 135, push: 6))
 
+            // ── Plant health ──────────────────────────────────────────
+            // Same growth/wilt companion as the Dynamic Island: grows while the
+            // phone stays down, wilts (doesn't reset) proportional to session
+            // length on each pickup. Unlike the DI, this is a live SwiftUI view,
+            // so it can animate continuously instead of just ticking on updates.
+            PlantHealthView()
+                .opacity(appeared ? 1 : 0)
+                .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.46), value: appeared)
+                .modifier(WaveCarry(radius: waveRadius, distance: 155, push: 6))
+
             Spacer(minLength: 12)
 
             // ── Utility cards ─────────────────────────────────────────
@@ -613,13 +640,27 @@ struct NudgeView: View {
 
     // MARK: - Pickup Ring Card
 
+    /// Switches between the live, goal-arc-driven ring and the Apple-accurate
+    /// static card based on the user's "Pickup number" setting (SettingsView).
+    /// The two can't share a visual: the arc's fill/zone-color is computed from
+    /// our own counter, which we can't derive from Apple's sandboxed number.
+    private var pickupRingCard: some View {
+        Group {
+            if nudgeDisplayMode == "apple" {
+                appleAccurateRingCard
+            } else {
+                liveRingCard
+            }
+        }
+    }
+
     /// Replaces the old thin progress bar. Shows:
     ///  • Circular arc filling toward daily goal (zone-colored, rounded linecap)
     ///  • Glowing tip dot orbiting the arc end
     ///  • Large center number with rolling-digit transition + spring bounce on pickup
     ///  • Ambient glow that breathes in danger zones
     ///  • Zone badge + info button below
-    private var pickupRingCard: some View {
+    private var liveRingCard: some View {
         let ringSize:  CGFloat = 180
         let lineWidth: CGFloat = 12
         let tipRadius: CGFloat = ringSize / 2
@@ -778,6 +819,65 @@ struct NudgeView: View {
         #else
         return card
         #endif
+    }
+
+    // MARK: - Apple-Accurate Ring Card
+
+    /// Static counterpart to liveRingCard: shows Apple's own tracked pickup
+    /// count (summed numberOfPickups across apps) instead of our own live
+    /// counter. Much closer to Settings → Screen Time than our heuristic, but
+    /// can still run somewhat lower — pickups that never open any app (a
+    /// lock-screen glance, notification preview) aren't attributed to any
+    /// Application, so they're invisible to this sum. No goal-arc/zone-color
+    /// here — those need to read the count to compute progress, and the
+    /// DeviceActivityReport process that renders this number is sandboxed, so
+    /// we can never get it back as an Int.
+    private var appleAccurateRingCard: some View {
+        let ringSize: CGFloat = 180
+        let appleGreen = Color(red: 0.20, green: 0.78, blue: 0.35)
+
+        return ZStack {
+            Circle()
+                .stroke(appleGreen.opacity(0.25), lineWidth: 12)
+                .frame(width: ringSize, height: ringSize)
+
+            VStack(spacing: 6) {
+                DeviceActivityReport(.nudgePickups, filter: wholeDeviceFilter)
+                    .id(refreshTrigger.reportIdentity)
+                    .frame(width: 120, height: 64)
+
+                Text(t("pickups today", "σηκώματα σήμερα", "Griffe heute"))
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundColor(.white.opacity(0.55))
+
+                HStack(spacing: 5) {
+                    Text("Apple")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(appleGreen.opacity(0.80)))
+
+                    Button(action: { showAccuracyInfo = true }) {
+                        Image(systemName: "info.circle")
+                            .font(.system(size: 11))
+                            .foregroundColor(.white.opacity(0.40))
+                    }
+                }
+            }
+        }
+        .frame(width: ringSize, height: ringSize)
+        .background(
+            Circle()
+                .fill(appleGreen.opacity(0.14))
+                .frame(width: 200, height: 200)
+                .blur(radius: 30)
+        )
+        .offset(y: ringBob ? -3.5 : 3.5)
+        .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: ringBob)
+        .opacity(appeared ? 1 : 0)
+        .offset(y: appeared ? 0 : 20)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.12), value: appeared)
     }
 
     // MARK: - Wow FX (spark burst + balloon pop)
