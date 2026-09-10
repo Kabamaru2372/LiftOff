@@ -22,26 +22,31 @@ struct WhatsNewView: View {
 
     private var items: [Item] {
         [
-            Item(emoji: "⚔️",
-                 title: t("Duels on screen time", "Μονομαχίες στον χρόνο", "Duelle bei der Bildschirmzeit"),
-                 body: t("Challenge friends — least screen time by midnight wins. Fair and accurate.",
-                         "Προκάλεσε φίλους — ο λιγότερος χρόνος μέχρι τα μεσάνυχτα νικάει. Δίκαιο & ακριβές.",
-                         "Fordere Freunde heraus — am wenigsten Bildschirmzeit gewinnt. Fair & genau.")),
-            Item(emoji: "🛡️",
-                 title: t("Smart limits", "Έξυπνα όρια", "Smarte Limits"),
-                 body: t("Set a daily limit and Picksy locks the apps that eat your time.",
-                         "Βάλε ημερήσιο όριο και το Picksy κλειδώνει τις apps που σου τρώνε χρόνο.",
-                         "Setze ein Tageslimit und Picksy sperrt die zeitfressenden Apps.")),
+            Item(emoji: "🌱",
+                 title: t("Your plant", "Το φυτό σου", "Deine Pflanze"),
+                 body: t("A living plant on the Dynamic Island and Nudge screen — it grows the longer your phone stays down, and wilts while you're using it.",
+                         "Ένα ζωντανό φυτό στο Dynamic Island και την οθόνη Nudge — μεγαλώνει όσο αφήνεις το κινητό κάτω, και μαραίνεται όσο το χρησιμοποιείς.",
+                         "Eine lebendige Pflanze auf der Dynamic Island und dem Nudge-Bildschirm — sie wächst, solange das Handy liegen bleibt, und welkt, während du es benutzt.")),
             Item(emoji: "🎯",
-                 title: t("Apple-accurate pickups", "Ακριβή σηκώματα από την Apple", "Apple-genaue Griffe"),
-                 body: t("On by default — Settings → Pickup number lets you switch to live counting instead.",
-                         "Ενεργό από προεπιλογή — Ρυθμίσεις → Αριθμός σηκωμάτων για εναλλαγή σε ζωντανή μέτρηση.",
-                         "Standardmäßig aktiv — in Einstellungen → Griff-Anzahl auf Live-Zählung umschaltbar.")),
-            Item(emoji: "👨‍👩‍👧",
-                 title: t("Family passcode", "Γονικός κωδικός", "Eltern-Code"),
-                 body: t("Hand your kid the phone for a set time, locked behind your passcode.",
-                         "Δώσε το κινητό στο παιδί για συγκεκριμένο χρόνο, κλειδωμένο με κωδικό.",
-                         "Gib dem Kind das Handy für eine feste Zeit, mit deinem Code gesperrt.")),
+                 title: t("Numbers that match Settings", "Νούμερα που ταιριάζουν με τις Ρυθμίσεις", "Zahlen wie in den Einstellungen"),
+                 body: t("Pickups and screen time now come straight from Apple's Screen Time. Toggle in Settings → Pickup number.",
+                         "Τα σηκώματα και ο χρόνος οθόνης έρχονται πλέον απευθείας από το Screen Time της Apple. Εναλλαγή στις Ρυθμίσεις → Αριθμός σηκωμάτων.",
+                         "Griffe und Bildschirmzeit kommen jetzt direkt aus Apples Bildschirmzeit. Umschalten in Einstellungen → Griff-Anzahl.")),
+            Item(emoji: "🤔",
+                 title: t("Why did you pick up?", "Γιατί το έπιασες;", "Warum hast du gegriffen?"),
+                 body: t("Now and then Picksy asks the reason — building awareness of the habit without blocking anything.",
+                         "Πού και πού το Picksy ρωτάει τον λόγο — χτίζει επίγνωση της συνήθειας χωρίς να μπλοκάρει τίποτα.",
+                         "Ab und zu fragt Picksy nach dem Grund — schafft Bewusstsein für die Gewohnheit, ohne etwas zu blockieren.")),
+            Item(emoji: "🔕",
+                 title: t("Quieter", "Πιο διακριτικό", "Leiser"),
+                 body: t("Fewer notifications — the midday and afternoon check-ins are gone.",
+                         "Λιγότερες ειδοποιήσεις — τα μεσημεριανά check-in αφαιρέθηκαν.",
+                         "Weniger Mitteilungen — die Mittags-Check-ins sind weg.")),
+            Item(emoji: "⚡",
+                 title: t("Faster and steadier", "Πιο γρήγορο & σταθερό", "Schneller & stabiler"),
+                 body: t("Fixes for the midnight reset, the Dynamic Island going blank, false phone-time alerts during music, and several crashes.",
+                         "Διορθώσεις για το reset στα μεσάνυχτα, το Dynamic Island που έσβηνε, ψεύτικες ειδοποιήσεις ώρας ενώ ακούς μουσική, και αρκετά crashes.",
+                         "Behebt den Mitternachts-Reset, die leere Dynamic Island, falsche Zeit-Warnungen bei Musik und mehrere Abstürze.")),
         ]
     }
 
@@ -51,7 +56,7 @@ struct WhatsNewView: View {
 
             VStack(spacing: 8) {
                 Text("🎉").font(.system(size: 48))
-                Text(t("What's new in Picksy 2.0", "Τι νέο στο Picksy 2.0", "Neu in Picksy 2.0"))
+                Text(t("What's new in Picksy 2.1", "Τι νέο στο Picksy 2.1", "Neu in Picksy 2.1"))
                     .font(.system(size: 26, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

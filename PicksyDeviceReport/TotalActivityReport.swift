@@ -25,9 +25,12 @@ extension DeviceActivityReport.Context {
     static let nudgeScore = Self("Nudge Score")
     /// Picksy Score (computed from the total), large/accent for the Stats card.
     static let statsScore = Self("Stats Score")
-    /// Apple's REAL pickup count (numberOfPickups), large/accent for the Stats card.
+    /// Sum of Apple's per-app numberOfPickups (pickups that opened an app) —
+    /// large/accent for the Stats card. Naturally lower than the "Total Pickups"
+    /// headline in Settings → Screen Time, which also counts screen wakes with
+    /// no app opened; that device-level total is NOT exposed by the API.
     static let statsPickups = Self("Stats Pickups")
-    /// Apple's REAL pickup count, big number for the Nudge ring center.
+    /// Same sum-of-per-app-pickups as statsPickups, big number for the Nudge ring center.
     static let nudgePickups = Self("Nudge Pickups")
 }
 
