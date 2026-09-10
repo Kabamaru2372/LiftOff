@@ -50,8 +50,44 @@ struct LiftOffActivityAttributes: ActivityAttributes {
         var plantHealthBaseline: Double = 0
         var plantHealthBaselineTime: Date = .distantPast
         var plantHealthIsWilting: Bool = false
+
+        enum CodingKeys: String, CodingKey {
+            case pickupCount, currentQuote, lastPickupTime, focusEndTime, focusPickupCount
+            case duelOpponentName, duelMySecs, duelTheirSecs, screenTimeSecs
+            case plantHealthBaseline, plantHealthBaselineTime, plantHealthIsWilting
+        }
     }
 
     // Στατικά δεδομένα (δεν αλλάζουν κατά τη διάρκεια)
     var dailyGoal: Int
+}
+
+extension LiftOffActivityAttributes.ContentState {
+    /// Tolerant decode: every key falls back to a default when it's absent.
+    ///
+    /// Swift's synthesized `Decodable` ignores stored-property defaults and
+    /// hard-fails (`keyNotFound`) on ANY missing key. That's exactly what
+    /// happens when the NEW widget binary is asked to decode a Live Activity
+    /// whose ContentState was persisted by the PREVIOUS app version — it has
+    /// no `screenTimeSecs` / `plantHealth*` keys. A decode failure there, right
+    /// after an app update, is a well-known ActivityKit crash-spike source.
+    /// Keeping this initializer in an extension preserves the synthesized
+    /// memberwise initializer the app's own construction sites rely on.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            pickupCount:             try c.decodeIfPresent(Int.self,    forKey: .pickupCount) ?? 0,
+            currentQuote:            try c.decodeIfPresent(String.self, forKey: .currentQuote) ?? "",
+            lastPickupTime:          try c.decodeIfPresent(Date.self,   forKey: .lastPickupTime) ?? Date(),
+            focusEndTime:            try c.decodeIfPresent(Date.self,   forKey: .focusEndTime),
+            focusPickupCount:        try c.decodeIfPresent(Int.self,    forKey: .focusPickupCount) ?? 0,
+            duelOpponentName:        try c.decodeIfPresent(String.self, forKey: .duelOpponentName),
+            duelMySecs:              try c.decodeIfPresent(Int.self,    forKey: .duelMySecs) ?? 0,
+            duelTheirSecs:           try c.decodeIfPresent(Int.self,    forKey: .duelTheirSecs) ?? 0,
+            screenTimeSecs:          try c.decodeIfPresent(Int.self,    forKey: .screenTimeSecs) ?? 0,
+            plantHealthBaseline:     try c.decodeIfPresent(Double.self, forKey: .plantHealthBaseline) ?? 0,
+            plantHealthBaselineTime: try c.decodeIfPresent(Date.self,   forKey: .plantHealthBaselineTime) ?? .distantPast,
+            plantHealthIsWilting:    try c.decodeIfPresent(Bool.self,   forKey: .plantHealthIsWilting) ?? false
+        )
+    }
 }
