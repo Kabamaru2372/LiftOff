@@ -114,9 +114,11 @@ struct StatsScoreView: View {
     }
 }
 
-// MARK: - Pickups (Apple's REAL count — matches Settings → Screen Time)
+// MARK: - Pickups (sum of Apple's per-app pickups — see statsPickups context)
 
-/// Stats card pickups (large, green) — Apple's exact pickup count.
+/// Stats card pickups (large, green) — sum of Apple's per-app numberOfPickups,
+/// i.e. pickups that opened an app. Lower than Settings' "Total Pickups"
+/// headline, which also counts app-less screen wakes (not exposed by the API).
 struct StatsPickupsView: View {
     let report: ActivityReport
 
