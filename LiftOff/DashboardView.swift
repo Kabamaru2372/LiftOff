@@ -484,11 +484,11 @@ struct DashboardView: View {
                                       weight: .bold, design: .rounded))
                     if store.currentStreak > 0 {
                         Text("🔥").font(.system(size: 10))
-                            .scaleEffect(flamePulse ? 1.22 : 0.92)
-                            .animation(
-                                .easeInOut(duration: 1.1).repeatForever(autoreverses: true),
-                                value: flamePulse
-                            )
+                            // One-shot pop-in: a repeatForever loop keeps the
+                            // scroll content animating every frame and made
+                            // Stats scrolling hitch.
+                            .scaleEffect(flamePulse ? 1.1 : 0.92)
+                            .animation(.spring(response: 0.5, dampingFraction: 0.5), value: flamePulse)
                     }
                 }
             }

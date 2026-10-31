@@ -283,7 +283,16 @@ struct NudgeView: View {
                 .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: moonGlow)
             }
 
-            idleContent
+            // Scrollable only when the content is taller than the screen (Duo
+            // outer display, small phones); minHeight keeps the Spacer-based
+            // vertical centring on tall screens.
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: false) {
+                    idleContent
+                        .frame(minHeight: geo.size.height)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
 
             WeatherPillFABView()
 
