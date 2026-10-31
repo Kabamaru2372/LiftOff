@@ -448,7 +448,7 @@ struct LiftOffApp: App {
                     : Double.infinity
                 if idleMinutes > 10 {
                     ScreenTimeMilestoneNotifier.shared.cancelContinuousSession()
-                    print("[BGRefresh] 📴 Unlocked but idle \(Int(idleMinutes))min — cancelled stale continuous alerts")
+                    print("[BGRefresh] 📴 Unlocked but idle \(idleMinutes.isFinite ? "\(Int(idleMinutes))min" : "no pickup recorded") — cancelled stale continuous alerts")
                 }
             }
 

@@ -749,6 +749,14 @@ struct AuroraRibbon: View {
     let amplitude: CGFloat
 
     var body: some View {
+        // Centre on the container's own width, not UIScreen: the container is narrower
+        // than the screen on Duo (side status strip) and in split layouts.
+        GeometryReader { outer in
+            ribbon.position(x: outer.size.width / 2, y: yOffset)
+        }
+    }
+
+    private var ribbon: some View {
         GeometryReader { geo in
             Path { path in
                 let w = geo.size.width
@@ -778,7 +786,6 @@ struct AuroraRibbon: View {
             )
             .blur(radius: 20)
         }
-        .position(x: UIScreen.main.bounds.width / 2, y: yOffset)
     }
 }
 
