@@ -401,12 +401,17 @@ struct LiftOffApp: App {
     /// Reads the current pickup count from shared UserDefaults, refreshes widgets,
     /// and sends an APNs push to update the Live Activity without the user opening the app.
     static func handleBackgroundRefresh(_ task: BGAppRefreshTask) {
-        task.expirationHandler = { task.setTaskCompleted(success: false) }
+        // The expiration handler and the Task below can both try to complete the task;
+        // BGTask must be completed exactly once or the app crashes.
+        let completion = OnceFlag()
+        task.expirationHandler = {
+            if completion.claim() { task.setTaskCompleted(success: false) }
+        }
 
         Task {
             // Fix #10: Don't fall back to UserDefaults.standard — it has no pickups data.
             guard let sharedDefaults = UserDefaults(suiteName: "group.fotiospongas.picksy") else {
-                task.setTaskCompleted(success: false)
+                if completion.claim() { task.setTaskCompleted(success: false) }
                 scheduleBackgroundRefresh()
                 return
             }
@@ -469,7 +474,7 @@ struct LiftOffApp: App {
                 duelTheirSecs: isDuelActive ? theirSecs : 0
             )
 
-            task.setTaskCompleted(success: true)
+            if completion.claim() { task.setTaskCompleted(success: true) }
             print("[BGRefresh] ✅ Completed — pickups: \(pickups), duel: \(isDuelActive)")
 
             // Schedule next

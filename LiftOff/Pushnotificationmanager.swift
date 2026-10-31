@@ -86,7 +86,13 @@ class PushNotificationManager {
         // The original code only called it inside a Task, which iOS could kill before
         // completion, and also only when store AND liveActivity were both non-nil.
         // The timeout item fires at 25s as a safety net; the Task cancels it on success.
-        let timeoutItem = DispatchWorkItem { completionHandler(.newData) }
+        // Both paths can fire (timeout at 25s, then the Task finishing later). UIKit's
+        // fetch completion handler must be called exactly once — a second call crashes
+        // with an unbalanced dispatch_group_leave — so both go through a claim flag.
+        let completion = OnceFlag()
+        let timeoutItem = DispatchWorkItem {
+            if completion.claim() { completionHandler(.newData) }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 25, execute: timeoutItem)
 
         Task {
@@ -134,7 +140,7 @@ class PushNotificationManager {
             // Cancel timeout before calling — prevents a rare double-call if Task
             // finishes just as the timeout fires.
             timeoutItem.cancel()
-            completionHandler(.newData)
+            if completion.claim() { completionHandler(.newData) }
         }
     }
 
@@ -279,3 +285,19 @@ class PushNotificationManager {
     }
 }
 
+
+
+/// Thread-safe "first caller wins" flag for completion handlers that must run once.
+final class OnceFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var claimed = false
+
+    /// Returns true for the first call only.
+    func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if claimed { return false }
+        claimed = true
+        return true
+    }
+}
