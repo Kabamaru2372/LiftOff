@@ -82,7 +82,11 @@ struct HeatmapView: View {
             }
             .padding(.bottom, 4)
 
-            // Rows
+            // Rows — each row's 24 cells are ONE Canvas draw instead of 24
+            // views (168 views made the Stats scroll hitch). The max and the
+            // moods are read once here, not once per cell / per row.
+            let maxCount = tracker.maxHourlyCount
+            let moods = checkInManager.last7DaysMoods
             ForEach(0..<7, id: \.self) { dayIndex in
                 HStack(spacing: 3) {
                     // Day label
@@ -92,18 +96,12 @@ struct HeatmapView: View {
                         .frame(width: 56, alignment: .trailing)
 
                     // 24 cells — color intensity only, no numbers (cleaner)
-                    ForEach(0..<24, id: \.self) { hour in
-                        let count = tracker.hourlyData[dayIndex][hour]
-                        let intensity = cellIntensity(count: count)
-
-                        RoundedRectangle(cornerRadius: 3)
-                            .fill(cellColor(intensity: intensity))
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 28)
-                    }
+                    heatmapRow(counts: tracker.hourlyData[dayIndex], maxCount: maxCount)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 28)
 
                     // Mood emoji στα δεξιά
-                    moodForDay(dayIndex: dayIndex)
+                    moodDot(moods: moods, dayIndex: dayIndex)
                         .frame(width: 28)
                 }
             }
@@ -116,8 +114,7 @@ struct HeatmapView: View {
     // MARK: - Mood for Day
 
     @ViewBuilder
-    private func moodForDay(dayIndex: Int) -> some View {
-        let moods = checkInManager.last7DaysMoods
+    private func moodDot(moods: [CheckInMood?], dayIndex: Int) -> some View {
         // dayIndex 0 = σήμερα, ενώ moods index 6 = σήμερα
         let moodIndex = 6 - dayIndex
 
@@ -129,6 +126,22 @@ struct HeatmapView: View {
             Circle()
                 .fill(Color(.systemGray4).opacity(0.3))
                 .frame(width: 14, height: 14)
+        }
+    }
+
+    private func heatmapRow(counts: [Int], maxCount: Int) -> some View {
+        Canvas { context, size in
+            let gap: CGFloat = 3
+            let n = CGFloat(counts.count)
+            let w = (size.width - gap * (n - 1)) / n
+            for (hour, count) in counts.enumerated() {
+                let intensity = maxCount > 0 ? Double(count) / Double(maxCount) : 0
+                let rect = CGRect(x: CGFloat(hour) * (w + gap), y: 0, width: w, height: size.height)
+                context.fill(
+                    Path(roundedRect: rect, cornerRadius: 3),
+                    with: .color(cellColor(intensity: intensity))
+                )
+            }
         }
     }
 
@@ -368,11 +381,6 @@ struct HeatmapView: View {
     }
 
     // MARK: - Helpers
-
-    private func cellIntensity(count: Int) -> Double {
-        guard tracker.maxHourlyCount > 0 else { return 0 }
-        return Double(count) / Double(tracker.maxHourlyCount)
-    }
 
     private func cellColor(intensity: Double) -> Color {
         if intensity == 0 { return Color(.systemGray5).opacity(0.5) }

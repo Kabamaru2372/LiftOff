@@ -46,6 +46,7 @@ struct DashboardView: View {
 
     // ── Entrance/idle animation state ─────────────────────────────────────
     @State private var cascadeIn = false            // staggered section entrance
+    @State private var topSafeInset: CGFloat = 0    // measured; Duo reports a tall top inset
     @State private var displayTodayPickups = 0      // rolls up via numericText
     @State private var displayTotalPickups = 0      // rolls up via numericText
     @State private var streakRingIn = false         // streak ring fills on entry
@@ -83,13 +84,18 @@ struct DashboardView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+        // The three DeviceActivityReport hosts (pickups, screen time, score) live
+        // in the pinned header, NOT inside the ScrollView: remote scene views
+        // re-layout their scene on every frame they move, which made Stats
+        // scrolling hitch at the end of deceleration (Time Profiler: ~50% of main
+        // thread in _UISceneHostingView). Pinned, they never move.
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
 
                 // Header with Share button
                 HStack {
                     Text("Picksy")
-                        .font(.system(size: 24, weight: .medium, design: .rounded))
+                        .font(.system(size: 22, weight: .medium, design: .rounded))
 
                     Spacer()
 
@@ -100,22 +106,26 @@ struct DashboardView: View {
                                 .font(.system(size: 13, weight: .medium, design: .rounded))
                         }
                         .foregroundColor(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
                         .background(Capsule().fill(Color.blue))
                     }
                 }
-                .padding(.top, 20)
+                // On the Duo the top safe area is ~90pt (status strip) even though
+                // the app column sits clear of it, which left a dead band above the
+                // title. Reclaim everything above a normal iPhone inset.
+                .padding(.top, topSafeInset > 70 ? 8 - (topSafeInset - 54) : 8)
                 .cascade(0, on: cascadeIn)
-
-                // Today
-                Text(t("Today", "Σήμερα", "Heute"))
-                    .font(.system(size: 13, weight: .regular, design: .rounded))
-                    .foregroundColor(.secondary)
-                    .cascade(1, on: cascadeIn)
 
                 todaySection
                     .cascade(2, on: cascadeIn)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 8)
+            .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.top } action: { topSafeInset = $0 }
+
+            ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
 
                 // Coach Card
                 CoachCardView(
@@ -180,6 +190,7 @@ struct DashboardView: View {
                 Spacer().frame(height: 20)
             }
             .padding(.horizontal, 24)
+            }
         }
         .onAppear {
             // Pull the latest Apps-tab total from the App Group so the Screen
@@ -271,10 +282,10 @@ struct DashboardView: View {
     }
 
     private var todaySection: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
 
             // ── Row 1: Pickups + Screen Time ─────────────────────────
-            HStack(spacing: 12) {
+            HStack(spacing: 8) {
 
                 // Pickups card
                 VStack(alignment: .leading, spacing: 0) {
@@ -285,8 +296,12 @@ struct DashboardView: View {
                         Text(t("Pickups", "Σηκώματα", "Griffe"))
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .foregroundColor(.secondary)
+                        Spacer(minLength: 2)
+                        Text(t("goal \(dailyGoal)", "στόχος \(dailyGoal)", "Ziel \(dailyGoal)"))
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundColor(.secondary)
                     }
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 2)
 
                     // "Apple" mode (default): Apple's own tracked pickup count,
                     // matching Settings → Screen Time — the most accurate number,
@@ -306,13 +321,9 @@ struct DashboardView: View {
                             .contentTransition(.numericText(countsDown: false))
                     }
 
-                    Spacer()
-
-                    Text(t("goal \(dailyGoal)", "στόχος \(dailyGoal)", "Ziel \(dailyGoal)"))
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundColor(.secondary)
+                    Spacer(minLength: 0)
                 }
-                .padding(14)
+                .padding(10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
@@ -329,8 +340,12 @@ struct DashboardView: View {
                         Text(t("Screen Time", "Χρόνος Χρήσης", "Bildschirmzeit"))
                             .font(.system(size: 12, weight: .medium, design: .rounded))
                             .foregroundColor(.secondary)
+                        Spacer(minLength: 2)
+                        Text(t("today", "σήμερα", "heute"))
+                            .font(.system(size: 10, design: .rounded))
+                            .foregroundColor(.secondary)
                     }
-                    .padding(.bottom, 8)
+                    .padding(.bottom, 2)
 
                     // Host the SAME DeviceActivityReport the Apps tab renders, so
                     // the Stats screen-time figure is identical to Apps (the real,
@@ -343,13 +358,9 @@ struct DashboardView: View {
                         .frame(height: 36)
                         .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Spacer()
-
-                    Text(t("today", "σήμερα", "heute"))
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundColor(.secondary)
+                    Spacer(minLength: 0)
                 }
-                .padding(14)
+                .padding(10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 14)
@@ -357,7 +368,7 @@ struct DashboardView: View {
                         .overlay(RoundedRectangle(cornerRadius: 14).stroke(screenTimeAccentColor.opacity(0.18), lineWidth: 1))
                 )
             }
-            .frame(height: 112)
+            .frame(height: 74)
 
             // ── Row 2: Picksy Score ───────────────────────────────────
             // Computed + rendered by the report extension from the same
@@ -399,8 +410,8 @@ struct DashboardView: View {
                         .foregroundColor(.secondary)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
             .background(
                 RoundedRectangle(cornerRadius: 14)
                     .fill(Color.indigo.opacity(0.07))
