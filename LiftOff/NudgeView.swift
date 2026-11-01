@@ -558,6 +558,9 @@ struct NudgeView: View {
             // ── HERO: Pickup ring ─────────────────────────────────────
             pickupRingCard
 
+            // iPhone Duo fold count (or the setup prompt); hidden on other phones
+            DuoFoldChip()
+
             // ── Screen Time pill ─────────────────────────────────────
             // The ring above shows today's pickups (this device). The time is
             // rendered by the SAME report extension the Apps tab and the Stats

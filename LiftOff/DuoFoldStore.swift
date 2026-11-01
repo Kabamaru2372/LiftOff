@@ -78,6 +78,40 @@ enum DuoFoldStore {
         DispatchQueue.main.async {
             NotificationCenter.default.post(name: .duoFoldRecorded, object: nil)
         }
+        // The intent usually runs in the widget extension, a different process from
+        // the app, so an in-process notification never reaches an open app. A Darwin
+        // notification crosses processes.
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName(darwinName as CFString),
+            nil, nil, true
+        )
+    }
+
+    // MARK: Cross-process updates
+
+    private static let darwinName = "fotiospongas.dev.UnPluq.duoFoldRecorded"
+    private static let observerLock = NSLock()
+    private static var observing = false
+
+    /// Call from the app process (idempotent): re-posts `.duoFoldRecorded` whenever
+    /// another process (the widget extension) records a fold.
+    static func startObserving() {
+        observerLock.lock(); defer { observerLock.unlock() }
+        guard !observing else { return }
+        observing = true
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            nil,
+            { _, _, _, _, _ in
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(name: .duoFoldRecorded, object: nil)
+                }
+            },
+            darwinName as CFString,
+            nil,
+            .deliverImmediately
+        )
     }
 
     // MARK: Device

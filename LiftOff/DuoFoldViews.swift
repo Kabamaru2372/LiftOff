@@ -26,7 +26,10 @@ private struct DuoFoldLoader: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onAppear { data = DuoFoldStore.load() }
+            .onAppear {
+                DuoFoldStore.startObserving()
+                data = DuoFoldStore.load()
+            }
             .onReceive(NotificationCenter.default.publisher(for: .duoFoldRecorded)) { _ in
                 data = DuoFoldStore.load()
             }
@@ -167,6 +170,53 @@ struct DuoFoldStatsCard: View {
                     .padding(.horizontal, 16).padding(.vertical, 8)
                     .background(Capsule().fill(accent))
             }
+        }
+    }
+}
+
+// MARK: - Nudge chip
+
+/// Small capsule under the Nudge ring: today's / total fold count once counting
+/// works, or a "Set up" prompt on a Duo that is not counting yet. Tap opens the guide.
+struct DuoFoldChip: View {
+    @AppStorage("appLanguage") private var appLanguage: String = "English"
+    @State private var data = DuoFoldStore.load()
+    @State private var showSetup = false
+
+    private func t(_ en: String, _ gr: String, _ de: String) -> String {
+        duoT(appLanguage, en, gr, de)
+    }
+
+    private var label: String {
+        guard data.hasData else {
+            return t("Set up fold counting", "Ρύθμιση μέτρησης διπλωμάτων", "Faltungszählung einrichten")
+        }
+        let today = data.today(now: Date())
+        return t("\(today) folds today · \(data.total) total",
+                 "\(today) διπλώματα σήμερα · \(data.total) συνολικά",
+                 "\(today) Faltungen heute · \(data.total) gesamt")
+    }
+
+    var body: some View {
+        if DuoFoldStore.shouldShowFoldFeatures {
+            Button(action: { showSetup = true }) {
+                HStack(spacing: 6) {
+                    Image(systemName: data.hasData ? "iphone" : "plus.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.7))
+                    Text(label)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundColor(.white.opacity(0.65))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(.ultraThinMaterial).opacity(0.5))
+            }
+            .buttonStyle(.plain)
+            .duoFoldData($data)
+            .sheet(isPresented: $showSetup) { DuoFoldSetupView() }
         }
     }
 }
