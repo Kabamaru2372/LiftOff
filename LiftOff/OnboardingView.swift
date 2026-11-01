@@ -24,6 +24,7 @@ struct OnboardingView: View {
     /// system prompt, so the user knows why they're approving / what to pick.
     enum QuickStep: Hashable { case screenTime, chooseApps }
     @State private var quickStep: QuickStep? = nil
+    @State private var showDuoSetup: Bool = false
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -179,6 +180,7 @@ struct OnboardingView: View {
         }
         .animation(.easeInOut, value: quickStep)
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
+        .sheet(isPresented: $showDuoSetup) { DuoFoldSetupView() }
         .onAppear {
             // Φόρτωσε την υπάρχουσα selection στο τοπικό state
             pickerSelection = AppSelectionStore.shared.selection
@@ -408,6 +410,24 @@ struct OnboardingView: View {
                            t("Less screen time than them wins — from the Friends tab.", "Λιγότερος χρόνος από αυτούς νικάει — από το tab Φίλοι.", "Weniger Bildschirmzeit gewinnt — im Freunde-Tab."))
                 }
                 .padding(.horizontal, 24)
+
+                // iPhone Duo only: counting folds while the app is closed needs a
+                // one-time Shortcuts automation, so say so before the user leaves.
+                if DuoFoldStore.isDuo {
+                    VStack(alignment: .leading, spacing: 10) {
+                        tipRow("📱", t("Count your Duo folds", "Μέτρηση διπλωμάτων Duo", "Duo-Faltungen zählen"),
+                               t("To count every open and close, even when Picksy is closed, add the Shortcuts automation. It takes a minute.",
+                                 "Για να μετράς κάθε άνοιγμα και κλείσιμο, ακόμα και με κλειστό το Picksy, πρόσθεσε τον αυτοματισμό στις Συντομεύσεις. Θέλει ένα λεπτό.",
+                                 "Um jedes Öffnen und Schließen zu zählen, auch wenn Picksy geschlossen ist, füge die Kurzbefehle-Automation hinzu. Das dauert eine Minute."))
+                        Button(action: { showDuoSetup = true }) {
+                            Text(t("Set up fold counting", "Ρύθμιση μέτρησης", "Zählung einrichten"))
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundColor(.teal)
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .padding(.horizontal, 24)
+                }
 
                 Text(t("Tap “Get started!” — we'll ask for notification permission.",
                        "Πάτα «Ξεκίνα!» — θα ζητήσουμε άδεια για ειδοποιήσεις.",

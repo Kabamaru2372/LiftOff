@@ -47,6 +47,7 @@ struct DashboardView: View {
     // ── Entrance/idle animation state ─────────────────────────────────────
     @State private var cascadeIn = false            // staggered section entrance
     @State private var topSafeInset: CGFloat = 0    // measured; Duo reports a tall top inset
+    @State private var showDuoFolds = DuoFoldStore.shouldShowFoldFeatures
     @State private var displayTodayPickups = 0      // rolls up via numericText
     @State private var displayTotalPickups = 0      // rolls up via numericText
     @State private var streakRingIn = false         // streak ring fills on entry
@@ -170,6 +171,12 @@ struct DashboardView: View {
                     .frame(height: 120)
                     .cascade(7, on: cascadeIn)
 
+                // iPhone Duo fold counter (Duo, or once folds were recorded)
+                if showDuoFolds {
+                    DuoFoldStatsCard()
+                        .cascade(8, on: cascadeIn)
+                }
+
                 // MARK: - Correlation Insights (Pro)
                 CorrelationInsightView(onUnlockTap: { showPaywall = true })
                     .environment(correlationStore)
@@ -196,6 +203,7 @@ struct DashboardView: View {
             // Pull the latest Apps-tab total from the App Group so the Screen
             // Time card and Picksy Score match every other surface on entry.
             store.refreshConfirmedScreenTime()
+            showDuoFolds = DuoFoldStore.shouldShowFoldFeatures
             // Rebuild the hosted Screen Time / Score reports only if the day or
             // app selection actually changed since last view (no-op otherwise).
             refreshTrigger.syncScope()
