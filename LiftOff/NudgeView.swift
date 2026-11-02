@@ -259,6 +259,7 @@ struct NudgeView: View {
                 condition: weatherManager.activeCondition,
                 isDimmed: false
             )
+            
 
             // Celestial glow — κρύβεται όταν έχει συννεφιά/βροχή/ομίχλη
             let glowHidden = weatherManager.activeCondition == .cloudy ||
@@ -283,7 +284,16 @@ struct NudgeView: View {
                 .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: moonGlow)
             }
 
-            idleContent
+            // Scrollable only when the content is taller than the screen (Duo
+            // outer display, small phones); minHeight keeps the Spacer-based
+            // vertical centring on tall screens.
+            GeometryReader { geo in
+                ScrollView(.vertical, showsIndicators: false) {
+                    idleContent
+                        .frame(minHeight: geo.size.height)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+            }
 
             WeatherPillFABView()
 
@@ -547,6 +557,9 @@ struct NudgeView: View {
 
             // ── HERO: Pickup ring ─────────────────────────────────────
             pickupRingCard
+
+            // iPhone Duo fold count (or the setup prompt); hidden on other phones
+            DuoFoldChip()
 
             // ── Screen Time pill ─────────────────────────────────────
             // The ring above shows today's pickups (this device). The time is
@@ -1256,12 +1269,22 @@ private struct WeatherPillFABView: View {
 
     @Environment(WeatherManager.self) private var weatherManager
     @AppStorage("appLanguage")      private var appLanguage: String = "English"
-    @AppStorage("weatherPillX_v1")  private var pillX: Double = 0
-    @AppStorage("weatherPillY_v1")  private var pillY: Double = 0
+    // Position per LAYOUT (screen size + orientation), as fractions of the free
+    // range, JSON-encoded [layoutKey: [fx, fy]]. The Duo has several layouts
+    // (outer, inner portrait, inner landscape): one absolute offset put the pill
+    // off-screen or on top of other content whenever the container changed.
+    @AppStorage("weatherPillLayouts_v2") private var layoutsJSON: String = ""
 
-    @State private var dragStart: CGSize = .zero
+    @State private var pillSize: CGSize = .zero
+    @State private var dragStartOrigin: CGPoint? = nil
+    @State private var liveOrigin: CGPoint? = nil
     @State private var isDragging: Bool = false
     @State private var appeared: Bool = false
+
+    private let sideMargin: CGFloat = 8
+    private let topMargin: CGFloat = 4
+    /// Keep clear of the floating tab bar at the bottom.
+    private let bottomReserve: CGFloat = 90
 
     private var timeOfDay: TimeOfDay {
         TimeOfDay.from(
@@ -1270,13 +1293,66 @@ private struct WeatherPillFABView: View {
         )
     }
 
+    // MARK: Layout helpers
+
+    private func layoutKey(for size: CGSize) -> String {
+        "\(Int((size.width / 10).rounded()))x\(Int((size.height / 10).rounded()))"
+    }
+
+    private func savedLayouts() -> [String: [Double]] {
+        guard let data = layoutsJSON.data(using: .utf8),
+              let dict = try? JSONDecoder().decode([String: [Double]].self, from: data)
+        else { return [:] }
+        return dict
+    }
+
+    private func save(fraction: [Double], key: String) {
+        var dict = savedLayouts()
+        dict[key] = fraction
+        if let data = try? JSONEncoder().encode(dict),
+           let str = String(data: data, encoding: .utf8) {
+            layoutsJSON = str
+        }
+    }
+
+    /// Allowed origin range for the pill's top-left corner inside the container.
+    private func range(in container: CGSize) -> (minX: CGFloat, maxX: CGFloat, minY: CGFloat, maxY: CGFloat) {
+        let maxX = max(sideMargin, container.width  - pillSize.width  - sideMargin)
+        let maxY = max(topMargin,  container.height - pillSize.height - bottomReserve)
+        return (sideMargin, maxX, topMargin, maxY)
+    }
+
+    private func clamp(_ origin: CGPoint, in container: CGSize) -> CGPoint {
+        let r = range(in: container)
+        return CGPoint(x: min(max(origin.x, r.minX), r.maxX),
+                       y: min(max(origin.y, r.minY), r.maxY))
+    }
+
+    /// Stored fraction → origin for THIS container. Unknown layout → top-leading.
+    private func storedOrigin(in container: CGSize) -> CGPoint {
+        let r = range(in: container)
+        let f = savedLayouts()[layoutKey(for: container)] ?? [0, 0]
+        guard f.count == 2 else { return CGPoint(x: r.minX, y: r.minY) }
+        return clamp(CGPoint(x: r.minX + CGFloat(f[0]) * (r.maxX - r.minX),
+                             y: r.minY + CGFloat(f[1]) * (r.maxY - r.minY)),
+                     in: container)
+    }
+
+    private func fraction(of origin: CGPoint, in container: CGSize) -> [Double] {
+        let r = range(in: container)
+        let w = max(r.maxX - r.minX, 1), h = max(r.maxY - r.minY, 1)
+        return [Double((origin.x - r.minX) / w), Double((origin.y - r.minY) / h)]
+    }
+
     var body: some View {
         if let weather = weatherManager.currentWeather {
-            let defaultX = pillX == 0 ? -100.0 : pillX
-            let defaultY = pillY == 0 ? -320.0 : pillY
-
             GeometryReader { geometry in
+                let container = geometry.size
+                let origin = liveOrigin ?? storedOrigin(in: container)
+
                 pillContent(weather: weather)
+                    .fixedSize()
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { pillSize = $0 }
                     .contentShape(RoundedRectangle(cornerRadius: 12))
                     .opacity(appeared ? 1 : 0)
                     .animation(.easeOut(duration: 0.4), value: appeared)
@@ -1287,25 +1363,30 @@ private struct WeatherPillFABView: View {
                     .gesture(
                         DragGesture(minimumDistance: 8, coordinateSpace: .global)
                             .onChanged { value in
-                                if !isDragging {
-                                    dragStart = CGSize(width: defaultX, height: defaultY)
+                                if dragStartOrigin == nil {
+                                    dragStartOrigin = storedOrigin(in: container)
                                     isDragging = true
                                 }
-                                var liveX = dragStart.width  + Double(value.translation.width)
-                                var liveY = dragStart.height + Double(value.translation.height)
-                                liveX = max(-geometry.size.width  / 2 + 90, min(geometry.size.width  / 2 - 90, liveX))
-                                liveY = max(-geometry.size.height / 2 + 5,  min(geometry.size.height / 2 - 80, liveY))
-                                pillX = liveX
-                                pillY = liveY
+                                let start = dragStartOrigin ?? .zero
+                                liveOrigin = clamp(
+                                    CGPoint(x: start.x + value.translation.width,
+                                            y: start.y + value.translation.height),
+                                    in: container)
                             }
                             .onEnded { _ in
+                                if let o = liveOrigin {
+                                    save(fraction: fraction(of: o, in: container),
+                                         key: layoutKey(for: container))
+                                }
+                                liveOrigin = nil
+                                dragStartOrigin = nil
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                                     isDragging = false
                                 }
                             }
                     )
-                    .offset(x: CGFloat(defaultX), y: CGFloat(defaultY))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .offset(x: origin.x, y: origin.y)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .onAppear {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
@@ -1579,4 +1660,3 @@ private struct PickupBurstFX: View {
         .environment(ActivityPreferences())
         .environment(FocusSessionManager())
 }
-

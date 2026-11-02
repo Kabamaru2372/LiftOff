@@ -38,6 +38,7 @@ struct SettingsView: View {
     @State private var showResetTodayConfirm: Bool = false
     @State private var showAppInfo: Bool = false
     @State private var showActivityPrefs: Bool = false
+    @State private var showDuoSetup: Bool = false
     @State private var showAppPicker: Bool = false
     @State private var showSharedAppsPicker: Bool = false
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true)
@@ -334,6 +335,29 @@ struct SettingsView: View {
 
                 Divider()
 
+                // iPhone Duo fold counter (Duo, or once folds were recorded)
+                if DuoFoldStore.shouldShowFoldFeatures {
+                    Button(action: { showDuoSetup = true }) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(t("Duo fold counter", "Μέτρηση διπλωμάτων Duo", "Duo-Faltungszähler"))
+                                    .font(.system(size: 15, weight: .regular, design: .rounded))
+                                    .foregroundColor(.primary)
+                                Text(t("Count every open and close, even when Picksy is closed",
+                                       "Μέτρα κάθε άνοιγμα και κλείσιμο, ακόμα και με κλειστό το Picksy",
+                                       "Zähle jedes Öffnen und Schließen, auch wenn Picksy geschlossen ist"))
+                                    .font(.system(size: 12, design: .rounded))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.system(size: 12)).foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 16)
+                    }
+
+                    Divider()
+                }
+
                 // Activity Preferences
                 Button(action: { showActivityPrefs = true }) {
                     HStack {
@@ -400,6 +424,9 @@ struct SettingsView: View {
         }
         .fullScreenCover(isPresented: $showPaywall) {
             PaywallView().environment(proManager)
+        }
+        .sheet(isPresented: $showDuoSetup) {
+            DuoFoldSetupView()
         }
         .sheet(isPresented: $showActivityPrefs) {
             ActivityPreferencesSheet().environment(activityPrefs)

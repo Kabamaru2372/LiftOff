@@ -20,8 +20,20 @@ struct WhatsNewView: View {
 
     private struct Item: Identifiable { let id = UUID(); let emoji, title, body: String }
 
+    /// iPhone Duo owners only: the app is now Duo-native and can count folds.
+    private var duoItems: [Item] {
+        guard DuoFoldStore.isDuo else { return [] }
+        return [
+            Item(emoji: "📱",
+                 title: t("Made for iPhone Duo", "Φτιαγμένο για iPhone Duo", "Für das iPhone Duo gemacht"),
+                 body: t("Picksy now fills both of your Duo's screens, and can count every time you open and close it — even when the app is closed. Set it up in Settings → Duo fold counter.",
+                         "Το Picksy γεμίζει πλέον και τις δύο οθόνες του Duo σου και μπορεί να μετράει κάθε φορά που το ανοίγεις και το κλείνεις — ακόμα και με κλειστή την εφαρμογή. Ρύθμισέ το στις Ρυθμίσεις → Μέτρηση διπλωμάτων Duo.",
+                         "Picksy füllt jetzt beide Displays deines Duo und kann jedes Öffnen und Schließen zählen — auch wenn die App geschlossen ist. Einrichten unter Einstellungen → Duo-Faltungszähler.")),
+        ]
+    }
+
     private var items: [Item] {
-        [
+        duoItems + [
             Item(emoji: "🌱",
                  title: t("Your plant", "Το φυτό σου", "Deine Pflanze"),
                  body: t("A living plant on the Dynamic Island and Nudge screen — it grows the longer your phone stays down, and wilts while you're using it.",
