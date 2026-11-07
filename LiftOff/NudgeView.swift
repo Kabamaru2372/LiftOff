@@ -289,7 +289,7 @@ struct NudgeView: View {
             // vertical centring on tall screens.
             GeometryReader { geo in
                 ScrollView(.vertical, showsIndicators: false) {
-                    idleContent
+                    idleContent(wide: geo.size.width > 800 && geo.size.width > geo.size.height)
                         .frame(minHeight: geo.size.height)
                 }
                 .scrollBounceBehavior(.basedOnSize)
@@ -535,13 +535,10 @@ struct NudgeView: View {
 
     // MARK: - Idle screen
 
-    private var idleContent: some View {
+    /// Title, pickup ring, fold chip, screen-time pill and plant.
+    @ViewBuilder
+    private func heroBlock(wide: Bool) -> some View {
         VStack(spacing: 16) {
-
-            // Flexible top spacer — centers the whole block vertically
-            // so the content isn't bunched at the top with empty space below.
-            Spacer(minLength: 16)
-
             // Picksy title — subtle shimmer; carried upward as the ripple passes
             Text("Picksy")
                 .font(.system(size: 32, weight: .light, design: .rounded))
@@ -553,7 +550,11 @@ struct NudgeView: View {
                 .animation(.easeInOut(duration: 2.5).repeatForever(autoreverses: true), value: titleShimmer)
                 .modifier(WaveCarry(radius: waveRadius, distance: 200, push: -9))
 
-            Spacer(minLength: 12)
+            if wide {
+                Color.clear.frame(height: 4)
+            } else {
+                Spacer(minLength: 12)
+            }
 
             // ── HERO: Pickup ring ─────────────────────────────────────
             pickupRingCard
@@ -599,11 +600,12 @@ struct NudgeView: View {
                 .opacity(appeared ? 1 : 0)
                 .animation(.spring(response: 0.5, dampingFraction: 0.8).delay(0.46), value: appeared)
                 .modifier(WaveCarry(radius: waveRadius, distance: 155, push: 6))
+        }
+    }
 
-            Spacer(minLength: 12)
-
-            // ── Utility cards ─────────────────────────────────────────
-
+    /// Top apps, last pickup, focus, suggestions and together banners.
+    private var utilityBlock: some View {
+        VStack(spacing: 16) {
             // Top 3 apps card
             if shouldShowTopApps {
                 topAppsCard
@@ -646,8 +648,39 @@ struct NudgeView: View {
                     .padding(.horizontal, 32)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
+        }
+    }
 
-            Spacer(minLength: 12)
+    /// `wide` is true on the iPhone Duo inner screen in landscape: hero on the
+    /// left, utility cards on the right, clear of the side tab rail. Every other
+    /// screen keeps the single-column layout.
+    @ViewBuilder
+    private func idleContent(wide: Bool) -> some View {
+        if wide {
+            HStack(alignment: .center, spacing: 32) {
+                VStack(spacing: 16) {
+                    Spacer(minLength: 16)
+                    heroBlock(wide: true)
+                    Spacer(minLength: 12)
+                }
+                .frame(maxWidth: .infinity)
+                VStack(spacing: 16) {
+                    Spacer(minLength: 12)
+                    utilityBlock
+                    Spacer(minLength: 12)
+                }
+                .frame(maxWidth: .infinity)
+            }
+            .padding(.leading, 24)
+            .padding(.trailing, 110)
+        } else {
+            VStack(spacing: 16) {
+                Spacer(minLength: 16)
+                heroBlock(wide: false)
+                Spacer(minLength: 12)
+                utilityBlock
+                Spacer(minLength: 12)
+            }
         }
     }
 
