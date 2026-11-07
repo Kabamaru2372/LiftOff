@@ -35,6 +35,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    /// iPhones stay portrait-only. The iPhone Duo's inner screen (shorter side
+    /// > 600pt) may rotate to landscape; its outer screen stays portrait.
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
+        guard DuoFoldStore.isDuo else { return .portrait }
+        let size = window?.bounds.size ?? UIScreen.main.bounds.size
+        return min(size.width, size.height) > 600 ? .allButUpsideDown : .portrait
+    }
+
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
