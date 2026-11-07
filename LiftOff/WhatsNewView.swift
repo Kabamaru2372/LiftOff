@@ -26,14 +26,19 @@ struct WhatsNewView: View {
         return [
             Item(emoji: "📱",
                  title: t("Made for iPhone Duo", "Φτιαγμένο για iPhone Duo", "Für das iPhone Duo gemacht"),
-                 body: t("Picksy now fills both of your Duo's screens, and can count every time you open and close it — even when the app is closed. Set it up in Settings → Duo fold counter.",
-                         "Το Picksy γεμίζει πλέον και τις δύο οθόνες του Duo σου και μπορεί να μετράει κάθε φορά που το ανοίγεις και το κλείνεις — ακόμα και με κλειστή την εφαρμογή. Ρύθμισέ το στις Ρυθμίσεις → Μέτρηση διπλωμάτων Duo.",
-                         "Picksy füllt jetzt beide Displays deines Duo und kann jedes Öffnen und Schließen zählen — auch wenn die App geschlossen ist. Einrichten unter Einstellungen → Duo-Faltungszähler.")),
+                 body: t("Picksy now fills both of your Duo's screens, in landscape on the inner one too, and can count every time you open and close it, even when the app is closed. Set it up in Settings → Duo fold counter.",
+                         "Το Picksy γεμίζει πλέον και τις δύο οθόνες του Duo σου, και στην εσωτερική και σε οριζόντια θέση, και μπορεί να μετράει κάθε φορά που το ανοίγεις και το κλείνεις, ακόμα και με κλειστή την εφαρμογή. Ρύθμισέ το στις Ρυθμίσεις → Μέτρηση διπλωμάτων Duo.",
+                         "Picksy füllt jetzt beide Displays deines Duo, auf dem inneren auch im Querformat, und kann jedes Öffnen und Schließen zählen, auch wenn die App geschlossen ist. Einrichten unter Einstellungen → Duo-Faltungszähler.")),
         ]
     }
 
     private var items: [Item] {
         duoItems + [
+            Item(emoji: "🔮",
+                 title: t("Pickup forecast", "Πρόβλεψη σηκωμάτων", "Griff-Vorhersage"),
+                 body: t("Picksy learns your busy hours on your phone. If you switch it on, you get up to 2 gentle heads-ups a day, 10 minutes before. Off by default: Settings → Pickup forecast.",
+                         "Το Picksy μαθαίνει στο κινητό σου τις ώρες που το πιάνεις πιο πολύ. Αν το ενεργοποιήσεις, παίρνεις έως 2 απαλές υπενθυμίσεις τη μέρα, 10 λεπτά πριν. Κλειστό από προεπιλογή: Ρυθμίσεις → Πρόβλεψη σηκωμάτων.",
+                         "Picksy lernt auf deinem Handy, wann du am meisten greifst. Wenn du es einschaltest, bekommst du bis zu 2 sanfte Hinweise pro Tag, 10 Minuten vorher. Standardmäßig aus: Einstellungen → Griff-Vorhersage.")),
             Item(emoji: "🌱",
                  title: t("Your plant", "Το φυτό σου", "Deine Pflanze"),
                  body: t("A living plant on the Dynamic Island and Nudge screen — it grows the longer your phone stays down, and wilts while you're using it.",
@@ -73,7 +78,7 @@ struct WhatsNewView: View {
 
             VStack(spacing: 8) {
                 Text("🎉").font(.system(size: 48))
-                Text(t("What's new in Picksy 2.1", "Τι νέο στο Picksy 2.1", "Neu in Picksy 2.1"))
+                Text(t("What's new in Picksy 2.2", "Τι νέο στο Picksy 2.2", "Neu in Picksy 2.2"))
                     .font(.system(size: 26, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)

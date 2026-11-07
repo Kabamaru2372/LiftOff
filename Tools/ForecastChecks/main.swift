@@ -42,36 +42,37 @@ func trained(days: Int, endingBefore end: Date, shape: [Int], cal: Calendar) -> 
     var data = ForecastData()
     for offset in stride(from: days, through: 1, by: -1) {
         let day = cal.date(byAdding: .day, value: -offset, to: end)!
-        data = data.folding(hours: shape, on: day, calendar: cal)
+        data = data.folding(hours: shape, on: day, now: testNow, calendar: cal)
     }
     return data
 }
 
 let utc = makeCalendar()
+let testNow = date(2100, 1, 1, cal: makeCalendar())   // folding rejects days far in the future
 
 // MARK: folding
 
 do {
     let monday = date(2026, 11, 2, 12, cal: utc)
     let weekdayIndex = utc.component(.weekday, from: monday) - 1
-    let data = ForecastData().folding(hours: hours(base: 2, peak: 9), on: monday, calendar: utc)
+    let data = ForecastData().folding(hours: hours(base: 2, peak: 9), on: monday, now: testNow, calendar: utc)
     check(data.dayCounts[weekdayIndex] == 1, "day count increments on the right weekday")
     check(data.trainedDays == 1, "trainedDays counts folded days")
     check(data.sums[weekdayIndex][21] == 9, "hour sums stored")
     check(data.sums[weekdayIndex][3] == 2, "base hour sums stored")
     check(data.lastFoldedDay == "2026-11-02", "lastFoldedDay recorded")
 
-    let again = data.folding(hours: hours(base: 2, peak: 9), on: monday, calendar: utc)
+    let again = data.folding(hours: hours(base: 2, peak: 9), on: monday, now: testNow, calendar: utc)
     check(again == data, "folding the same day twice is a no-op")
 
     let earlier = date(2026, 11, 1, 12, cal: utc)
-    let older = data.folding(hours: hours(), on: earlier, calendar: utc)
+    let older = data.folding(hours: hours(), on: earlier, now: testNow, calendar: utc)
     check(older == data, "folding an older day is ignored")
 
-    let bad = data.folding(hours: [1, 2, 3], on: date(2026, 11, 3, cal: utc), calendar: utc)
+    let bad = data.folding(hours: [1, 2, 3], on: date(2026, 11, 3, cal: utc), now: testNow, calendar: utc)
     check(bad == data, "wrong-length hour array is ignored")
 
-    let negative = ForecastData().folding(hours: hours(base: -5, peak: 4), on: monday, calendar: utc)
+    let negative = ForecastData().folding(hours: hours(base: -5, peak: 4), on: monday, now: testNow, calendar: utc)
     check(negative.sums[weekdayIndex][0] == 0, "negative counts clamp to zero")
     check(negative.sums[weekdayIndex][21] == 4, "positive counts survive clamping")
 }
@@ -104,7 +105,7 @@ do {
     for offset in stride(from: 14, through: 1, by: -1) {
         let day = utc.date(byAdding: .day, value: -offset, to: now)!
         if utc.component(.weekday, from: day) == 1 { continue }   // never fold a Sunday
-        sparse = sparse.folding(hours: hours(base: 1, peak: 9, peakHour: 21), on: day, calendar: utc)
+        sparse = sparse.folding(hours: hours(base: 1, peak: 9, peakHour: 21), on: day, now: testNow, calendar: utc)
     }
     check(sparse.dayCounts[0] == 0, "no Sunday samples were folded")
     check(sparse.expected(weekday: 0, hour: 21) > 5, "empty weekday borrows the global hourly mean")
@@ -164,11 +165,49 @@ do {
     check(w.first?.notifyAt == date(2026, 10, 26, 20, 50, cal: athens), "local-time notification survives a DST change")
 }
 
+// MARK: robustness (clock jumps, calendars, ranking)
+
+do {
+    let now = date(2026, 11, 10, 12, cal: utc)
+
+    let jumped = ForecastData().folding(hours: hours(), on: date(2027, 11, 10, cal: utc), now: now, calendar: utc)
+    check(jumped == ForecastData(), "a day far in the future is rejected (clock jump)")
+
+    let tomorrow = ForecastData().folding(hours: hours(), on: date(2026, 11, 11, cal: utc), now: now, calendar: utc)
+    check(tomorrow.trainedDays == 1, "tomorrow is tolerated (timezone skew)")
+
+    var poisoned = ForecastData()
+    poisoned.lastFoldedDay = "2030-01-01"
+    let recovered = poisoned.folding(hours: hours(), on: date(2026, 11, 9, cal: utc), now: now, calendar: utc)
+    check(recovered.lastFoldedDay == "2026-11-09", "a lastFoldedDay in the future is overwritten by a real day")
+
+    var buddhist = Calendar(identifier: .buddhist)
+    buddhist.timeZone = TimeZone(identifier: "UTC")!
+    check(ForecastData.dayKey(date(2026, 11, 2, 12, cal: utc), calendar: buddhist) == "2026-11-02",
+          "day keys are Gregorian whatever the device calendar")
+
+    // Top windows are chosen for the whole day first; a passed window is NOT replaced by a weaker one.
+    let day = date(2026, 12, 7, cal: utc)
+    let multi = (0..<24).map { [9, 13, 21].contains($0) ? 9 : 1 }
+    let busy = trained(days: 14, endingBefore: day, shape: multi, cal: utc)
+    let afterNine = busy.windows(on: day, after: date(2026, 12, 7, 8, 55, cal: utc), calendar: utc)
+    check(afterNine.map(\.hour) == [13], "a passed top window is dropped, not replaced by a third one")
+
+    // Quiet hours remove a window before ranking, so the next best takes its place.
+    let quiet = busy.windows(on: day, after: date(2026, 12, 7, 6, cal: utc),
+                             quiet: QuietHours(start: 20, end: 23), calendar: utc)
+    check(quiet.map(\.hour) == [9, 13], "quiet hours exclude 21:00 and the day keeps two windows")
+
+    // The Stats card asks for the whole day.
+    let whole = busy.windows(on: day, after: .distantPast, calendar: utc)
+    check(whole.map(\.hour) == [9, 13], "whole-day view returns the two top windows")
+}
+
 // MARK: persistence
 
 do {
     let monday = date(2026, 11, 2, 12, cal: utc)
-    let data = ForecastData().folding(hours: hours(base: 2, peak: 9), on: monday, calendar: utc)
+    let data = ForecastData().folding(hours: hours(base: 2, peak: 9), on: monday, now: testNow, calendar: utc)
     let encoded = try JSONEncoder().encode(data)
     let decoded = try JSONDecoder().decode(ForecastData.self, from: encoded)
     check(decoded == data, "Codable round trip")

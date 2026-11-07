@@ -139,6 +139,10 @@ struct DashboardView: View {
                 )
                 .cascade(3, on: cascadeIn)
 
+                // Pickup forecast
+                ForecastCard()
+                    .cascade(4, on: cascadeIn)
+
                 // Active Duel Banner
                 DuelBannerView()
                     .environment(store)

@@ -54,8 +54,12 @@ struct ForecastData: Codable, Equatable {
 
     // MARK: Keys
 
+    /// Always Gregorian (in the caller's time zone) so the string comparison
+    /// below holds even if the device calendar is Buddhist or Japanese.
     static func dayKey(_ date: Date, calendar: Calendar = .current) -> String {
-        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        var gregorian = Calendar(identifier: .gregorian)
+        gregorian.timeZone = calendar.timeZone
+        let c = gregorian.dateComponents([.year, .month, .day], from: date)
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
@@ -76,11 +80,15 @@ struct ForecastData: Codable, Equatable {
     // MARK: Learning (returns a new value, never mutates)
 
     /// Folds one finished day (24 hourly pickup counts) into the grid.
-    /// Idempotent: a day that is not newer than `lastFoldedDay` is ignored.
-    func folding(hours: [Int], on day: Date, calendar: Calendar = .current) -> ForecastData {
+    /// Idempotent: a day that is not newer than `lastFoldedDay` is ignored. A day
+    /// more than one day past `now` (a clock jump) is rejected, and a stored
+    /// `lastFoldedDay` that lies in the future is treated as stale so a wrong
+    /// clock can never freeze learning.
+    func folding(hours: [Int], on day: Date, now: Date = Date(), calendar: Calendar = .current) -> ForecastData {
         guard hours.count == 24 else { return self }
         let key = Self.dayKey(day, calendar: calendar)
-        guard key > lastFoldedDay else { return self }
+        let horizon = calendar.date(byAdding: .day, value: 1, to: now).map { Self.dayKey($0, calendar: calendar) } ?? key
+        guard key <= horizon, key > lastFoldedDay || lastFoldedDay > horizon else { return self }
 
         var next = normalized()
         let weekday = calendar.component(.weekday, from: day) - 1
@@ -149,8 +157,11 @@ struct ForecastData: Codable, Equatable {
         let notifyAt: Date
     }
 
-    /// Up to `maxCount` risky windows on `date` whose notification time is
-    /// still ahead of `now` and outside quiet hours, in time order.
+    /// The day's top `maxCount` risky windows outside quiet hours, in time order,
+    /// keeping only those whose notification time is still ahead of `now`.
+    /// Ranking happens over the whole day first, so a window that has already
+    /// passed is never replaced by a weaker one (the Stats card passes
+    /// `.distantPast` to see the full day).
     func windows(
         on date: Date,
         after now: Date,
@@ -170,7 +181,6 @@ struct ForecastData: Codable, Equatable {
                   let start = calendar.date(bySettingHour: hour, minute: 0, second: 0, of: dayStart)
             else { return nil }
             let notifyAt = start.addingTimeInterval(-Double(leadMinutes) * 60)
-            guard notifyAt > now else { return nil }
             if let quiet, quiet.contains(hour: calendar.component(.hour, from: notifyAt)) { return nil }
             return Window(hour: hour, risk: r, expected: e, notifyAt: notifyAt)
         }
@@ -178,6 +188,7 @@ struct ForecastData: Codable, Equatable {
         return candidates
             .sorted { $0.risk != $1.risk ? $0.risk > $1.risk : $0.hour < $1.hour }
             .prefix(maxCount)
+            .filter { $0.notifyAt > now }
             .sorted { $0.notifyAt < $1.notifyAt }
     }
 }

@@ -23,6 +23,8 @@ struct SettingsView: View {
     @AppStorage("liveActivityEnabled") private var liveActivityEnabled: Bool = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled: Bool = true
     @AppStorage("challengeDisplayName") private var challengeDisplayName: String = ""
+    @AppStorage("pickupForecastEnabled") private var pickupForecastEnabled: Bool = false
+    @State private var showForecastPermissionAlert = false
 
     @Environment(ProManager.self) var proManager
     @Environment(LiveActivityManager.self) var liveActivity
@@ -224,6 +226,7 @@ struct SettingsView: View {
                             Text(lang.rawValue).tag(lang.rawValue)
                         }
                     }.pickerStyle(.menu)
+                    .onChange(of: appLanguage) { _, _ in ForecastStore.rescheduleToday() }
                 }
 
                 Divider()
@@ -299,6 +302,7 @@ struct SettingsView: View {
                             else {
                                 UNUserNotificationCenter.current()
                                     .removePendingNotificationRequests(withIdentifiers: ["liftoff.midday", "liftoff.evening"])
+                                ForecastStore.cancelAll()
                             }
                         }
                     )).labelsHidden()
@@ -321,6 +325,40 @@ struct SettingsView: View {
                     subtitle: t("No nudges until", "Χωρίς nudges μέχρι", "Keine Erinnerungen bis")
                 ) {
                     DatePicker("", selection: quietEndDate, displayedComponents: .hourAndMinute).labelsHidden()
+                }
+
+                Divider()
+
+                // Pickup forecast
+                VStack(alignment: .leading, spacing: 0) {
+                    SettingRow(
+                        title: t("Pickup forecast", "Πρόβλεψη σηκωμάτων", "Griff-Vorhersage"),
+                        subtitle: t("Learns your busy times and sends a heads-up before them. Stays on your phone.",
+                                    "Μαθαίνει τις ώρες που σηκώνεις πιο συχνά και σε ειδοποιεί πριν. Μένει στο κινητό σου.",
+                                    "Lernt deine stärksten Zeiten und gibt vorher einen Hinweis. Bleibt auf deinem Handy.")
+                    ) {
+                        Toggle("", isOn: Binding(
+                            get: { pickupForecastEnabled },
+                            set: { setPickupForecast($0) }
+                        )).labelsHidden()
+                    }
+                    Text(forecastProgressCaption)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 12)
+                }
+                .alert(
+                    t("Notifications are off", "Οι ειδοποιήσεις είναι κλειστές", "Mitteilungen sind aus"),
+                    isPresented: $showForecastPermissionAlert
+                ) {
+                    Button(t("Open Settings", "Άνοιγμα Ρυθμίσεων", "Einstellungen öffnen")) {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                    Button(t("Cancel", "Άκυρο", "Abbrechen"), role: .cancel) {}
+                } message: {
+                    Text(t("Allow notifications for Picksy in iOS Settings to get heads-ups.",
+                           "Επίτρεψε τις ειδοποιήσεις για το Picksy στις Ρυθμίσεις του iOS για να λαμβάνεις υπενθυμίσεις.",
+                           "Erlaube Mitteilungen für Picksy in den iOS-Einstellungen, um Hinweise zu erhalten."))
                 }
 
                 Divider()
@@ -1567,6 +1605,43 @@ struct SettingsView: View {
     private func openAppPicker() {
         guard isAuthorized else { return }
         showAppPicker = true
+    }
+
+    private var forecastProgressCaption: String {
+        let data = ForecastStore.load()
+        if data.isReady { return t("Ready", "Έτοιμο", "Bereit") }
+        let days = data.trainedDays
+        let goal = ForecastData.minTrainedDays
+        return t("Learning your routine: \(days) of \(goal) days",
+                 "Μαθαίνω τη ρουτίνα σου: \(days) από \(goal) μέρες",
+                 "Ich lerne deine Routine: \(days) von \(goal) Tagen")
+    }
+
+    private func setPickupForecast(_ newValue: Bool) {
+        guard newValue else {
+            pickupForecastEnabled = false
+            ForecastStore.cancelAll()
+            return
+        }
+        pickupForecastEnabled = true
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            if settings.authorizationStatus == .denied {
+                DispatchQueue.main.async {
+                    pickupForecastEnabled = false
+                    showForecastPermissionAlert = true
+                }
+                return
+            }
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                DispatchQueue.main.async {
+                    if granted {
+                        ForecastStore.rescheduleToday()
+                    } else {
+                        pickupForecastEnabled = false
+                    }
+                }
+            }
+        }
     }
 
     private func requestAndScheduleNotifications() {

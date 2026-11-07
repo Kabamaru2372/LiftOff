@@ -155,6 +155,10 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
                     name: Self.milestoneDetailNotification, object: data
                 )
             }
+        } else if categoryId == "PICKSY_FORECAST" || identifier.hasPrefix("picksy.forecast.") {
+            DispatchQueue.main.async {
+                self.tabSelection?.selectedTab = 1  // Stats/Dashboard
+            }
         } else if categoryId == "PICKSY_FRIEND_OVERUSING"
                || identifier.hasPrefix("picksy.friend.overusing.") {
             // Friend accountability notification — show NudgeView (tab 0) which hosts
@@ -1200,6 +1204,10 @@ struct LiftOffApp: App {
         // Always reschedule personalized time-based notifications (midday + 21:00 evening)
         // so they reflect the current pickup count.
         LiftOffApp.rescheduleTimeBasedNotifications(pickupCount: pickupCount)
+
+        // Pickup forecast heads-ups: cheap and idempotent, so refreshed on every
+        // launch/foreground pass (this function is the shared entry point for both).
+        ForecastStore.rescheduleToday()
 
         // Throttle static notifications (content never changes) to at most once per 6 hours.
         // Without this, every foreground event removed and re-added all pending notifications.
