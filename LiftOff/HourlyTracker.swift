@@ -96,9 +96,13 @@ class HourlyTracker {
 
     func dayLabel(daysAgo: Int) -> String {
         let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())!
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
+        let localeID: String
+        switch UserDefaults.standard.string(forKey: "appLanguage") {
+        case "Ελληνικά": localeID = "el_GR"
+        case "Deutsch":  localeID = "de_DE"
+        default:         localeID = "en_US"
+        }
+        return date.formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: localeID)))
     }
 
     // MARK: - Persistence
