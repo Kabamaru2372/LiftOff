@@ -159,7 +159,7 @@ struct FocusSessionView: View {
                 .frame(width: 36, height: 5)
                 .padding(.top, 12)
 
-            Text("Stay present 🍃")
+            Text(t("Stay present 🍃", "Μείνε παρών 🍃", "Bleib präsent 🍃"))
                 .font(.system(size: 22, weight: .semibold, design: .rounded))
                 .foregroundColor(.white)
 

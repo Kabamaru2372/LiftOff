@@ -63,7 +63,7 @@ struct DuelView: View {
                     .padding(.horizontal, 24)
                 }
             }
-            .navigationTitle(t("Pickup Duel", "Pickup Duel", "Pickup Duell"))
+            .navigationTitle(t("Pickup Duel", "Μονομαχία Σηκωμάτων", "Pickup Duell"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -107,7 +107,7 @@ struct DuelView: View {
                  : pair.name)
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
 
-            Text(t("⚔️ Pickup Duel", "⚔️ Pickup Duel", "⚔️ Pickup Duell"))
+            Text(t("⚔️ Pickup Duel", "⚔️ Μονομαχία Σηκωμάτων", "⚔️ Pickup Duell"))
                 .font(.system(size: 13, design: .rounded))
                 .foregroundColor(.secondary)
         }

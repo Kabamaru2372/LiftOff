@@ -314,12 +314,20 @@ class LiveActivityManager {
 
     // MARK: - Focus Update
 
+    private static var stayPresentText: String {
+        switch UserDefaults.standard.string(forKey: "appLanguage") {
+        case "Ελληνικά": return "Μείνε παρών 🍃"
+        case "Deutsch":  return "Bleib präsent 🍃"
+        default:         return "Stay present 🍃"
+        }
+    }
+
     func updateForFocus(pickupCount: Int, focusEndTime: Date?, focusPickupCount: Int) {
         guard let activity = currentActivity else { return }
         let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
-            currentQuote: focusEndTime != nil ? "Stay present 🍃" : QuoteBank.random(),
+            currentQuote: focusEndTime != nil ? Self.stayPresentText : QuoteBank.random(),
             lastPickupTime: lastRealPickupTime(),
             focusEndTime: focusEndTime,
             focusPickupCount: focusPickupCount,
@@ -432,7 +440,7 @@ class LiveActivityManager {
         let plant = DataStore.plantHealthCheckpoint()
         let state = LiftOffActivityAttributes.ContentState(
             pickupCount: pickupCount,
-            currentQuote: focusEndTime != nil ? "Stay present 🍃" : QuoteBank.random(),
+            currentQuote: focusEndTime != nil ? Self.stayPresentText : QuoteBank.random(),
             lastPickupTime: lastRealPickupTime(),
             focusEndTime: focusEndTime,
             focusPickupCount: focusPickupCount,
