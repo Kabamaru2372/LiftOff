@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import Combine
 
 struct PasscodeView: View {
     enum Mode { case setup, unlock }
@@ -23,6 +24,8 @@ struct PasscodeView: View {
     @State private var firstEntry: String? = nil   // setup: holds the first pass
     @State private var error: String? = nil
     @State private var shake: Bool = false
+    @State private var lockoutLeft: Int = Int(PasscodeManager.shared.lockoutRemaining.rounded(.up))
+    private let lockoutTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private let codeLength = 4
 
@@ -62,9 +65,9 @@ struct PasscodeView: View {
             VStack(spacing: 8) {
                 Text(title)
                     .font(.system(size: 22, weight: .semibold, design: .rounded))
-                Text(error ?? subtitle)
+                Text(lockoutLeft > 0 ? lockoutMessage : (error ?? subtitle))
                     .font(.system(size: 14, design: .rounded))
-                    .foregroundColor(error == nil ? .secondary : .red)
+                    .foregroundColor((error == nil && lockoutLeft == 0) ? .secondary : .red)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
             }
@@ -112,6 +115,10 @@ struct PasscodeView: View {
             }
         }
         .padding()
+        .onReceive(lockoutTimer) { _ in
+            let left = Int(PasscodeManager.shared.lockoutRemaining.rounded(.up))
+            if left != lockoutLeft { lockoutLeft = left }
+        }
     }
 
     private func padButton(_ digit: String) -> some View {
@@ -124,7 +131,16 @@ struct PasscodeView: View {
         }
     }
 
+    private var lockoutMessage: String {
+        let m = lockoutLeft / 60, s = lockoutLeft % 60
+        let time = m > 0 ? String(format: "%d:%02d", m, s) : "\(s)s"
+        return t("Too many wrong attempts. Try again in \(time).",
+                 "Πολλές λάθος προσπάθειες. Δοκίμασε ξανά σε \(time).",
+                 "Zu viele Fehlversuche. Versuch es in \(time) erneut.")
+    }
+
     private func addDigit(_ d: String) {
+        guard lockoutLeft == 0 || mode == .setup else { return }
         guard entry.count < codeLength else { return }
         error = nil
         entry += d
@@ -142,6 +158,7 @@ struct PasscodeView: View {
             if PasscodeManager.shared.verify(entry) {
                 onUnlock?()
             } else {
+                lockoutLeft = Int(PasscodeManager.shared.lockoutRemaining.rounded(.up))
                 fail(t("Wrong passcode. Try again.", "Λάθος κωδικός. Ξαναπροσπάθησε.", "Falscher Code. Versuch es erneut."))
             }
         case .setup:

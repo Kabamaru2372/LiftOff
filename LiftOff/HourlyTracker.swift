@@ -96,9 +96,13 @@ class HourlyTracker {
 
     func dayLabel(daysAgo: Int) -> String {
         let date = Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date())!
-        let formatter = DateFormatter()
-        formatter.dateFormat = "EEE"
-        return formatter.string(from: date)
+        let localeID: String
+        switch UserDefaults.standard.string(forKey: "appLanguage") {
+        case "Ελληνικά": localeID = "el_GR"
+        case "Deutsch":  localeID = "de_DE"
+        default:         localeID = "en_US"
+        }
+        return date.formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: localeID)))
     }
 
     // MARK: - Persistence
@@ -108,6 +112,10 @@ class HourlyTracker {
         let lastDate = defaults.string(forKey: lastDateKey) ?? ""
 
         if lastDate != today {
+            // Fold the finished day into the pickup forecast before the rows shift.
+            if !lastDate.isEmpty, let finishedDay = Self.dayFormatter.date(from: lastDate) {
+                ForecastStore.foldRollover(hours: hourlyData[0], day: finishedDay)
+            }
             var newData = Array(repeating: Array(repeating: 0, count: 24), count: 7)
             for i in 0..<6 {
                 newData[i + 1] = hourlyData[i]
@@ -149,13 +157,24 @@ class HourlyTracker {
                 hourlyData[day][hour] = flat[day * 24 + hour]
             }
         }
+        // Seed the forecast from the stored rows BEFORE the rollover folds the
+        // finished day, so the history is folded oldest to newest.
+        let storedDate = defaults.string(forKey: lastDateKey).flatMap { Self.dayFormatter.date(from: $0) }
+        ForecastStore.backfillIfNeeded(rows: hourlyData, todayRowDate: storedDate ?? Date())
         checkNewDay()
     }
 
-    private func todayString() -> String {
+    private static let dayFormatter: DateFormatter = {
         let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .autoupdatingCurrent
         formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        return formatter
+    }()
+
+    private func todayString() -> String {
+        Self.dayFormatter.string(from: Date())
     }
 }
 

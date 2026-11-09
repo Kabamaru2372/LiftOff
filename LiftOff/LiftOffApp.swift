@@ -35,6 +35,18 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 
+    /// iPhones stay portrait-only. The iPhone Duo's inner screen (shorter side
+    /// > 600pt) may rotate to landscape; its outer screen stays portrait.
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
+        guard DuoFoldStore.isDuo else { return .portrait }
+        let size = window?.bounds.size ?? UIScreen.main.bounds.size
+        return min(size.width, size.height) > 600 ? .allButUpsideDown : .portrait
+    }
+
     func application(
         _ application: UIApplication,
         didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
@@ -142,6 +154,10 @@ class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
                 NotificationCenter.default.post(
                     name: Self.milestoneDetailNotification, object: data
                 )
+            }
+        } else if categoryId == "PICKSY_FORECAST" || identifier.hasPrefix("picksy.forecast.") {
+            DispatchQueue.main.async {
+                self.tabSelection?.selectedTab = 1  // Stats/Dashboard
             }
         } else if categoryId == "PICKSY_FRIEND_OVERUSING"
                || identifier.hasPrefix("picksy.friend.overusing.") {
@@ -1188,6 +1204,10 @@ struct LiftOffApp: App {
         // Always reschedule personalized time-based notifications (midday + 21:00 evening)
         // so they reflect the current pickup count.
         LiftOffApp.rescheduleTimeBasedNotifications(pickupCount: pickupCount)
+
+        // Pickup forecast heads-ups: cheap and idempotent, so refreshed on every
+        // launch/foreground pass (this function is the shared entry point for both).
+        ForecastStore.rescheduleToday()
 
         // Throttle static notifications (content never changes) to at most once per 6 hours.
         // Without this, every foreground event removed and re-added all pending notifications.

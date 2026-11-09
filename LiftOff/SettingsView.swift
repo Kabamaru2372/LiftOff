@@ -23,6 +23,8 @@ struct SettingsView: View {
     @AppStorage("liveActivityEnabled") private var liveActivityEnabled: Bool = true
     @AppStorage("notificationsEnabled") private var notificationsEnabled: Bool = true
     @AppStorage("challengeDisplayName") private var challengeDisplayName: String = ""
+    @AppStorage("pickupForecastEnabled") private var pickupForecastEnabled: Bool = false
+    @State private var showForecastPermissionAlert = false
 
     @Environment(ProManager.self) var proManager
     @Environment(LiveActivityManager.self) var liveActivity
@@ -92,6 +94,25 @@ struct SettingsView: View {
     // time Settings is opened.
     @State private var settingsUnlocked: Bool = !PasscodeManager.shared.isRequired
     @State private var showSettingsUnlock: Bool = false
+    /// Action waiting for the passcode (opening the app picker, changing the alert preset).
+    @State private var pendingUnlockAction: (() -> Void)? = nil
+    @Environment(\.scenePhase) private var scenePhase
+
+    /// Runs `action` now, or after the passcode when one is required (so the tracked
+    /// apps and the usage alerts cannot be changed by whoever picks up the phone).
+    private func requireUnlock(_ action: @escaping () -> Void) {
+        if PasscodeManager.shared.isRequired && !settingsUnlocked {
+            pendingUnlockAction = action
+            showSettingsUnlock = true
+        } else {
+            action()
+        }
+    }
+
+    private func relockSettings() {
+        PasscodeManager.shared.lockManagement()
+        settingsUnlocked = !PasscodeManager.shared.isRequired
+    }
 
     private func t(_ en: String, _ gr: String, _ de: String) -> String {
         switch appLanguage {
@@ -224,6 +245,7 @@ struct SettingsView: View {
                             Text(lang.rawValue).tag(lang.rawValue)
                         }
                     }.pickerStyle(.menu)
+                    .onChange(of: appLanguage) { _, _ in ForecastStore.rescheduleToday() }
                 }
 
                 Divider()
@@ -299,6 +321,7 @@ struct SettingsView: View {
                             else {
                                 UNUserNotificationCenter.current()
                                     .removePendingNotificationRequests(withIdentifiers: ["liftoff.midday", "liftoff.evening"])
+                                ForecastStore.cancelAll()
                             }
                         }
                     )).labelsHidden()
@@ -321,6 +344,40 @@ struct SettingsView: View {
                     subtitle: t("No nudges until", "Χωρίς nudges μέχρι", "Keine Erinnerungen bis")
                 ) {
                     DatePicker("", selection: quietEndDate, displayedComponents: .hourAndMinute).labelsHidden()
+                }
+
+                Divider()
+
+                // Pickup forecast
+                VStack(alignment: .leading, spacing: 0) {
+                    SettingRow(
+                        title: t("Pickup forecast", "Πρόβλεψη σηκωμάτων", "Griff-Vorhersage"),
+                        subtitle: t("Learns your busy times and sends a heads-up before them. Stays on your phone.",
+                                    "Μαθαίνει τις ώρες που σηκώνεις πιο συχνά και σε ειδοποιεί πριν. Μένει στο κινητό σου.",
+                                    "Lernt deine stärksten Zeiten und gibt vorher einen Hinweis. Bleibt auf deinem Handy.")
+                    ) {
+                        Toggle("", isOn: Binding(
+                            get: { pickupForecastEnabled },
+                            set: { setPickupForecast($0) }
+                        )).labelsHidden()
+                    }
+                    Text(forecastProgressCaption)
+                        .font(.system(size: 12, design: .rounded))
+                        .foregroundColor(.secondary)
+                        .padding(.bottom, 12)
+                }
+                .alert(
+                    t("Notifications are off", "Οι ειδοποιήσεις είναι κλειστές", "Mitteilungen sind aus"),
+                    isPresented: $showForecastPermissionAlert
+                ) {
+                    Button(t("Open Settings", "Άνοιγμα Ρυθμίσεων", "Einstellungen öffnen")) {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                    }
+                    Button(t("Cancel", "Άκυρο", "Abbrechen"), role: .cancel) {}
+                } message: {
+                    Text(t("Allow notifications for Picksy in iOS Settings to get heads-ups.",
+                           "Επίτρεψε τις ειδοποιήσεις για το Picksy στις Ρυθμίσεις του iOS για να λαμβάνεις υπενθυμίσεις.",
+                           "Erlaube Mitteilungen für Picksy in den iOS-Einstellungen, um Hinweise zu erhalten."))
                 }
 
                 Divider()
@@ -413,7 +470,7 @@ struct SettingsView: View {
                 resetSection
 
                 #if DEBUG
-                debugSection
+                if !UserDefaults.standard.bool(forKey: "promoHideDebug") { debugSection }   // promo recording switch (debug only)
                 #endif
 
                 aboutSection
@@ -465,6 +522,11 @@ struct SettingsView: View {
             isAuthorized = FamilyControlsManager.shared.isAuthorized
             pickerSelection = AppSelectionStore.shared.selection
             selectedPreset = ThresholdPreset.current
+        }
+        // Settings never stay unlocked once the user leaves them or the app is backgrounded.
+        .onDisappear { relockSettings() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .background { relockSettings() }
         }
         .onChange(of: pickerSelection) { _, newValue in
             AppSelectionStore.shared.selection = newValue
@@ -643,6 +705,7 @@ struct SettingsView: View {
                             appLockEnabled = false
                             UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(false, forKey: "picksy_app_lock_enabled")
                             PasscodeManager.shared.clearAppLockUnlockWindow()
+                            ShieldManager.shared.refresh()
                         }
                     }
                 }
@@ -672,9 +735,9 @@ struct SettingsView: View {
                 .font(.system(size: 13))
                 .foregroundColor(.indigo)
             Text(t(
-                "Full parental lock: in iOS Settings → Screen Time → Content & Privacy Restrictions → App Deletion → Don't Allow, so Picksy can't be deleted.",
-                "Πλήρες γονικό κλείδωμα: στις Ρυθμίσεις iOS → Χρόνος επί οθόνης → Περιεχόμενο & Απόρρητο → Διαγραφή εφαρμογών → Να μην επιτρέπεται, ώστε να μη διαγράφεται το Picksy.",
-                "Vollständige Kindersicherung: in iOS Einstellungen → Bildschirmzeit → Inhalt & Datenschutz → App löschen → Nicht erlauben, damit Picksy nicht gelöscht werden kann."
+                "Tip: Picksy can be deleted like any app, which removes the lock. To prevent that, go to iOS Settings → Screen Time → Content & Privacy Restrictions → App Deletion → Don't Allow.",
+                "Συμβουλή: το Picksy μπορεί να διαγραφεί όπως κάθε εφαρμογή, και τότε φεύγει το κλείδωμα. Για να το αποτρέψεις: Ρυθμίσεις iOS → Χρόνος επί οθόνης → Περιεχόμενο & Απόρρητο → Διαγραφή εφαρμογών → Να μην επιτρέπεται.",
+                "Tipp: Picksy lässt sich wie jede App löschen, wodurch die Sperre entfällt. Das verhinderst du unter iOS Einstellungen → Bildschirmzeit → Inhalt & Datenschutz → App löschen → Nicht erlauben."
             ))
             .font(.system(size: 11, design: .rounded))
             .foregroundColor(.secondary)
@@ -712,6 +775,7 @@ struct SettingsView: View {
                             if PasscodeManager.shared.isSet {
                                 appLockEnabled = true
                                 UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(true, forKey: "picksy_app_lock_enabled")
+                                ShieldManager.shared.refresh()
                             } else {
                                 showAppLockPasscodeSetup = true
                             }
@@ -753,6 +817,7 @@ struct SettingsView: View {
             appLockEnabled = PasscodeManager.shared.isSet
             if appLockEnabled {
                 UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(true, forKey: "picksy_app_lock_enabled")
+                ShieldManager.shared.refresh()
             }
         }) {
             PasscodeView(
@@ -762,6 +827,7 @@ struct SettingsView: View {
                     passcodeRequired = true
                     appLockEnabled = true
                     UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(true, forKey: "picksy_app_lock_enabled")
+                    ShieldManager.shared.refresh()
                     showAppLockPasscodeSetup = false
                 },
                 onCancel: { showAppLockPasscodeSetup = false }
@@ -774,6 +840,7 @@ struct SettingsView: View {
                     appLockEnabled = false
                     UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(false, forKey: "picksy_app_lock_enabled")
                     PasscodeManager.shared.clearAppLockUnlockWindow()
+                    ShieldManager.shared.refresh()
                     showAppLockDisableConfirm = false
                 },
                 onCancel: { showAppLockDisableConfirm = false }
@@ -803,8 +870,16 @@ struct SettingsView: View {
         .sheet(isPresented: $showSettingsUnlock) {
             PasscodeView(
                 mode: .unlock,
-                onUnlock: { settingsUnlocked = true; showSettingsUnlock = false },
-                onCancel: { showSettingsUnlock = false }
+                onUnlock: {
+                    settingsUnlocked = true
+                    PasscodeManager.shared.markManagementUnlocked()
+                    showSettingsUnlock = false
+                    let action = pendingUnlockAction
+                    pendingUnlockAction = nil
+                    // Let the passcode sheet finish dismissing before presenting the next one.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { action?() }
+                },
+                onCancel: { pendingUnlockAction = nil; showSettingsUnlock = false }
             )
         }
     }
@@ -842,9 +917,11 @@ struct SettingsView: View {
 
     private func presetCard(_ preset: ThresholdPreset) -> some View {
         Button(action: {
-            selectedPreset = preset
-            ThresholdPreset.save(preset)
-            UsageThresholdManager.shared.restartMonitoring()
+            requireUnlock {
+                selectedPreset = preset
+                ThresholdPreset.save(preset)
+                UsageThresholdManager.shared.restartMonitoring()
+            }
         }) {
             HStack(spacing: 12) {
                 // Selection indicator
@@ -1566,7 +1643,44 @@ struct SettingsView: View {
 
     private func openAppPicker() {
         guard isAuthorized else { return }
-        showAppPicker = true
+        requireUnlock { showAppPicker = true }
+    }
+
+    private var forecastProgressCaption: String {
+        let data = ForecastStore.load()
+        if data.isReady { return t("Ready", "Έτοιμο", "Bereit") }
+        let days = data.trainedDays
+        let goal = ForecastData.minTrainedDays
+        return t("Learning your routine: \(days) of \(goal) days",
+                 "Μαθαίνω τη ρουτίνα σου: \(days) από \(goal) μέρες",
+                 "Ich lerne deine Routine: \(days) von \(goal) Tagen")
+    }
+
+    private func setPickupForecast(_ newValue: Bool) {
+        guard newValue else {
+            pickupForecastEnabled = false
+            ForecastStore.cancelAll()
+            return
+        }
+        pickupForecastEnabled = true
+        UNUserNotificationCenter.current().getNotificationSettings { settings in
+            if settings.authorizationStatus == .denied {
+                DispatchQueue.main.async {
+                    pickupForecastEnabled = false
+                    showForecastPermissionAlert = true
+                }
+                return
+            }
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+                DispatchQueue.main.async {
+                    if granted {
+                        ForecastStore.rescheduleToday()
+                    } else {
+                        pickupForecastEnabled = false
+                    }
+                }
+            }
+        }
     }
 
     private func requestAndScheduleNotifications() {

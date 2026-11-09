@@ -301,10 +301,12 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
         if let url = container?.appendingPathComponent("picksy_app_lock_unlock_until.txt"),
            let raw = try? String(contentsOf: url, encoding: .utf8),
            let ts = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return ts > Date().timeIntervalSince1970
+            let left = ts - Date().timeIntervalSince1970
+            return left > 0 && left <= 65 * 60   // same clock-moved-back guard as PasscodeManager
         }
         let ts = UserDefaults(suiteName: appGroupID)?.double(forKey: "picksy_app_lock_unlock_until") ?? 0
-        return ts > Date().timeIntervalSince1970
+        let left = ts - Date().timeIntervalSince1970
+        return left > 0 && left <= 65 * 60
     }
 
     private func ordinal(_ n: Int) -> String {

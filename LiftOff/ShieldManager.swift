@@ -42,13 +42,17 @@ final class ShieldManager {
     func setAccurateMode(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: Self.accurateModeKey)
         appGroup?.set(on, forKey: Self.accurateModeKey)
-        if on { applyShields() } else { clearShields() }
+        refresh()
     }
+
+    /// App Lock needs the shield even when Accurate Mode itself is off, and
+    /// switching Accurate Mode off must not silently remove the App Lock.
+    private var shouldShield: Bool { isAccurateModeOn || PasscodeManager.shared.isAppLockEnabled }
 
     /// Re-applies the current state. Call on launch and whenever the app
     /// selection changes (so newly added apps get shielded too).
     func refresh() {
-        if isAccurateModeOn { applyShields() } else { clearShields() }
+        if shouldShield { applyShields() } else { clearShields() }
     }
 
     // MARK: - Private

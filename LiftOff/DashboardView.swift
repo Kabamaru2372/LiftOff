@@ -139,6 +139,10 @@ struct DashboardView: View {
                 )
                 .cascade(3, on: cascadeIn)
 
+                // Pickup forecast
+                ForecastCard()
+                    .cascade(4, on: cascadeIn)
+
                 // Active Duel Banner
                 DuelBannerView()
                     .environment(store)
@@ -663,7 +667,7 @@ struct DashboardView: View {
 
                 Text(t(
                     "See which hours you pick up your phone the most",
-                    "Δες ποιες ώρες πιάνεις πιο πολύ το κινητό",
+                    "Δες ποιες ώρες χρησιμοποιείς πιο πολύ το κινητό",
                     "Sieh, zu welchen Stunden du dein Handy am häufigsten greifst"
                 ))
                 .font(.system(size: 13, weight: .regular, design: .rounded))

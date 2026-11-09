@@ -78,11 +78,19 @@ class ShieldActionHandler: ShieldActionDelegate {
             .appendingPathComponent("picksy_app_lock_unlock_until.txt"),
            let raw = try? String(contentsOf: url, encoding: .utf8),
            let ts = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return ts <= now
+            return !windowIsOpen(until: ts, now: now)
         }
         // Fallback: UserDefaults (may be slightly stale but still useful)
         let ts = d.double(forKey: "picksy_app_lock_unlock_until")
-        return ts <= now
+        return !windowIsOpen(until: ts, now: now)
+    }
+
+    /// An unlock window is open only while it ends in the future AND no further away
+    /// than the longest window Settings offers (60 min + slack). A stamp beyond that
+    /// means the device clock was moved back, so it counts as expired.
+    private func windowIsOpen(until ts: Double, now: Double) -> Bool {
+        let left = ts - now
+        return left > 0 && left <= 65 * 60
     }
 
     /// True when the app being shielded is Picksy itself.
@@ -119,7 +127,14 @@ class ShieldActionHandler: ShieldActionDelegate {
         guard let d = UserDefaults(suiteName: appGroupID) else { return false }
         let limitActiveToday = d.string(forKey: "picksy_timelimit_active") == today
         let passwordRequired = d.bool(forKey: "picksy_timelimit_password_required")
-        return limitActiveToday && passwordRequired
+        if limitActiveToday && passwordRequired { return true }
+        // Date-independent net: while a passcode is required and the time-limit store
+        // still shields apps, the limit is in force. Every legitimate unlock clears
+        // that store (passcode screen, midnight reset), so a changed system date
+        // cannot be used to skip the gate.
+        guard passwordRequired else { return false }
+        let tl = ManagedSettingsStore(named: .init("picksy.timeLimit"))
+        return tl.shield.applications?.isEmpty == false || tl.shield.applicationCategories != nil
     }
 
     // MARK: - Category
@@ -178,7 +193,9 @@ class ShieldActionHandler: ShieldActionDelegate {
     private func liftShield(for token: ApplicationToken) {
         // Accurate-mode store: rebuild full set minus this app (re-shields others)
         // only if Accurate Mode is on; otherwise make sure it isn't shielding it.
-        let accurateOn = UserDefaults(suiteName: appGroupID)?.bool(forKey: "picksy_accurate_mode") ?? false
+        let groupDefaults = UserDefaults(suiteName: appGroupID)
+        let accurateOn = (groupDefaults?.bool(forKey: "picksy_accurate_mode") ?? false)
+            || (groupDefaults?.bool(forKey: "picksy_app_lock_enabled") ?? false)
         if accurateOn {
             var shielded = selectedAppTokens()
             shielded.remove(token)

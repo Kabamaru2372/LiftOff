@@ -1016,24 +1016,25 @@ struct FriendsView: View {
         return h > 0 ? "\(h)h \(m)m" : "\(m)m"
     }
 
-    // Static formatters — DateFormatter is expensive to construct; cache once.
-    private static let dateOnlyFormatter: DateFormatter = {
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .none; return f
-    }()
-    private static let dateTimeFormatter: DateFormatter = {
-        let f = DateFormatter(); f.dateStyle = .medium; f.timeStyle = .short; return f
-    }()
+    /// Locale that follows the in-app language, so dates match the UI text.
+    private var appLocale: Locale {
+        switch appLanguage {
+        case "Ελληνικά": return Locale(identifier: "el_GR")
+        case "Deutsch":  return Locale(identifier: "de_DE")
+        default:         return Locale(identifier: "en_US")
+        }
+    }
 
     private func relativeDate(_ date: Date) -> String {
         let days = Calendar.current.dateComponents([.day], from: date, to: Date()).day ?? 0
         if days == 0 { return t("today", "σήμερα", "heute") }
         if days == 1 { return t("yesterday", "χτες", "gestern") }
         if days < 7  { return t("\(days) days ago", "πριν \(days) μέρες", "vor \(days) Tagen") }
-        return Self.dateOnlyFormatter.string(from: date)
+        return date.formatted(.dateTime.day().month(.abbreviated).year().locale(appLocale))
     }
 
     private func exactDateTime(_ date: Date) -> String {
-        return t("Connected", "Συνδέθηκε", "Verbunden") + " · " + Self.dateTimeFormatter.string(from: date)
+        return t("Connected", "Συνδέθηκε", "Verbunden") + " · " + date.formatted(.dateTime.day().month(.abbreviated).year().hour().minute().locale(appLocale))
     }
 
     // MARK: - Add Friends Share Link

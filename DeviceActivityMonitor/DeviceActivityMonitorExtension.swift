@@ -51,7 +51,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         // The config extension is sealed (can't tell us WHICH app was opened),
         // so the whole category unshields — this guarantees it re-locks within
         // ~15 min even if Picksy's process is dead and the screen never locks.
-        if activity.rawValue == "picksy.reshield" {
+        if activity.rawValue == "picksy.reshield" || activity.rawValue == "picksy.applock.reshield" {
             reapplyCategoryShields()
             DeviceActivityCenter().stopMonitoring([activity])
             return
@@ -879,7 +879,7 @@ class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let categoryPolicy: ShieldSettings.ActivityCategoryPolicy<Application>? =
             (apps.isEmpty && !categories.isEmpty) ? .specific(categories) : nil
 
-        if defaults.bool(forKey: "picksy_accurate_mode") {
+        if defaults.bool(forKey: "picksy_accurate_mode") || defaults.bool(forKey: "picksy_app_lock_enabled") {
             let store = ManagedSettingsStore(named: .init("picksy.accurateMode"))
             store.shield.applications = apps.isEmpty ? nil : apps
             store.shield.applicationCategories = categoryPolicy
