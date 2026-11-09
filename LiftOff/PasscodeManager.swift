@@ -12,6 +12,7 @@
 
 import Foundation
 import CryptoKit
+import DeviceActivity
 
 final class PasscodeManager {
 
@@ -67,9 +68,62 @@ final class PasscodeManager {
 
     /// Returns true if the entered code matches the stored one.
     func verify(_ code: String) -> Bool {
+        guard lockoutRemaining <= 0 else { return false }
         guard let stored = appGroup?.string(forKey: hashKey), !stored.isEmpty else { return false }
-        return stored == hash(code)
+        if stored == hash(code) {
+            appGroup?.set(0, forKey: Self.failCountKey)
+            appGroup?.removeObject(forKey: Self.lockUntilKey)
+            return true
+        }
+        registerFailure()
+        return false
     }
+
+    // MARK: - Attempt limiting (a 4-digit code is otherwise trivially brute-forced)
+
+    private static let failCountKey = "picksy_passcode_fail_count"
+    private static let lockUntilKey = "picksy_passcode_lock_until"
+    /// Free attempts before the first lockout.
+    static let freeAttempts = 5
+
+    /// Seconds left of the current lockout (0 when entry is allowed).
+    var lockoutRemaining: TimeInterval {
+        let until = appGroup?.double(forKey: Self.lockUntilKey) ?? 0
+        let left = until - Date().timeIntervalSince1970
+        // A clock moved far back must not shorten the lockout: the longest one is 15 min.
+        guard left > 0 else { return 0 }
+        return min(left, 15 * 60)
+    }
+
+    private func registerFailure() {
+        let fails = (appGroup?.integer(forKey: Self.failCountKey) ?? 0) + 1
+        appGroup?.set(fails, forKey: Self.failCountKey)
+        guard fails >= Self.freeAttempts else { return }
+        // 30 s, 60 s, 2 min, 4 min ... capped at 15 min.
+        let seconds = min(30.0 * pow(2.0, Double(fails - Self.freeAttempts)), 15 * 60)
+        appGroup?.set(Date().timeIntervalSince1970 + seconds, forKey: Self.lockUntilKey)
+    }
+
+    // MARK: - Management gate (changing tracked apps / limits while a passcode is required)
+
+    /// In-memory on purpose: it is forgotten when the app is killed, and re-locked
+    /// explicitly when Settings closes or the app goes to the background.
+    private static var managementUnlockedAt: Date?
+    private static let managementWindow: TimeInterval = 5 * 60
+
+    /// True when no passcode is required, or it was entered in the last few minutes.
+    var isManagementUnlocked: Bool {
+        guard isRequired else { return true }
+        guard let at = Self.managementUnlockedAt else { return false }
+        let age = Date().timeIntervalSince(at)
+        return age >= 0 && age < Self.managementWindow
+    }
+
+    func markManagementUnlocked() { Self.managementUnlockedAt = Date() }
+    func lockManagement() { Self.managementUnlockedAt = nil }
+
+    /// True when App Lock is switched on.
+    var isAppLockEnabled: Bool { appGroup?.bool(forKey: "picksy_app_lock_enabled") ?? false }
 
     // MARK: - App Lock (always-on, selectable duration)
 
@@ -84,6 +138,25 @@ final class PasscodeManager {
             try? "\(unlockUntil)".data(using: .utf8)?.write(to: url, options: .atomic)
         }
         appGroup?.set(unlockUntil, forKey: "picksy_app_lock_unlock_until")
+        scheduleAppLockReshield(at: Date(timeIntervalSince1970: unlockUntil))
+    }
+
+    /// Longest unlock window offered in Settings (60 min) plus slack. An unlock stamp
+    /// further in the future than this means the clock was moved back: treat as expired.
+    static let maxUnlockWindow: TimeInterval = 65 * 60
+
+    /// Wakes the monitor extension when the unlock window ends so apps that were
+    /// opened during the window are shielded again, even if Picksy never returns
+    /// to the foreground. Best effort (iOS requires a 15 min minimum interval).
+    private func scheduleAppLockReshield(at end: Date) {
+        let cal = Calendar.current
+        let comps: Set<Calendar.Component> = [.year, .month, .day, .hour, .minute, .second]
+        let schedule = DeviceActivitySchedule(
+            intervalStart: cal.dateComponents(comps, from: end),
+            intervalEnd: cal.dateComponents(comps, from: end.addingTimeInterval(30 * 60)),
+            repeats: false
+        )
+        try? DeviceActivityCenter().startMonitoring(DeviceActivityName("picksy.applock.reshield"), during: schedule)
     }
 
     /// True when the user has entered the passcode and the unlock window is still active.
@@ -94,10 +167,15 @@ final class PasscodeManager {
             .appendingPathComponent("picksy_app_lock_unlock_until.txt"),
            let raw = try? String(contentsOf: url, encoding: .utf8),
            let ts = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            return ts > Date().timeIntervalSince1970
+            return Self.windowIsOpen(until: ts)
         }
         let ts = appGroup?.double(forKey: "picksy_app_lock_unlock_until") ?? 0
-        return ts > Date().timeIntervalSince1970
+        return Self.windowIsOpen(until: ts)
+    }
+
+    private static func windowIsOpen(until ts: Double) -> Bool {
+        let left = ts - Date().timeIntervalSince1970
+        return left > 0 && left <= maxUnlockWindow
     }
 
     /// Clears the App Lock unlock window (called when disabling the feature).

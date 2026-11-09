@@ -38,6 +38,17 @@ struct AppsView: View {
     @State private var isAuthorized: Bool = false
     @State private var hasSelectedApps: Bool = false
     @State private var showAppPicker: Bool = false
+    @State private var showPickerUnlock: Bool = false
+
+    /// Changing the tracked apps removes shields and resets the limit counter, so
+    /// when a passcode is required it must be entered first.
+    private func openPickerGuarded() {
+        if PasscodeManager.shared.isManagementUnlocked {
+            showAppPicker = true
+        } else {
+            showPickerUnlock = true
+        }
+    }
     @State private var pickerSelection: FamilyActivitySelection = FamilyActivitySelection(includeEntireCategory: true)
     @State private var midnightTimer: Timer? = nil
     @State private var currentDate: Date = Date()
@@ -108,7 +119,7 @@ struct AppsView: View {
                                 .background(Circle().fill(Color(.systemGray6)))
                         }
 
-                        Button(action: { showAppPicker = true }) {
+                        Button(action: { openPickerGuarded() }) {
                             Image(systemName: "slider.horizontal.3")
                                 .font(.system(size: 15))
                                 .foregroundColor(.indigo)
@@ -141,6 +152,18 @@ struct AppsView: View {
             .ignoresSafeArea()
         )
         .familyActivityPicker(isPresented: $showAppPicker, selection: $pickerSelection)
+        .sheet(isPresented: $showPickerUnlock) {
+            PasscodeView(
+                mode: .unlock,
+                onUnlock: {
+                    PasscodeManager.shared.markManagementUnlocked()
+                    showPickerUnlock = false
+                    // Wait for the passcode sheet to finish dismissing, or SwiftUI drops the picker.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showAppPicker = true }
+                },
+                onCancel: { showPickerUnlock = false }
+            )
+        }
         .onAppear {
             currentDate = Date()   // always reset to today — fixes stale date after midnight
             refreshState()
@@ -263,7 +286,7 @@ struct AppsView: View {
                 .padding(.horizontal, 32)
             }
 
-            Button(action: { showAppPicker = true }) {
+            Button(action: { openPickerGuarded() }) {
                 HStack(spacing: 8) {
                     Image(systemName: "square.grid.2x2.fill").font(.system(size: 14))
                     Text(t("Choose apps", "Επιλογή εφαρμογών", "Apps auswählen"))
