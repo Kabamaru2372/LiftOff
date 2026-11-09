@@ -29,6 +29,10 @@ enum TimeOfDay {
     /// Αν δεν υπάρχουν (nil), χρησιμοποιεί fallback με ώρα ρολογιού.
     static func from(date: Date = Date(), sunrise: Date? = nil, sunset: Date? = nil) -> TimeOfDay {
 
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "promoNight") { return .night }   // promo recording switch (debug only)
+        #endif
+
         // Solar path — χρησιμοποιεί πραγματικές ώρες ηλιανατολής/δύσης.
         // Guard: sunrise must be from the same calendar day as `date` — stale weather data
         // from a previous day would have yesterday's sunset already passed, causing false .night.

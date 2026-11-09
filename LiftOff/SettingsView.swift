@@ -451,7 +451,7 @@ struct SettingsView: View {
                 resetSection
 
                 #if DEBUG
-                debugSection
+                if !UserDefaults.standard.bool(forKey: "promoHideDebug") { debugSection }   // promo recording switch (debug only)
                 #endif
 
                 aboutSection

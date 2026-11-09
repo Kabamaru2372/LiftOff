@@ -200,19 +200,19 @@ struct DuoFoldChip: View {
     var body: some View {
         if DuoFoldStore.shouldShowFoldFeatures {
             Button(action: { showSetup = true }) {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Image(systemName: data.hasData ? "iphone" : "plus.circle.fill")
-                        .font(.system(size: 11))
-                        .foregroundColor(.white.opacity(0.7))
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.9))
                     Text(label)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundColor(.white.opacity(0.65))
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundColor(.white.opacity(0.92))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(.ultraThinMaterial).opacity(0.5))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(Capsule().fill(.ultraThinMaterial).opacity(0.8))
             }
             .buttonStyle(.plain)
             .duoFoldData($data)
