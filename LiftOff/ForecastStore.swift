@@ -168,7 +168,7 @@ enum ForecastStore {
         return (
             t("Heads-up from Picksy 🌱", "Μικρή υπενθύμιση από το Picksy 🌱", "Kurzer Hinweis von Picksy 🌱"),
             t("A busy hour is coming up at \(hh):00. Maybe leave the phone down for a bit?",
-              "Στις \(hh):00 έρχεται μια ώρα που συνήθως πιάνεις πολύ το κινητό. Μια μικρή παύση;",
+              "Στις \(hh):00 έρχεται μια ώρα που συνήθως χρησιμοποιείς πολύ το κινητό. Μια μικρή παύση;",
               "Um \(hh):00 greifst du meist öfter zum Handy. Vielleicht kurz liegen lassen?")
         )
     }

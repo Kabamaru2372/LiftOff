@@ -236,7 +236,7 @@ class ProManager {
         ("square.grid.3x3.fill",
          "Hourly Heatmap", "Χάρτης ωρών", "Stunden-Heatmap",
          "See which hours you pick up your phone the most",
-         "Δες ποιες ώρες πιάνεις πιο πολύ το κινητό",
+         "Δες ποιες ώρες χρησιμοποιείς πιο πολύ το κινητό",
          "Sieh, zu welchen Stunden du dein Handy am häufigsten greifst"),
 
         ("person.2.fill",

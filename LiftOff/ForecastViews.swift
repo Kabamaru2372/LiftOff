@@ -46,7 +46,7 @@ struct ForecastCard: View {
 
     private var hintLine: String {
         t("Picksy learns when you usually reach for your phone. All on your device.",
-          "Το Picksy μαθαίνει πότε πιάνεις συνήθως το κινητό. Όλα μένουν στη συσκευή σου.",
+          "Το Picksy μαθαίνει πότε χρησιμοποιείς συνήθως το κινητό. Όλα μένουν στη συσκευή σου.",
           "Picksy lernt, wann du meist zum Handy greifst. Alles bleibt auf deinem Gerät.")
     }
 
