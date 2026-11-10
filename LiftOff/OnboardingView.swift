@@ -67,10 +67,10 @@ struct OnboardingView: View {
             TabView(selection: $currentPage) {
 
                 // Page 0: Language
-                languagePage.tag(0)
+                languagePage.scrollIfShort().tag(0)
 
                 // Page 1: Setup choice (Quick vs Customize)
-                setupChoicePage.tag(1)
+                setupChoicePage.scrollIfShort().tag(1)
 
                 // Page 2: What is Picksy
                 OnboardingPage(
@@ -595,6 +595,7 @@ struct OnboardingView: View {
 
             Spacer()
         }
+        .scrollIfShort()
         .tag(4)
     }
 
@@ -747,6 +748,7 @@ struct OnboardingView: View {
 
             Spacer()
         }
+        .scrollIfShort()
         .tag(5)
     }
 
@@ -855,6 +857,7 @@ struct OnboardingPage: View {
 
             Spacer()
         }
+        .scrollIfShort()
         .tag(tag)
     }
 }
@@ -864,3 +867,19 @@ struct OnboardingPage: View {
         .environment(ActivityPreferences())
 }
 
+
+
+// MARK: - Short-screen scrolling
+
+private extension View {
+    /// Keeps the page centred when it fits, scrolls when the height is short
+    /// (iPhone Duo inner screen in landscape, ~669pt).
+    func scrollIfShort() -> some View {
+        GeometryReader { geo in
+            ScrollView {
+                self.frame(minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+}
