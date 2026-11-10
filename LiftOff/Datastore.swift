@@ -582,6 +582,7 @@ class DataStore {
         defaults.set(todayDateString(), forKey: "lastActiveDate")
         let language = UserDefaults.standard.string(forKey: "appLanguage") ?? "English"
         defaults.set(language, forKey: "appLanguage")
+        defaults.set(language, forKey: "picksy.appLanguage")   // read by shield + monitor extensions
         let goal = UserDefaults.standard.integer(forKey: "dailyGoal")
         defaults.set(goal > 0 ? goal : 50, forKey: "dailyGoal")
     }

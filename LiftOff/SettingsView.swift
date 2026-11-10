@@ -245,7 +245,11 @@ struct SettingsView: View {
                             Text(lang.rawValue).tag(lang.rawValue)
                         }
                     }.pickerStyle(.menu)
-                    .onChange(of: appLanguage) { _, _ in ForecastStore.rescheduleToday() }
+                    .onChange(of: appLanguage) { _, newLang in
+                        // Shield / monitor extensions read this key from the App Group.
+                        UserDefaults(suiteName: "group.fotiospongas.picksy")?.set(newLang, forKey: "picksy.appLanguage")
+                        ForecastStore.rescheduleToday()
+                    }
                 }
 
                 Divider()
