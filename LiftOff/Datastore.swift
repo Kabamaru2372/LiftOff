@@ -279,7 +279,10 @@ class DataStore {
 
     func syncWithDeviceActivity() {
         let key = todayPickupsKey()
-        let deviceActivityCount = defaults.integer(forKey: key)
+        // The shield shows the count from today_pickups.txt (disk, always fresh) while this
+        // process may read a stale UserDefaults snapshot written by an extension. Take the
+        // larger of both so Picksy and the shield never disagree.
+        let deviceActivityCount = max(defaults.integer(forKey: key), todayFileCount())
 
         if deviceActivityCount > todayPickups {
             let diff = deviceActivityCount - todayPickups
@@ -295,6 +298,18 @@ class DataStore {
 
         // Also pull the latest confirmed screen-time totals on every sync.
         refreshConfirmedScreenTime()
+    }
+
+    /// Today's count from the App Group file mirror ("yyyy-MM-dd|count"), 0 if absent or from another day.
+    private func todayFileCount() -> Int {
+        guard let url = FileManager.default
+                .containerURL(forSecurityApplicationGroupIdentifier: "group.fotiospongas.picksy")?
+                .appendingPathComponent("today_pickups.txt"),
+              let raw = try? String(contentsOf: url, encoding: .utf8) else { return 0 }
+        let parts = raw.split(separator: "|")
+        guard parts.count == 2, String(parts[0]) == todayDateString(),
+              let n = Int(parts[1]) else { return 0 }
+        return n
     }
 
     private func observeDeviceActivityPickups() {
