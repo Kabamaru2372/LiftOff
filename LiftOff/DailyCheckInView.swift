@@ -23,6 +23,16 @@ struct DailyCheckInView: View {
     }
 
     var body: some View {
+        GeometryReader { geo in
+            ScrollView {
+                content
+                    .frame(minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 24) {
 
             // Header

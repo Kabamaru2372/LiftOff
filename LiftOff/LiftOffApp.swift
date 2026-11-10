@@ -42,8 +42,11 @@ class AppDelegate: NSObject, UIApplicationDelegate {
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
-        guard DuoFoldStore.isDuo else { return .portrait }
-        let size = window?.bounds.size ?? UIScreen.main.bounds.size
+        // Decide from the physical screen, not the model id or a (possibly
+        // letterboxed) window: any phone whose short side is > 600pt is a
+        // foldable inner screen and may rotate.
+        let screen = window?.windowScene?.screen ?? UIScreen.main
+        let size = screen.bounds.size
         return min(size.width, size.height) > 600 ? .allButUpsideDown : .portrait
     }
 

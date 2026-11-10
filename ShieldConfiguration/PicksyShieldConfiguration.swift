@@ -189,42 +189,42 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
     // MARK: - Messages (rotating + context-aware)
 
     private func message(language: String, pickups: Int, appName: String?) -> (String, String) {
-        // CURRENT pickup number — the unlock that brought the user here was
-        // already counted (opening an app right after unlocking is the SAME
-        // physical pickup; the shared 6s cooldown dedups the tap-through).
-        // The old "+1 / this would be your Nth" framing read like opening the
-        // app was a brand-new pickup, which it isn't.
-        let n = max(pickups, 1)
+        // No numbers on purpose: the shield uses Picksy's own live counter, which can
+        // differ slightly from Apple's Screen Time number shown in the app. When the
+        // app name is known it is ALWAYS the title; the calm line goes underneath.
         let app = appName
 
         switch language {
         case "Ελληνικά":
-            var lines: [(String, String)] = [
-                ("Μια ανάσα πριν μπεις 🌿", "Σήκωμα #\(n) σήμερα. Σίγουρα το χρειάζεσαι τώρα;"),
-                ("Στάσου ένα δευτερόλεπτο 🤔", "Είσαι στο \(n)ο σήκωμά σου για σήμερα."),
-                ("Είσαι παρών; 📱", "Σήκωμα #\(n). Ή μήπως το αφήνεις για μετά;"),
-                ("Σκόπιμα ή απ' τη συνήθεια; 🧠", "Αν το θες πραγματικά, προχώρα."),
+            let subs = [
+                "Σίγουρα το χρειάζεσαι τώρα;",
+                "Τι θα ήθελες να κάνεις αυτή τη στιγμή;",
+                "Μήπως μπορεί να περιμένει λίγο;",
+                "Σκόπιμα ή απ' τη συνήθεια; Αν το θες πραγματικά, προχώρα.",
+                "Πάρε μια ανάσα και αποφάσισε εσύ.",
             ]
-            if let app { lines.append(("Σίγουρα θες \(app); 👀", "Είσαι στο \(n)ο σήκωμά σου για σήμερα.")) }
-            return lines.randomElement()!
+            let title = app.map { "Σίγουρα θες \($0); 👀" } ?? "Μια ανάσα πριν μπεις 🌿"
+            return (title, subs.randomElement()!)
         case "Deutsch":
-            var lines: [(String, String)] = [
-                ("Kurz durchatmen 🌿", "Griff #\(n) heute. Brauchst du es gerade wirklich?"),
-                ("Eine Sekunde warten 🤔", "Du bist bei deinem \(n). Griff heute."),
-                ("Bist du präsent? 📱", "Griff #\(n). Oder doch später?"),
-                ("Absicht oder Gewohnheit? 🧠", "Wenn du es wirklich willst, mach weiter."),
+            let subs = [
+                "Brauchst du es gerade wirklich?",
+                "Was möchtest du gerade eigentlich tun?",
+                "Kann es vielleicht kurz warten?",
+                "Absicht oder Gewohnheit? Wenn du es wirklich willst, mach weiter.",
+                "Atme kurz durch und entscheide selbst.",
             ]
-            if let app { lines.append(("Wirklich \(app)? 👀", "Du bist bei deinem \(n). Griff heute.")) }
-            return lines.randomElement()!
+            let title = app.map { "Wirklich \($0)? 👀" } ?? "Kurz durchatmen 🌿"
+            return (title, subs.randomElement()!)
         default:
-            var lines: [(String, String)] = [
-                ("Take a breath first 🌿", "Pickup #\(n) today. Do you really need it now?"),
-                ("Wait a second 🤔", "You're on your \(ordinal(n)) pickup today."),
-                ("Are you present? 📱", "Pickup #\(n). Or save it for later?"),
-                ("Intention or habit? 🧠", "If you truly want to, go ahead."),
+            let subs = [
+                "Do you really need it right now?",
+                "What would you like to do in this moment?",
+                "Could it wait a little?",
+                "Intention or habit? If you truly want to, go ahead.",
+                "Take a breath and decide for yourself.",
             ]
-            if let app { lines.append(("Really open \(app)? 👀", "You're on your \(ordinal(n)) pickup today.")) }
-            return lines.randomElement()!
+            let title = app.map { "Really open \($0)? 👀" } ?? "Take a breath first 🌿"
+            return (title, subs.randomElement()!)
         }
     }
 

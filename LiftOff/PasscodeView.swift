@@ -54,7 +54,19 @@ struct PasscodeView: View {
         }
     }
 
+    /// Scrolls when the available height is short (iPhone Duo inner screen in landscape,
+    /// ~669pt); identical to the old fixed layout whenever everything fits.
     var body: some View {
+        GeometryReader { geo in
+            ScrollView {
+                content
+                    .frame(minHeight: geo.size.height)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+    }
+
+    private var content: some View {
         VStack(spacing: 28) {
             Spacer()
 
