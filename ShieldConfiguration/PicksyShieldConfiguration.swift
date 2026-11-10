@@ -189,41 +189,38 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
     // MARK: - Messages (rotating + context-aware)
 
     private func message(language: String, pickups: Int, appName: String?) -> (String, String) {
-        // CURRENT pickup number — the unlock that brought the user here was
-        // already counted (opening an app right after unlocking is the SAME
-        // physical pickup; the shared 6s cooldown dedups the tap-through).
-        // The old "+1 / this would be your Nth" framing read like opening the
-        // app was a brand-new pickup, which it isn't.
-        let n = max(pickups, 1)
+        // No numbers on purpose: the shield uses Picksy's own live counter, which can
+        // differ slightly from Apple's Screen Time number shown in the app. Calm
+        // questions only, nothing that pressures or quantifies.
         let app = appName
 
         switch language {
         case "Ελληνικά":
             var lines: [(String, String)] = [
-                ("Μια ανάσα πριν μπεις 🌿", "Σήκωμα #\(n) σήμερα. Σίγουρα το χρειάζεσαι τώρα;"),
-                ("Στάσου ένα δευτερόλεπτο 🤔", "Είσαι στο \(n)ο σήκωμά σου για σήμερα."),
-                ("Είσαι παρών; 📱", "Σήκωμα #\(n). Ή μήπως το αφήνεις για μετά;"),
+                ("Μια ανάσα πριν μπεις 🌿", "Σίγουρα το χρειάζεσαι τώρα;"),
+                ("Στάσου ένα δευτερόλεπτο 🤔", "Τι θα ήθελες να κάνεις αυτή τη στιγμή;"),
+                ("Είσαι παρών; 📱", "Ή μήπως μπορεί να περιμένει λίγο;"),
                 ("Σκόπιμα ή απ' τη συνήθεια; 🧠", "Αν το θες πραγματικά, προχώρα."),
             ]
-            if let app { lines.append(("Σίγουρα θες \(app); 👀", "Είσαι στο \(n)ο σήκωμά σου για σήμερα.")) }
+            if let app { lines.append(("Σίγουρα θες \(app); 👀", "Πάρε μια ανάσα και αποφάσισε εσύ.")) }
             return lines.randomElement()!
         case "Deutsch":
             var lines: [(String, String)] = [
-                ("Kurz durchatmen 🌿", "Griff #\(n) heute. Brauchst du es gerade wirklich?"),
-                ("Eine Sekunde warten 🤔", "Du bist bei deinem \(n). Griff heute."),
-                ("Bist du präsent? 📱", "Griff #\(n). Oder doch später?"),
+                ("Kurz durchatmen 🌿", "Brauchst du es gerade wirklich?"),
+                ("Eine Sekunde warten 🤔", "Was möchtest du gerade eigentlich tun?"),
+                ("Bist du präsent? 📱", "Oder kann es kurz warten?"),
                 ("Absicht oder Gewohnheit? 🧠", "Wenn du es wirklich willst, mach weiter."),
             ]
-            if let app { lines.append(("Wirklich \(app)? 👀", "Du bist bei deinem \(n). Griff heute.")) }
+            if let app { lines.append(("Wirklich \(app)? 👀", "Atme kurz durch und entscheide selbst.")) }
             return lines.randomElement()!
         default:
             var lines: [(String, String)] = [
-                ("Take a breath first 🌿", "Pickup #\(n) today. Do you really need it now?"),
-                ("Wait a second 🤔", "You're on your \(ordinal(n)) pickup today."),
-                ("Are you present? 📱", "Pickup #\(n). Or save it for later?"),
+                ("Take a breath first 🌿", "Do you really need it right now?"),
+                ("Wait a second 🤔", "What would you like to do in this moment?"),
+                ("Are you present? 📱", "Or could it wait a little?"),
                 ("Intention or habit? 🧠", "If you truly want to, go ahead."),
             ]
-            if let app { lines.append(("Really open \(app)? 👀", "You're on your \(ordinal(n)) pickup today.")) }
+            if let app { lines.append(("Really open \(app)? 👀", "Take a breath and decide for yourself.")) }
             return lines.randomElement()!
         }
     }
