@@ -190,38 +190,41 @@ class ShieldConfigurationProvider: ShieldConfigurationDataSource {
 
     private func message(language: String, pickups: Int, appName: String?) -> (String, String) {
         // No numbers on purpose: the shield uses Picksy's own live counter, which can
-        // differ slightly from Apple's Screen Time number shown in the app. Calm
-        // questions only, nothing that pressures or quantifies.
+        // differ slightly from Apple's Screen Time number shown in the app. When the
+        // app name is known it is ALWAYS the title; the calm line goes underneath.
         let app = appName
 
         switch language {
         case "Ελληνικά":
-            var lines: [(String, String)] = [
-                ("Μια ανάσα πριν μπεις 🌿", "Σίγουρα το χρειάζεσαι τώρα;"),
-                ("Στάσου ένα δευτερόλεπτο 🤔", "Τι θα ήθελες να κάνεις αυτή τη στιγμή;"),
-                ("Είσαι παρών; 📱", "Ή μήπως μπορεί να περιμένει λίγο;"),
-                ("Σκόπιμα ή απ' τη συνήθεια; 🧠", "Αν το θες πραγματικά, προχώρα."),
+            let subs = [
+                "Σίγουρα το χρειάζεσαι τώρα;",
+                "Τι θα ήθελες να κάνεις αυτή τη στιγμή;",
+                "Μήπως μπορεί να περιμένει λίγο;",
+                "Σκόπιμα ή απ' τη συνήθεια; Αν το θες πραγματικά, προχώρα.",
+                "Πάρε μια ανάσα και αποφάσισε εσύ.",
             ]
-            if let app { lines.append(("Σίγουρα θες \(app); 👀", "Πάρε μια ανάσα και αποφάσισε εσύ.")) }
-            return lines.randomElement()!
+            let title = app.map { "Σίγουρα θες \($0); 👀" } ?? "Μια ανάσα πριν μπεις 🌿"
+            return (title, subs.randomElement()!)
         case "Deutsch":
-            var lines: [(String, String)] = [
-                ("Kurz durchatmen 🌿", "Brauchst du es gerade wirklich?"),
-                ("Eine Sekunde warten 🤔", "Was möchtest du gerade eigentlich tun?"),
-                ("Bist du präsent? 📱", "Oder kann es kurz warten?"),
-                ("Absicht oder Gewohnheit? 🧠", "Wenn du es wirklich willst, mach weiter."),
+            let subs = [
+                "Brauchst du es gerade wirklich?",
+                "Was möchtest du gerade eigentlich tun?",
+                "Kann es vielleicht kurz warten?",
+                "Absicht oder Gewohnheit? Wenn du es wirklich willst, mach weiter.",
+                "Atme kurz durch und entscheide selbst.",
             ]
-            if let app { lines.append(("Wirklich \(app)? 👀", "Atme kurz durch und entscheide selbst.")) }
-            return lines.randomElement()!
+            let title = app.map { "Wirklich \($0)? 👀" } ?? "Kurz durchatmen 🌿"
+            return (title, subs.randomElement()!)
         default:
-            var lines: [(String, String)] = [
-                ("Take a breath first 🌿", "Do you really need it right now?"),
-                ("Wait a second 🤔", "What would you like to do in this moment?"),
-                ("Are you present? 📱", "Or could it wait a little?"),
-                ("Intention or habit? 🧠", "If you truly want to, go ahead."),
+            let subs = [
+                "Do you really need it right now?",
+                "What would you like to do in this moment?",
+                "Could it wait a little?",
+                "Intention or habit? If you truly want to, go ahead.",
+                "Take a breath and decide for yourself.",
             ]
-            if let app { lines.append(("Really open \(app)? 👀", "Take a breath and decide for yourself.")) }
-            return lines.randomElement()!
+            let title = app.map { "Really open \($0)? 👀" } ?? "Take a breath first 🌿"
+            return (title, subs.randomElement()!)
         }
     }
 
